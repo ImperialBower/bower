@@ -37,7 +37,7 @@ below. And it does not touch `bower-core`.
 | Component | Status |
 |---|---|
 | `LockDrift` — regenerated vs on-disk lock | **Complete** |
-| `RepoDrift` — tags and worktree | Planned |
+| `RepoDrift` — tags and worktree | **Complete** |
 | `StatusReport` and its verdict | Planned |
 | `bower status` CLI + exit codes | Planned |
 | Goldens: clean, stale lock, stale repo | Planned |
@@ -83,7 +83,7 @@ below. And it does not touch `bower-core`.
 | A directory, as files | `read_dir_recursive` `bower/src/materialize.rs:44` | ✅ done |
 | The repo's extra file | `steps_md` `bower/src/trailers.rs:50` | ✅ done |
 | Lock drift | `LockDrift` | ✅ done |
-| Repo drift | `RepoDrift` | ❌ absent |
+| Repo drift | `RepoDrift` | ✅ done |
 | The verdict | `StatusReport` | ❌ absent |
 
 ---
@@ -208,15 +208,31 @@ hello-playbook — 20 steps
 
 ### Phase 1 — Repo drift
 
-- [ ] **1a.** `RepoDrift`, `repo_drift()`: read loose tags from
-  `.git/refs/tags`, compare against `PlannedStep::tag()` for every step plus the
-  `<chapter>-end` tags, and compare the worktree against the expected blobs.
-- [ ] **1b.** Report a repository whose tags are packed rather than loose as
-  its own state, not as "no tags" — a wrong answer is worse than an admission.
-- [ ] **1c.** Tests: `repo__missing_directory_is_never_built`,
-  `repo__directory_without_git_is_never_built`,
-  `repo__missing_tag_is_named`, `repo__changed_file_is_named`,
-  `repo__unexpected_file_is_named`.
+- [x] **1a.** `RepoDrift`, `repo_drift()`, and `loose_tags()`.
+  **Deviation:** rather than re-derive the tag names here, `replay` gained
+  `pub fn expected_tags(plan) -> Vec<String>` and `chapter_stem` became public.
+  Two copies of the tag-naming rule would be two answers to the same question,
+  and `status` exists precisely to catch disagreement — it must not be a source
+  of it. Confirmed against a real replay of the sample book: `expected_tags`
+  returns exactly the 26 tags on disk.
+- [x] **1b.** `RepoDrift::TagsPacked`. Every tag would otherwise look missing,
+  and a confident wrong answer is worse than an admission. Only reachable after
+  `git gc` or a clone; a freshly replayed repository has loose refs.
+- [x] **1c.** Ten tests, not five. **Additions:** `repo__missing_file_is_named`
+  (the design listed changed and unexpected but not missing),
+  `repo__git_internals_are_not_unexpected_files` — `.git` is the repository,
+  not its content, and counting it as drift would make every built repo report
+  stale — plus `repo__a_matching_repo_is_in_sync` and
+  `expected_tags__covers_every_step_and_one_end_tag_per_chapter`. The fixtures
+  build a repository shaped like `bower build`'s output without running git at
+  all. Verified on branch `docs/epic-01`, 1 September 2026: 150 tests pass,
+  clippy silent.
+
+**Regression found and fixed, from EPIC-03.** Adding a second binary made
+`cargo run -p bower` ambiguous — the exact form the README and three EPIC
+verification blocks use. Nothing caught it, because every test invokes
+`CARGO_BIN_EXE_bower` directly and never `cargo run`. `bower/Cargo.toml` now
+sets `default-run = "bower"`.
 
 ### Phase 2 — The command
 
@@ -256,7 +272,14 @@ hello-playbook — 20 steps
 - `repo__missing_directory_is_never_built`,
   `repo__directory_without_git_is_never_built` — the two shapes of unbuilt.
 - `repo__missing_tag_is_named`, `repo__changed_file_is_named`,
-  `repo__unexpected_file_is_named` — one per drift kind, each naming its thing.
+  `repo__unexpected_file_is_named`, `repo__missing_file_is_named` — one per
+  drift kind, each naming its thing.
+- `repo__git_internals_are_not_unexpected_files` — `.git` is the repository,
+  not its content.
+- `repo__packed_tags_are_admitted_not_guessed` — an admission beats a confident
+  wrong answer.
+- `expected_tags__covers_every_step_and_one_end_tag_per_chapter` — the tag list
+  `status` expects is the one `replay` writes.
 - `report__absent_artifacts_are_not_drift` — the distinction that makes this
   usable in CI. Without it, every fresh checkout is a red build.
 - `status__a_freshly_built_book_is_clean` — the golden.

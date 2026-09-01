@@ -11,7 +11,10 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use bower_core::prelude::{lock_text, BookPlan};
+use bower_core::prelude::{lock_text, BookPlan, RepoPlan};
+
+use crate::materialize::{read_dir_recursive, Blobs};
+use crate::replay::expected_tags;
 
 #[derive(Debug)]
 pub enum StatusError {
@@ -91,6 +94,145 @@ fn lines_missing_from(a: &str, b: &str) -> Vec<String> {
         .collect()
 }
 
+/// A built repository, against the plan that should have produced it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RepoDrift {
+    /// No directory, or a directory with no `.git`. An honest state.
+    NeverBuilt,
+    /// The repository keeps its tags in `.git/packed-refs`, which this reader
+    /// does not parse. Admitted rather than guessed: reporting "no tags" would
+    /// be a confident wrong answer. A freshly replayed repository has loose
+    /// refs, so this is only reached after `git gc` or a clone.
+    TagsPacked,
+    InSync,
+    Stale {
+        missing_tags: Vec<String>,
+        unexpected_tags: Vec<String>,
+        differing_files: Vec<String>,
+        missing_files: Vec<String>,
+        unexpected_files: Vec<String>,
+    },
+}
+
+/// Compare a built repository at `dir` against `plan` and the files its final
+/// step should leave behind.
+///
+/// `expected` is passed in rather than computed here: the caller already builds
+/// the final blobs in order to account for `STEPS.md`, and doing it twice would
+/// be two chances to do it differently.
+///
+/// Tags are read as loose refs from `.git/refs/tags` rather than through `gix`,
+/// the same choice `bower/tests/determinism.rs` makes and for the same reason —
+/// a drift report that shares a library with the thing it inspects can share a
+/// bug with it.
+///
+/// # Errors
+///
+/// Returns [`StatusError`] if the directory exists but cannot be walked.
+pub fn repo_drift(
+    dir: &Path,
+    plan: &RepoPlan,
+    expected: &Blobs,
+) -> Result<RepoDrift, StatusError> {
+    let git = dir.join(".git");
+    if !dir.is_dir() || !git.is_dir() {
+        return Ok(RepoDrift::NeverBuilt);
+    }
+
+    let tags_dir = git.join("refs").join("tags");
+    let found_tags = match loose_tags(&tags_dir) {
+        Ok(t) => t,
+        Err(source) => {
+            return Err(StatusError::Io {
+                path: tags_dir,
+                source,
+            })
+        }
+    };
+    if found_tags.is_empty() && git.join("packed-refs").exists() {
+        return Ok(RepoDrift::TagsPacked);
+    }
+
+    let want_tags = expected_tags(plan);
+    let missing_tags: Vec<String> = want_tags
+        .iter()
+        .filter(|t| !found_tags.contains(t))
+        .cloned()
+        .collect();
+    let unexpected_tags: Vec<String> = found_tags
+        .iter()
+        .filter(|t| !want_tags.contains(t))
+        .cloned()
+        .collect();
+
+    let found_files = read_dir_recursive(dir).map_err(|source| StatusError::Io {
+        path: dir.to_path_buf(),
+        source,
+    })?;
+
+    let mut missing_files = Vec::new();
+    let mut differing_files = Vec::new();
+    for (path, (bytes, _)) in expected {
+        match found_files.get(path) {
+            None => missing_files.push(path.clone()),
+            Some((found, _)) if found != bytes => differing_files.push(path.clone()),
+            Some(_) => {}
+        }
+    }
+    let unexpected_files: Vec<String> = found_files
+        .keys()
+        // `.git` is the repository, not its content.
+        .filter(|p| !p.starts_with(".git/"))
+        .filter(|p| !expected.contains_key(*p))
+        .cloned()
+        .collect();
+
+    if missing_tags.is_empty()
+        && unexpected_tags.is_empty()
+        && differing_files.is_empty()
+        && missing_files.is_empty()
+        && unexpected_files.is_empty()
+    {
+        return Ok(RepoDrift::InSync);
+    }
+
+    Ok(RepoDrift::Stale {
+        missing_tags,
+        unexpected_tags,
+        differing_files,
+        missing_files,
+        unexpected_files,
+    })
+}
+
+/// Loose tag names under `.git/refs/tags`, recursively — a tag may be
+/// `release/1.0`, which git stores as a nested path.
+fn loose_tags(dir: &Path) -> std::io::Result<Vec<String>> {
+    if !dir.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    let mut stack = vec![(dir.to_path_buf(), String::new())];
+    while let Some((path, prefix)) = stack.pop() {
+        for entry in std::fs::read_dir(&path)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let full = if prefix.is_empty() {
+                name.clone()
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if entry.path().is_dir() {
+                stack.push((entry.path(), full));
+            } else {
+                out.push(full);
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
 #[cfg(test)]
 #[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
 mod status_tests {
@@ -167,5 +309,164 @@ mod status_tests {
         let dir = scratch("unreadable");
         std::fs::create_dir_all(dir.join("bower.lock")).unwrap();
         assert!(lock_drift(&dir, &book_plan("pass")).is_err());
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
+mod repo_tests {
+    use super::*;
+    use crate::materialize::blobs_of;
+    use bower_core::prelude::{plan, BookSource, Chapter, RepoCatalog};
+
+    fn scratch(case: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bower-repodrift-{case}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn one_step_plan() -> RepoPlan {
+        let text = concat!(
+            "# One\n\n",
+            "<!-- bower repo=\"r\" step=\"first\" file=\"src/lib.rs\" -->\n",
+            "```rust\npub fn f() {}\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("src/ch01.md", text)]);
+        plan(&book, &RepoCatalog::from_names(&["r"]))
+            .unwrap()
+            .repos
+            .remove(0)
+    }
+
+    fn expected_blobs(plan: &RepoPlan) -> Blobs {
+        blobs_of(&plan.steps.last().unwrap().tree)
+    }
+
+    /// A repository shaped like one `bower build` would leave, without running
+    /// git: loose tag files and a working tree.
+    fn fake_repo(case: &str, plan: &RepoPlan, blobs: &Blobs) -> PathBuf {
+        let dir = scratch(case);
+        let tags = dir.join(".git").join("refs").join("tags");
+        std::fs::create_dir_all(&tags).unwrap();
+        for tag in expected_tags(plan) {
+            std::fs::write(tags.join(tag), "0000000\n").unwrap();
+        }
+        crate::materialize::write_files(&dir, blobs).unwrap();
+        dir
+    }
+
+    #[test]
+    fn repo__missing_directory_is_never_built() {
+        let p = one_step_plan();
+        let drift = repo_drift(Path::new("/nonexistent-repo"), &p, &expected_blobs(&p)).unwrap();
+        assert_eq!(drift, RepoDrift::NeverBuilt);
+    }
+
+    #[test]
+    fn repo__directory_without_git_is_never_built() {
+        let dir = scratch("nogit");
+        let p = one_step_plan();
+        assert_eq!(
+            repo_drift(&dir, &p, &expected_blobs(&p)).unwrap(),
+            RepoDrift::NeverBuilt
+        );
+    }
+
+    #[test]
+    fn repo__a_matching_repo_is_in_sync() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("insync", &p, &blobs);
+        assert_eq!(repo_drift(&dir, &p, &blobs).unwrap(), RepoDrift::InSync);
+    }
+
+    #[test]
+    fn repo__missing_tag_is_named() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("misstag", &p, &blobs);
+        std::fs::remove_file(dir.join(".git/refs/tags/step-001-first")).unwrap();
+
+        let RepoDrift::Stale { missing_tags, .. } = repo_drift(&dir, &p, &blobs).unwrap() else {
+            panic!("expected Stale");
+        };
+        assert_eq!(missing_tags, vec!["step-001-first"]);
+    }
+
+    #[test]
+    fn repo__changed_file_is_named() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("changed", &p, &blobs);
+        std::fs::write(dir.join("src/lib.rs"), "pub fn tampered() {}\n").unwrap();
+
+        let RepoDrift::Stale {
+            differing_files, ..
+        } = repo_drift(&dir, &p, &blobs).unwrap()
+        else {
+            panic!("expected Stale");
+        };
+        assert_eq!(differing_files, vec!["src/lib.rs"]);
+    }
+
+    #[test]
+    fn repo__unexpected_file_is_named() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("extra", &p, &blobs);
+        std::fs::write(dir.join("STOWAWAY.md"), "not from the book\n").unwrap();
+
+        let RepoDrift::Stale {
+            unexpected_files, ..
+        } = repo_drift(&dir, &p, &blobs).unwrap()
+        else {
+            panic!("expected Stale");
+        };
+        assert_eq!(unexpected_files, vec!["STOWAWAY.md"]);
+    }
+
+    #[test]
+    fn repo__missing_file_is_named() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("deleted", &p, &blobs);
+        std::fs::remove_file(dir.join("src/lib.rs")).unwrap();
+
+        let RepoDrift::Stale { missing_files, .. } = repo_drift(&dir, &p, &blobs).unwrap() else {
+            panic!("expected Stale");
+        };
+        assert_eq!(missing_files, vec!["src/lib.rs"]);
+    }
+
+    #[test]
+    fn repo__packed_tags_are_admitted_not_guessed() {
+        // Every tag would look missing. Saying so is better than a confident
+        // wrong answer.
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("packed", &p, &blobs);
+        std::fs::remove_dir_all(dir.join(".git/refs/tags")).unwrap();
+        std::fs::write(dir.join(".git/packed-refs"), "# pack-refs with: peeled\n").unwrap();
+
+        assert_eq!(repo_drift(&dir, &p, &blobs).unwrap(), RepoDrift::TagsPacked);
+    }
+
+    #[test]
+    fn repo__git_internals_are_not_unexpected_files() {
+        // `.git` is the repository, not its content. Counting it as drift
+        // would make every built repo report as stale.
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("gitdir", &p, &blobs);
+        std::fs::write(dir.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        assert_eq!(repo_drift(&dir, &p, &blobs).unwrap(), RepoDrift::InSync);
+    }
+
+    #[test]
+    fn expected_tags__covers_every_step_and_one_end_tag_per_chapter() {
+        let p = one_step_plan();
+        assert_eq!(expected_tags(&p), vec!["step-001-first", "ch01-end"]);
     }
 }

@@ -216,6 +216,10 @@ that can compute is a template that can fail at render time.
   meant for compiled output — silently excluded the whole directory, so the new
   binary was invisible to `git status` and would never have been committed.
   With `autobins = false` the path is arbitrary, so it sits beside `main.rs`.
+  **Regression, found later in EPIC-04 and fixed there:** a second binary makes
+  `cargo run -p bower` ambiguous, which is the exact form the README and three
+  EPIC verification blocks use. No test caught it, because they all invoke
+  `CARGO_BIN_EXE_bower` directly. `default-run = "bower"` settles it.
   **Tidy:**
   `gix` was pinned directly in `bower/Cargo.toml` by `cargo add` back in
   EPIC-01, against this workspace's convention; it now goes through

@@ -8,7 +8,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use bower_core::prelude::RepoPlan;
+use bower_core::prelude::{PlannedStep, RepoPlan};
 use gix::bstr::BStr;
 use gix::object::tree::EntryKind;
 use gix::objs::Kind;
@@ -258,6 +258,24 @@ impl Replayer<'_> {
     }
 }
 
+/// Every tag a replay of `plan` creates: one per step, plus one per chapter.
+///
+/// `status` compares a built repository against this list, so it lives beside
+/// the code that creates the tags rather than being re-derived elsewhere.
+#[must_use]
+pub fn expected_tags(plan: &RepoPlan) -> Vec<String> {
+    let mut tags: Vec<String> = plan.steps.iter().map(PlannedStep::tag).collect();
+    let mut stems: Vec<String> = Vec::new();
+    for step in &plan.steps {
+        let stem = chapter_stem(&step.anchor.chapter);
+        if stems.last() != Some(&stem) {
+            stems.push(stem);
+        }
+    }
+    tags.extend(stems.into_iter().map(|s| format!("{s}-end")));
+    tags
+}
+
 /// The last commit of each chapter, in chapter order — the anchor for the
 /// `<chapter>-end` tags.
 fn chapter_ends(
@@ -286,7 +304,11 @@ fn chapter_ends(
     Ok(out)
 }
 
-fn chapter_stem(path: &str) -> String {
+/// `src/ch01-a-repo.md` → `ch01-a-repo`. Public because `status` must expect
+/// exactly the tag names `replay` creates; two copies of this rule would be two
+/// answers to the same question.
+#[must_use]
+pub fn chapter_stem(path: &str) -> String {
     let name = path.rsplit('/').next().unwrap_or(path);
     name.strip_suffix(".md").unwrap_or(name).to_string()
 }

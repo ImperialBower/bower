@@ -11,6 +11,9 @@ authors.workspace = true
 # auto-discovery. That also keeps the preprocessor out of `src/bin/`, which a
 # common global gitignore rule (`bin`) would silently exclude from commits.
 autobins = false
+# With two binaries, `cargo run -p bower` is ambiguous without this — and every
+# command the README documents is written that way.
+default-run = "bower"
 
 [[bin]]
 name = "bower"
