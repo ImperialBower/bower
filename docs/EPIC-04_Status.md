@@ -40,7 +40,7 @@ below. And it does not touch `bower-core`.
 | `RepoDrift` — tags and worktree | **Complete** |
 | `StatusReport` and its verdict | **Complete** |
 | `bower status` CLI + exit codes | **Complete** |
-| Goldens: clean, stale lock, stale repo | Planned |
+| Goldens: clean, stale lock, stale repo | **Complete** |
 
 ---
 
@@ -263,20 +263,20 @@ both the old and new line for step 011.
 
 ### Phase 3 — Goldens
 
-- [ ] **3a.** `bower/tests/status.rs`: `plan` then `build` then `status` — in
+- [x] **3a.** `bower/tests/status.rs`: `plan` then `build` then `status` — in
   sync, exit `0`.
-- [ ] **3b.** Touch a chapter in a copied book, re-`status`: the lock is stale
+- [x] **3b.** Touch a chapter in a copied book, re-`status`: the lock is stale
   and the offending step is named. Exit `1`.
-- [ ] **3c.** Delete a file from a built repo, re-`status`: the file is named
+- [x] **3c.** Delete a file from a built repo, re-`status`: the file is named
   as missing. Exit `1`.
-- [ ] **3d.** A book never planned and never built reports both, and still
+- [x] **3d.** A book never planned and never built reports both, and still
   exits `0`.
 
 ### Phase 4 — Documentation
 
-- [ ] **4a.** `README.md`: add `bower status` to the commands.
-- [ ] **4b.** Update `BACKLOG.md` — `bower status` moves to completed.
-- [ ] **4c.** Flip this EPIC's Status rows and append the corrigendum.
+- [x] **4a.** `README.md`: add `bower status` to the commands.
+- [x] **4b.** Update `BACKLOG.md` — `bower status` moves to completed.
+- [x] **4c.** Flip this EPIC's Status rows and append the corrigendum.
 
 ---
 
@@ -365,3 +365,65 @@ Exit criteria:
 3. Deleting one file from a built repo names that file and exits `1`.
 4. A book never planned and never built says so and still exits `0`.
 5. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 1 September 2026, branch `docs/epic-01`.
+
+### 1. `status` kept turning into a second source of truth
+
+Three times this EPIC, the obvious implementation was to re-derive something
+`replay` already knows — the tag names, the book's name, the contents of
+`STEPS.md`. Each time the answer was to make `replay` expose it and have both
+call the same function: `expected_tags`, `book_name`, `final_blobs`.
+`replay::run` is shorter for all three. The rule this EPIC ran into repeatedly:
+**a drift detector must not be a source of drift.** If `status` guesses at what
+`build` writes, the first thing it reports is its own disagreement.
+
+### 2. The design listed three drift kinds and needed four
+
+`differing_files` and `unexpected_files` were specified; `missing_files` was
+not, and deleting a file from a built repo is the most obvious drift there is.
+
+### 3. `.git` is the repository, not its content
+
+Without excluding it, every built repo reports several hundred unexpected
+files and the command is useless on its first run.
+`repo__git_internals_are_not_unexpected_files` pins it.
+
+### 4. Formatting turned out to be part of correctness
+
+Lock drift lines were printed in the same 12-column labelled layout as the
+other kinds, which pushed the actual lock line off the right of the screen. The
+report was accurate and unreadable. Diff lines now use a one-character marker,
+and every list is capped at five items with an "… and N more" tail.
+
+### 5. A regression from EPIC-03, found here
+
+`cargo run -p bower` had been ambiguous since the second binary was added —
+the exact form the README and three EPIC verification blocks use. No test
+caught it, because every test invokes `CARGO_BIN_EXE_bower` directly.
+`default-run = "bower"` fixes it. The lesson is not about cargo: **a test suite
+that bypasses the documented entry point cannot defend it.**
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (lock drift) | Shipped | |
+| 1 (repo drift) | Shipped | items 2, 3, 5 |
+| 2 (the command) | Shipped | items 1, 4 |
+| 3 (goldens) | Shipped | six, including `rebuilding_clears_the_drift` |
+| 4 (documentation) | Shipped | backlog entry closed |
+
+### Still open after this EPIC
+
+- **Packed refs are not read.** `RepoDrift::TagsPacked` admits it rather than
+  guessing. A repository that has been `git gc`'d or cloned cannot have its tags
+  checked. Parsing `.git/packed-refs` is a dozen lines whenever a book needs it.
+- **No comparison against a remote.** Whether a local repo matches its GitHub
+  counterpart is `bower push`'s question, not this command's.
+- **Commit SHAs are not compared** — deliberately; see the Design section.

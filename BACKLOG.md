@@ -1,6 +1,7 @@
 # Backlog
 
-> Refreshed by the `/backlog` skill on 1 September 2026, at `b3def07`.
+> Refreshed by the `/backlog` skill on 1 September 2026. `bower status`
+> shipped after the first pass; EPIC-04 is done.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
@@ -24,7 +25,6 @@ shipped, 3–5 remain. Three Status rows still `Planned`.
 | Work | Source | Note |
 |---|---|---|
 | **`bower push`** | spec § 5.5, § 11 Phase 4 | Force-push-with-lease to GitHub, tags included, repo creation on first push. Needs network and auth, so it is the hardest of the three to test. |
-| **`bower status`** | spec § 7, § 11 Phase 4 | Book ⇄ lock ⇄ local repo drift report. Small and self-contained; the cheapest of the remaining surfaces. |
 | **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failers* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
 | **Publishing maturity** | spec § 11 Phase 6+, § 13, § 14 | epub/PDF targets, notebook target, Obsidian and Scrivener bridges. Explicitly scoped only after Phase 5. |
 
@@ -60,13 +60,14 @@ From `bower-spec.md` § 12. Two are closed; these seven are not.
 - **[EPIC-01 — replay](docs/EPIC-01_Replay.md)** — 11/11 components. Deterministic git replay, tags, trailers, `STEPS.md`.
 - **[EPIC-02 — verification](docs/EPIC-02_Verification.md)** — 8/8 components. `bower verify` against a real compiler.
 - **EPIC-03 phases 0–2** — protocol, planning gate, chapter rewrite.
+- **[EPIC-04 — `bower status`](docs/EPIC-04_Status.md)** — 5/5 components. Book ⇄ lock ⇄ repo drift, named and exit-coded.
 - **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
 
 ## Health
 
 | Signal | State |
 |---|---|
-| Tests | 136 passing, 0 failing |
+| Tests | 161 passing, 0 failing |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |

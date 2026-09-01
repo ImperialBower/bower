@@ -38,6 +38,9 @@ preprocessor, `push`, and `status` — are Phase 4 and are not built yet.
   not compile, and one marked `expect="test_fail"` compiles but fails its tests.
   Change an expectation to something untrue and the build says so, naming the
   chapter and line (`bower/tests/verification.rs`).
+- **Drift is visible** — a freshly built book reports in sync; edit a chapter,
+  delete a file, or drop a tag and `bower status` names exactly what changed
+  (`bower/tests/status.rs`).
 
 ## Quick tour
 
@@ -80,11 +83,18 @@ boundary it should not have.
 cargo run -p bower -- --book books/hello-playbook plan
 cargo run -p bower -- --book books/hello-playbook build -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook verify
+cargo run -p bower -- --book books/hello-playbook status -o /tmp/hello-playbook
 ```
 
 `verify` writes each step's tree to a scratch directory and runs the repo's
 `check` and `verify` commands against it, comparing what happens to what the
 book claimed. It never touches git, so it works before `build` has ever run.
+
+`status` answers the question between the other commands: what here is out of
+date? It compares the book against `bower.lock` and against a previously built
+repository, names the steps, tags, and files that drifted, and exits non-zero
+if any did. A book nobody has planned and a repo nobody has built are reported
+as such and are **not** drift, so it is safe in CI on a fresh checkout.
 
 ## License
 
