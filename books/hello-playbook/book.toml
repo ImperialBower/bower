@@ -1,0 +1,9 @@
+[book]
+title = "Hello, Playbook"
+description = "A Rust project foundation, taught as a book that builds its own repository."
+authors = ["ImperialBower"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "ayu"
