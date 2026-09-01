@@ -43,8 +43,8 @@ targets. **`bower-core` gains no I/O and no new dependency**; its purity contrac
 |---|---|
 | `bower` binary crate + workspace member | **Complete** |
 | `BookConfig` — `bower.toml` parser | **Complete** |
-| `BookLoader` — disk → `BookSource` | Planned |
-| `bower plan` + `bower.lock` on disk | Planned |
+| `BookLoader` — disk → `BookSource` | **Complete** |
+| `bower plan` + `bower.lock` on disk | **Complete** |
 | `Replayer` — empty tree → commits | Planned |
 | Deterministic identity and timestamps | Planned |
 | Annotated step tags + chapter-end tags | Planned |
@@ -326,17 +326,28 @@ it.
 
 ### Phase 2 — Loading and `bower plan`
 
-- [ ] **2a.** `bower/src/loader.rs`: parse `src/SUMMARY.md`, resolve chapter
-  links in order, read each chapter, produce a `BookSource`.
-- [ ] **2b.** `bower plan [--repo R]` — load, call `plan()`
-  (`bower-core/src/plan.rs:82`), print the step table, write `bower.lock` from
-  `lock_text()` (`bower-core/src/plan.rs:216`).
-- [ ] **2c.** Change `fixtures::hello_playbook()`
-  (`bower-testkit/src/fixtures.rs:45`) to name chapters `src/<file>.md`, matching
-  the loader. Update the `Book-Source` expectations that depend on it.
-- [ ] **2d.** Test: `loader__reads_hello_playbook_in_summary_order` asserts the
-  loader and the fixture produce **equal** `BookSource` values. This is the test
-  that stops the two from drifting.
+- [x] **2a.** `bower/src/loader.rs`: `BookLoader`, `LoadError`, and a
+  deliberately small link scanner — `SUMMARY.md` is a list of links by
+  definition, so a full markdown parser would be a dependency bought for
+  nothing. `.md` matching is case-insensitive via `Path::extension`.
+  `BookSource.library` and `.assets` are left empty: no current book uses
+  `include=` or `op="copy"`, and inventing a directory convention before a book
+  needs one would be guesswork.
+- [x] **2b.** `bower plan [--repo R]` loads, resolves through `plan()`
+  (`bower-core/src/plan.rs:82`), prints the twenty-row step table, and writes
+  `books/hello-playbook/bower.lock` from `lock_text()`
+  (`bower-core/src/plan.rs:216`). It is the first subcommand that exits `0`.
+- [x] **2c.** `fixtures::hello_playbook()` (`bower-testkit/src/fixtures.rs:45`)
+  now names chapters `src/<file>.md`. Nothing in
+  `bower-testkit/tests/sample_book.rs` asserted on chapter paths, so no
+  expectation changed; the effect is visible in `bower.lock`, whose anchors now
+  read `src/ch01-a-repo-that-builds.md:6` rather than a path nobody could open.
+- [x] **2d.** Five tests, not one. **Deviation:** `bower` gained
+  `bower-testkit` as a **dev**-dependency so `loader__matches_the_testkit_fixture_exactly`
+  can compare the two `BookSource` values directly — that is the anti-drift test
+  the work item asked for, and it needed both crates in one place. Verified on
+  branch `docs/epic-01`, 1 September 2026: 88 tests pass, clippy silent,
+  `cargo tree -p bower-core -e normal` unchanged.
 
 ### Phase 3 — Replay
 
@@ -388,8 +399,15 @@ it.
   setting is a loud failure, not a silent default.
 - `config__catalog_carries_only_kernel_settings` — pins the purity boundary: the
   projection drops `github`, `template`, `verify`, and `links`.
-- `loader__reads_hello_playbook_in_summary_order` — the loader's `BookSource`
+- `loader__reads_hello_playbook_in_summary_order` — chapters arrive in
+  `SUMMARY.md` order, named book-root-relative.
+- `loader__matches_the_testkit_fixture_exactly` — the loader's `BookSource`
   equals the testkit fixture's. Pins the two representations together forever.
+- `links__are_in_document_order_without_repeats` — a chapter listed twice is
+  planned once; external links and non-markdown targets are skipped.
+- `links__empty_summary_yields_nothing` — the precondition for
+  `LoadError::NoChapters`.
+- `loader__missing_book_is_an_error` — a bad `--book` path fails by name.
 - `trailers__name_the_chapter_and_line` — `Book-Source` points at a real file.
 - `trailers__book_url_is_omitted_without_a_site` — no broken links.
 - `replay__hello_playbook_is_byte_identical_across_runs` — the headline

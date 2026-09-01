@@ -47,27 +47,27 @@ pub fn hello_playbook() -> Fixture {
         "hello-playbook",
         BookSource::from_chapters(vec![
             chapter(
-                "ch01-a-repo-that-builds.md",
+                "src/ch01-a-repo-that-builds.md",
                 include_str!("../../books/hello-playbook/src/ch01-a-repo-that-builds.md"),
             ),
             chapter(
-                "ch02-the-gate.md",
+                "src/ch02-the-gate.md",
                 include_str!("../../books/hello-playbook/src/ch02-the-gate.md"),
             ),
             chapter(
-                "ch03-lints-and-format.md",
+                "src/ch03-lints-and-format.md",
                 include_str!("../../books/hello-playbook/src/ch03-lints-and-format.md"),
             ),
             chapter(
-                "ch04-tests-and-failing-on-purpose.md",
+                "src/ch04-tests-and-failing-on-purpose.md",
                 include_str!("../../books/hello-playbook/src/ch04-tests-and-failing-on-purpose.md"),
             ),
             chapter(
-                "ch05-supply-chain.md",
+                "src/ch05-supply-chain.md",
                 include_str!("../../books/hello-playbook/src/ch05-supply-chain.md"),
             ),
             chapter(
-                "ch06-ci.md",
+                "src/ch06-ci.md",
                 include_str!("../../books/hello-playbook/src/ch06-ci.md"),
             ),
         ]),
