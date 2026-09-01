@@ -17,7 +17,15 @@
 //! an existing repository, push a `STEPS.md` to it by hand first — deliberate,
 //! visible, and hard to do by accident.
 
-use crate::forge::RemoteState;
+use std::fmt;
+use std::path::Path;
+
+use bower_core::prelude::RepoPlan;
+
+use crate::config::BookConfig;
+use crate::forge::{Forge, ForgeError, RemoteState};
+use crate::replay::{book_name, expected_tags, final_blobs, BRANCH};
+use crate::status::{repo_drift, RepoDrift, StatusError};
 use crate::trailers::book_named_in;
 
 /// Whether it is safe to force-push over a remote.
@@ -71,6 +79,122 @@ pub fn marker_verdict(
                  it by hand first."
             )),
         },
+    }
+}
+
+/// What a push would do, decided without doing any of it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PushPlan {
+    /// The book declares no `github` key for this repo. Not an error: a book
+    /// that does not publish is a normal book.
+    NotConfigured { repo: String },
+    /// Publishing is not possible, and why.
+    Blocked { repo: String, reason: String },
+    /// Ready to publish.
+    Ready {
+        repo: String,
+        remote: String,
+        branch: String,
+        tags: usize,
+        /// The remote does not exist yet and must be created first.
+        create: bool,
+    },
+}
+
+#[derive(Debug)]
+pub enum PushError {
+    Forge(ForgeError),
+    Status(StatusError),
+}
+
+impl fmt::Display for PushError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Forge(e) => write!(f, "{e}"),
+            Self::Status(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for PushError {}
+
+/// Decide everything; touch nothing.
+///
+/// The checks run cheapest-and-safest first, and each one that fails stops
+/// before the next. In particular **the local preconditions are checked before
+/// the forge is contacted at all**: an unbuilt or stale repository is settled
+/// without a single network call, so a mistake costs nothing and reveals
+/// nothing.
+///
+/// # Errors
+///
+/// [`PushError`] if the local repository cannot be inspected, or the remote
+/// cannot be reached. A remote that cannot be *read* is an error and never a
+/// verdict — treating "could not look" as "nothing there" is how a guard turns
+/// into a hazard.
+pub fn plan_push(
+    forge: &dyn Forge,
+    cfg: &BookConfig,
+    plan: &RepoPlan,
+    dir: &Path,
+    book_root: &Path,
+) -> Result<PushPlan, PushError> {
+    let repo = plan.repo.0.clone();
+
+    let Some(remote) = cfg.repos.get(&repo).and_then(|r| r.github.clone()) else {
+        return Ok(PushPlan::NotConfigured { repo });
+    };
+
+    let book = book_name(book_root, &repo);
+    let expected = final_blobs(plan, &book, cfg.site.as_deref());
+
+    let blocked = |reason: String| {
+        Ok(PushPlan::Blocked {
+            repo: repo.clone(),
+            reason,
+        })
+    };
+
+    match repo_drift(dir, plan, &expected).map_err(PushError::Status)? {
+        RepoDrift::NeverBuilt => {
+            return blocked(format!(
+                "{} has not been built; run `bower build` first",
+                dir.display()
+            ))
+        }
+        RepoDrift::Stale { .. } => {
+            return blocked(
+                "the built repository is out of date; run `bower status` to see what, \
+                 then `bower build`"
+                    .to_string(),
+            )
+        }
+        RepoDrift::TagsPacked => {
+            return blocked(
+                "the built repository's tags are packed and cannot be checked; \
+                 rebuild it with `bower build`"
+                    .to_string(),
+            )
+        }
+        RepoDrift::InSync => {}
+    }
+
+    let state = forge.probe(&remote).map_err(PushError::Forge)?;
+    let steps_md = match state {
+        // Nothing to read, and nothing to destroy.
+        RemoteState::Absent | RemoteState::Empty => None,
+        RemoteState::HasContent => forge.read_steps_md(&remote).map_err(PushError::Forge)?,
+    };
+
+    match marker_verdict(&remote, state, steps_md.as_deref(), &book) {
+        MarkerVerdict::Refuse(why) => blocked(why),
+        MarkerVerdict::SafeNew | MarkerVerdict::SafeOurs => Ok(PushPlan::Ready {
+            repo,
+            remote,
+            branch: BRANCH.to_string(),
+            tags: expected_tags(plan).len(),
+            create: state == RemoteState::Absent,
+        }),
     }
 }
 
@@ -157,5 +281,205 @@ mod gate_tests {
         assert!(MarkerVerdict::SafeNew.is_safe());
         assert!(MarkerVerdict::SafeOurs.is_safe());
         assert!(!MarkerVerdict::Refuse(String::new()).is_safe());
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
+mod plan_tests {
+    use super::*;
+    use crate::forge::FakeForge;
+    use crate::materialize::write_files;
+    use crate::trailers::marker_line;
+    use bower_core::prelude::{plan as resolve, BookSource, Chapter, RepoCatalog};
+    use std::path::PathBuf;
+
+    const BOOK_DIR: &str = "hello-playbook";
+    const REMOTE: &str = "ImperialBower/hello-playbook";
+
+    fn scratch(case: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bower-push-{case}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A book root whose directory name is what the marker will say.
+    fn book_root(case: &str) -> PathBuf {
+        let dir = scratch(case).join(BOOK_DIR);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn one_step_plan() -> RepoPlan {
+        let text = concat!(
+            "# One\n\n",
+            "<!-- bower repo=\"r\" step=\"first\" file=\"src/lib.rs\" -->\n",
+            "```rust\npub fn f() {}\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("src/ch01.md", text)]);
+        resolve(&book, &RepoCatalog::from_names(&["r"]))
+            .unwrap()
+            .repos
+            .remove(0)
+    }
+
+    fn config(github: Option<&str>) -> BookConfig {
+        let gh = github.map_or(String::new(), |g| format!("github = \"{g}\"\n"));
+        let text = format!(
+            concat!(
+                "[book]\nepoch = 2026-09-01T00:00:00Z\n\n",
+                "[identity]\nname = \"N\"\nemail = \"e@example.invalid\"\n\n",
+                "[repos.r]\n{}",
+            ),
+            gh
+        );
+        BookConfig::parse(&text).unwrap()
+    }
+
+    /// A repository shaped like `bower build`'s output, without running git.
+    fn built(case: &str, plan: &RepoPlan, root: &Path, cfg: &BookConfig) -> PathBuf {
+        let dir = scratch(case).join("repo");
+        std::fs::create_dir_all(&dir).unwrap();
+        let tags = dir.join(".git").join("refs").join("tags");
+        std::fs::create_dir_all(&tags).unwrap();
+        for tag in expected_tags(plan) {
+            std::fs::write(tags.join(tag), "0\n").unwrap();
+        }
+        let name = book_name(root, &plan.repo.0);
+        write_files(&dir, &final_blobs(plan, &name, cfg.site.as_deref())).unwrap();
+        dir
+    }
+
+    fn ours() -> String {
+        format!("# Steps\n\n{}\n", marker_line(BOOK_DIR))
+    }
+
+    #[test]
+    fn plan__no_github_key_is_not_an_error() {
+        let forge = FakeForge::new(RemoteState::HasContent, None);
+        let root = book_root("nogh");
+        let p = one_step_plan();
+        let cfg = config(None);
+        let dir = built("nogh-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, &p, &dir, &root).unwrap();
+        assert!(matches!(got, PushPlan::NotConfigured { .. }), "{got:?}");
+        assert!(forge.calls().is_empty(), "a book that does not publish must not dial out");
+    }
+
+    #[test]
+    fn plan__refuses_an_unbuilt_repo() {
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("unbuilt");
+        let cfg = config(Some(REMOTE));
+
+        let got = plan_push(
+            &forge,
+            &cfg,
+            &one_step_plan(),
+            Path::new("/nonexistent-repo"),
+            &root,
+        )
+        .unwrap();
+
+        let PushPlan::Blocked { reason, .. } = got else {
+            panic!("expected Blocked, got {got:?}");
+        };
+        assert!(reason.contains("bower build"), "{reason}");
+        assert!(
+            forge.calls().is_empty(),
+            "local preconditions must settle before any network call"
+        );
+    }
+
+    #[test]
+    fn plan__refuses_a_stale_repo() {
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("stale");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("stale-repo", &p, &root, &cfg);
+        std::fs::remove_file(dir.join("src/lib.rs")).unwrap();
+
+        let got = plan_push(&forge, &cfg, &p, &dir, &root).unwrap();
+        assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
+        assert!(forge.calls().is_empty(), "{:?}", forge.calls());
+    }
+
+    #[test]
+    fn plan__a_fresh_remote_is_ready_and_marked_for_creation() {
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("fresh");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("fresh-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, &p, &dir, &root).unwrap();
+        let PushPlan::Ready {
+            remote,
+            branch,
+            tags,
+            create,
+            ..
+        } = got
+        else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert_eq!(remote, REMOTE);
+        assert_eq!(branch, "refs/heads/main");
+        assert_eq!(tags, expected_tags(&p).len());
+        assert!(create, "an absent remote must be created");
+        // Deciding is not doing.
+        assert!(!forge.mutated(), "{:?}", forge.calls());
+    }
+
+    #[test]
+    fn plan__our_own_remote_is_ready_without_creation() {
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("ours");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("ours-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, &p, &dir, &root).unwrap();
+        assert!(
+            matches!(got, PushPlan::Ready { create: false, .. }),
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn push__is_not_called_when_the_gate_refuses() {
+        // The assertion that matters most in this crate: not that a refusal was
+        // reported, but that nothing was sent.
+        let forge = FakeForge::new(RemoteState::HasContent, None);
+        let root = book_root("refuse");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("refuse-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, &p, &dir, &root).unwrap();
+        assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
+        assert!(
+            !forge.mutated(),
+            "the forge was mutated despite a refusal: {:?}",
+            forge.calls()
+        );
+    }
+
+    #[test]
+    fn plan__unreadable_remote_is_an_error_not_a_verdict() {
+        // "Could not look" must never become "nothing there". This is the
+        // distinction that keeps the guard a guard.
+        let forge = FakeForge::unreachable("401 Unauthorized");
+        let root = book_root("unreadable");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("unreadable-repo", &p, &root, &cfg);
+
+        let err = plan_push(&forge, &cfg, &p, &dir, &root).unwrap_err();
+        assert!(err.to_string().contains("401"), "{err}");
+        assert!(!forge.mutated(), "{:?}", forge.calls());
     }
 }

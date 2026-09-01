@@ -36,9 +36,9 @@ creation needs, does not push the *book's* own repository, and does not touch
 
 | Component | Status |
 |---|---|
-| `Forge` trait + `FakeForge` | 🟡 trait done, fake is Phase 1 |
+| `Forge` trait + `FakeForge` | **Complete** |
 | **The generated-repo marker gate** | **Complete** |
-| Preconditions: built, and in sync | Planned |
+| Preconditions: built, and in sync | **Complete** |
 | `GitHubForge` — `git` and `gh` | Planned |
 | `bower push` CLI, dry-run by default | Planned |
 | Goldens against the fake forge | Planned |
@@ -114,9 +114,9 @@ other.
 | The repo's own marker | `marker_line` / `book_named_in` | ✅ done |
 | What must be pushed | `expected_tags` `bower/src/replay.rs:288` | ✅ done |
 | Is the build current? | `repo_drift` `bower/src/status.rs:132` | ✅ done |
-| A place to publish to | `Forge` | 🟡 trait only |
+| A place to publish to | `Forge` + `FakeForge` | ✅ done |
 | The gate | `MarkerVerdict` | ✅ done |
-| The command | `push()` | ❌ absent |
+| The command | `plan_push()` | 🟡 decides; the CLI is Phase 2 |
 
 ---
 
@@ -261,15 +261,27 @@ command named when absent.
 
 ### Phase 1 — Deciding, against a fake
 
-- [ ] **1a.** `FakeForge` in `bower/src/forge.rs` under `#[cfg(test)]`,
-  recording every call so a test can assert that `push` was **not** called.
-- [ ] **1b.** `PushPlan`, `plan_push()`, `PushError`.
-- [ ] **1c.** Preconditions: never built, or `repo_drift`
-  (`bower/src/status.rs:132`) reporting `Stale`, both refuse before the forge is
-  touched at all.
-- [ ] **1d.** Tests: `plan__refuses_an_unbuilt_repo`,
-  `plan__refuses_a_stale_repo`, `plan__counts_every_tag`,
-  `plan__no_github_key_is_not_an_error`.
+- [x] **1a.** `FakeForge`, recording every call, plus `calls()` and
+  `mutated()`. **Deviation:** it is **public**, not `#[cfg(test)]`. Phase 4's
+  golden lives in an integration test and needs it, and the assertion that
+  matters most here — that `push` was never *called* — can only be made by
+  something that counts calls. It is the controllability half of this boundary,
+  the same way `bower-testkit` is for the kernel.
+- [x] **1b.** `PushPlan`, `plan_push()`, `PushError`. **Deviation:** `PushPlan`
+  is an enum — `NotConfigured`, `Blocked { reason }`, `Ready` — rather than the
+  design's struct with an embedded verdict. A `Refuse` verdict and a stale local
+  build are both simply "cannot publish, here is why", and folding them into one
+  variant means the CLI has one refusal path instead of two.
+- [x] **1c.** Preconditions run **before the forge is contacted at all**, and
+  three tests assert `forge.calls()` is empty when they trip. A mistake costs
+  nothing and reveals nothing. **Addition:** `RepoDrift::TagsPacked` also blocks
+  — if the tags cannot be checked, the build cannot be certified current, and
+  publishing an uncertified build is the thing this phase exists to prevent.
+- [x] **1d.** Seven tests. **Addition:**
+  `plan__unreadable_remote_is_an_error_not_a_verdict` — the Phase 0 correction,
+  now enforced: a `401` reaches the caller as an error and never the gate as
+  `None`. Verified on branch `docs/epic-01`, 1 September 2026: 187 tests pass,
+  clippy silent.
 
 ### Phase 2 — The command
 
@@ -315,6 +327,9 @@ command named when absent.
   normal, the same rule `status` follows for unbuilt repos.
 - `push__is_not_called_when_the_gate_refuses` — the assertion that matters most:
   not that a refusal is *reported*, but that nothing was *sent*.
+- `plan__unreadable_remote_is_an_error_not_a_verdict` — "could not look" never
+  becomes "nothing there".
+- `plan__no_github_key_is_not_an_error` — and the forge is never dialled.
 - `push__dry_run_calls_no_mutating_method` — the default mode is inert.
 - `push__execute_pushes_branch_and_tags` — against the fake.
 

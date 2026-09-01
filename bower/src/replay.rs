@@ -22,7 +22,9 @@ use crate::trailers;
 
 /// The branch every generated repository uses. Fixed, not inherited from the
 /// machine's `init.defaultBranch`, which would otherwise vary per developer.
-const BRANCH: &str = "refs/heads/main";
+/// The branch every generated repository uses. Public because `push` sends it
+/// and must not name it independently.
+pub const BRANCH: &str = "refs/heads/main";
 
 pub struct Replayer<'a> {
     pub config: &'a BookConfig,
