@@ -1,0 +1,9 @@
+# Nothing parses this file yet. It records what the replay layer will need,
+# so the book is complete as an example even while Phase 2 is unwritten.
+
+[repos.hello-playbook]
+template = "template"
+keep_region_markers = false
+
+[repos.hello-playbook.links]
+blob = "https://github.com/ImperialBower/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"

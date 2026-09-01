@@ -31,6 +31,50 @@ fn chapter(path: &str, text: &str) -> Chapter {
     Chapter::new(path, text)
 }
 
+fn hello_playbook_catalog() -> RepoCatalog {
+    RepoCatalog::from_names(&["hello-playbook"])
+}
+
+/// The sample book: a dev-playbook-shaped Rust hello world, taught in six
+/// chapters that build the repository they describe.
+///
+/// The chapters live on disk under `books/hello-playbook/src/` and are pulled
+/// in with `include_str!`, which resolves at compile time — the kernel still
+/// sees nothing but text, and the testkit does no runtime I/O.
+#[must_use]
+pub fn hello_playbook() -> Fixture {
+    Fixture::new(
+        "hello-playbook",
+        BookSource::from_chapters(vec![
+            chapter(
+                "ch01-a-repo-that-builds.md",
+                include_str!("../../books/hello-playbook/src/ch01-a-repo-that-builds.md"),
+            ),
+            chapter(
+                "ch02-the-gate.md",
+                include_str!("../../books/hello-playbook/src/ch02-the-gate.md"),
+            ),
+            chapter(
+                "ch03-lints-and-format.md",
+                include_str!("../../books/hello-playbook/src/ch03-lints-and-format.md"),
+            ),
+            chapter(
+                "ch04-tests-and-failing-on-purpose.md",
+                include_str!("../../books/hello-playbook/src/ch04-tests-and-failing-on-purpose.md"),
+            ),
+            chapter(
+                "ch05-supply-chain.md",
+                include_str!("../../books/hello-playbook/src/ch05-supply-chain.md"),
+            ),
+            chapter(
+                "ch06-ci.md",
+                include_str!("../../books/hello-playbook/src/ch06-ci.md"),
+            ),
+        ]),
+        hello_playbook_catalog(),
+    )
+}
+
 /// The smallest possible book: one chapter, one create block.
 #[must_use]
 pub fn minimal() -> Fixture {
@@ -257,6 +301,7 @@ pub fn valid() -> Vec<Fixture> {
         include_library(),
         self_hosting_chapter(),
         notebook_play(),
+        hello_playbook(),
     ]
 }
 

@@ -99,41 +99,66 @@ order; no `after=` is used, because the teaching order *is* the build order.
 | 9 | ch04 | `greet-lib` | `src/lib.rs`, `src/main.rs` | create, replace | pass |
 | 10 | ch04 | `greet-test` | `src/lib.rs` | append | pass |
 | 11 | ch04 | `test-that-fails` | `src/lib.rs` | region `tests` | **test_fail** |
-| 12 | ch04 | `test-that-passes` | `src/lib.rs` | region `tests` | pass |
-| 13 | ch04 | `wont-compile` | `src/lib.rs` | region `scratch` | **compile_fail** |
-| 14 | ch04 | `scratch-gone` | `src/lib.rs` | region `scratch` | pass |
+| 12 | ch04 | `test-that-passes` | `src/lib.rs` | region `greet` | pass |
+| 13 | ch04 | `wont-compile` | `src/scratch.rs`, `src/lib.rs` | create, region `mods` | **compile_fail** |
+| 14 | ch04 | `scratch-fixed` | `src/scratch.rs` | region `scratch` | pass |
 | 15 | ch05 | `deny-toml` | `deny.toml` | create | pass |
 | 16 | ch05 | `security-scan` | `bin/security-scan` | create | pass |
-| 17 | ch05 | `gate-audit` | `Makefile` | region `gate` | pass |
+| 17 | ch05 | `gate-test-audit` | `Makefile` | region `gate` | pass |
 | 18 | ch06 | `tool-versions` | `.tool-versions` | create | pass |
 | 19 | ch06 | `ci-workflow` | `.github/workflows/ci.yml` | create | pass |
-| 20 | ch06 | `drop-scratch` | `src/scratch.rs` | delete | pass |
+| 20 | ch06 | `drop-scratch` | `src/scratch.rs`, `src/lib.rs` | delete, region `mods` | pass |
 
 Twenty steps. Op coverage: `create`, `replace`, `region`, `append`, `delete`,
 `none`. `copy` is already covered by the existing fixture corpus and is not
 forced into this book.
 
-Note on step 20: `src/scratch.rs` is created in ch04 as the home for the
-`compile_fail` demonstration and deleted in ch06, so `delete` has an honest
-reason to exist rather than a manufactured one.
+Three of these steps are worth calling out, because they are where the book
+earns its keep:
+
+- **Step 11 → 12 is the Failers argument in miniature.** Step 11 adds a test
+  that `greet` cannot pass and declares `expect="test_fail"`. Step 12 changes
+  `greet` itself — a different region of the same file — and the expectation
+  returns to `pass`. The failure is a committed, tagged, linkable state of the
+  repository, not a thing that happened off-camera.
+- **Step 13 is honest about compilation.** A file that is never declared as a
+  module is never compiled, so a `compile_fail` in an undeclared file would be
+  a lie. Step 13 therefore touches two files in one commit: it creates
+  `src/scratch.rs` *and* fills the `mods` region of `src/lib.rs` with
+  `pub mod scratch;`. Step 14 repairs it.
+- **Step 20 is the mirror image.** Deleting `src/scratch.rs` without emptying
+  the `mods` region would leave the repo unbuildable, so the delete and the
+  region edit share one step and one commit.
 
 ## 6. Region markers
 
 Regions are the mechanism that lets a file grow across chapters while each page
-shows only its new lines. This book establishes five:
+shows only its new lines. This book establishes six:
 
 | File | Region | Established | Edited by |
 |---|---|---|---|
 | `Makefile` | `help` | step 3 | step 4 |
 | `Makefile` | `gate` | step 3 | steps 8, 17 |
 | `Cargo.toml` | `lints` | step 1 | step 7 |
-| `src/lib.rs` | `tests` | step 10 | steps 11, 12 |
+| `src/lib.rs` | `mods` | step 9 | steps 13, 20 |
+| `src/lib.rs` | `greet` | step 9 | step 12 |
+| `src/lib.rs` | `tests` | step 10 | step 11 |
 | `src/scratch.rs` | `scratch` | step 13 | step 14 |
 
 Markers are ordinary comments in the host language (`# bower:begin gate` in
 Make and TOML, `// bower:begin tests` in Rust) and are stripped from the
 materialized tree, because the book's `RepoSpec` leaves `keep_region_markers`
 at its default of `false`.
+
+Two kernel facts make this safe, and both were verified against
+`bower-core/src/tree.rs` before this design was accepted:
+
+- `assemble()` applies mdBook's hidden-line rule **only** when the fence info
+  string starts with `rust`. A `#`-prefixed line in a `makefile`, `toml`,
+  `bash`, or `yaml` fence therefore survives verbatim.
+- `comment_body()` recognizes markers behind `//`, `#`, `--`, and `;`, and
+  ignores any comment that does not then say `bower:` or `bf:`. Ordinary
+  Makefile comments and the `#!/usr/bin/env bash` shebang are untouched.
 
 ## 7. Display markers
 
@@ -159,8 +184,13 @@ existing corpus tests and the state-coverage report pick it up for free.
 3. Every step's `tag()` matches the expected list in § 5, in order.
 4. The final `TreeState` contains exactly the paths listed in § 4 (template
    files excluded — the kernel never sees them).
-5. `Cargo.toml`, `Makefile`, and `src/lib.rs` in the final tree match golden
-   text held in the test.
+5. `Cargo.toml` in the final tree matches golden text held in the test.
+   `Makefile` and `src/lib.rs` are checked by targeted assertions rather than
+   whole-file goldens: a Makefile golden would embed literal tabs in a Rust
+   string literal, and both files are more usefully pinned by the specific
+   facts that matter — the gate's full prerequisite list, the trimmed `greet`,
+   the absence of `pub mod scratch;`, and the absence of any doubled blank
+   line, which `cargo fmt --check` would reject.
 6. No region marker survives into any materialized tree.
 7. Steps `test-that-fails` and `wont-compile` carry `Expect::TestFail` and
    `Expect::CompileFail` respectively.
