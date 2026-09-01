@@ -7,18 +7,8 @@
 
 ## In flight
 
-**[EPIC-03 — the mdBook preprocessor](docs/EPIC-03_Preprocessor.md)** — phases 0–2
-shipped, 3–5 remain. Three Status rows still `Planned`.
+_Nothing. EPIC-03 shipped._
 
-- [ ] **3a.** `LinkTemplates` gains `tree` and `commit`; declare all three in `books/hello-playbook/bower.toml`
-- [ ] **3b.** `render::footer` — `` `src/lib.rs` L18–31 · step 11 of hello-playbook `` with file, diff, and repo links
-- [ ] **3c.** Footer tests, including the omit-without-template rule
-- [ ] **4a.** Golden: drive `mdbook-bower` over the real sample chapters
-- [ ] **4b.** Negative golden: an unknown repo fails the build by name
-- [ ] **4c.** End-to-end `mdbook build`, `#[ignore]`d and skipped cleanly when mdBook is absent
-- [ ] **5a.** Configure `[preprocessor.bower]` in `books/hello-playbook/book.toml`
-- [ ] **5b.** README: the workspace reaches spec Phase 4 in part
-- [ ] **5c.** Flip Status rows, append the corrigendum
 
 ## Next up — unwritten EPICs
 
@@ -59,7 +49,7 @@ From `bower-spec.md` § 12. Two are closed; these seven are not.
 
 - **[EPIC-01 — replay](docs/EPIC-01_Replay.md)** — 11/11 components. Deterministic git replay, tags, trailers, `STEPS.md`.
 - **[EPIC-02 — verification](docs/EPIC-02_Verification.md)** — 8/8 components. `bower verify` against a real compiler.
-- **EPIC-03 phases 0–2** — protocol, planning gate, chapter rewrite.
+- **[EPIC-03 — the mdBook preprocessor](docs/EPIC-03_Preprocessor.md)** — 10/10 components. Directives stripped, display markers applied, anchors and line-anchored footers injected.
 - **[EPIC-04 — `bower status`](docs/EPIC-04_Status.md)** — 5/5 components. Book ⇄ lock ⇄ repo drift, named and exit-coded.
 - **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
 
@@ -67,7 +57,7 @@ From `bower-spec.md` § 12. Two are closed; these seven are not.
 
 | Signal | State |
 |---|---|
-| Tests | 161 passing, 0 failing |
+| Tests | 169 passing, 0 failing |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |

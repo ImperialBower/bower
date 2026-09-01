@@ -45,7 +45,7 @@ which stays pure and dependency-free.
 | `#step-<id>` anchors | **Complete** |
 | Source-link footer | **Complete** |
 | `tree` and `commit` link templates | **Complete** |
-| Goldens over the sample book | Planned |
+| Goldens over the sample book | **Complete** |
 
 ---
 
@@ -323,23 +323,23 @@ line-anchored link does not lie.
 
 ### Phase 4 — Goldens
 
-- [ ] **4a.** `bower/tests/preprocessor.rs`: drive the `mdbook-bower` binary
+- [x] **4a.** `bower/tests/preprocessor.rs`: drive the `mdbook-bower` binary
   with a JSON book built from the real sample chapters; assert no directive
   survives, every step id appears as an anchor, and chapter 4's marked test is
   visible while the module around it is hidden.
-- [ ] **4b.** A negative golden: a chapter naming an unknown repo makes the
+- [x] **4b.** A negative golden: a chapter naming an unknown repo makes the
   binary exit non-zero and name the chapter and line.
-- [ ] **4c.** End-to-end `mdbook build books/hello-playbook` with the
+- [x] **4c.** End-to-end `mdbook build books/hello-playbook` with the
   preprocessor configured, marked `#[ignore]` and skipped cleanly when `mdbook`
   is not installed.
 
 ### Phase 5 — Documentation
 
-- [ ] **5a.** Configure `[preprocessor.bower]` in
+- [x] **5a.** Configure `[preprocessor.bower]` in
   `books/hello-playbook/book.toml`.
-- [ ] **5b.** `README.md`: the workspace reaches Phase 4 in part; document
+- [x] **5b.** `README.md`: the workspace reaches Phase 4 in part; document
   `mdbook-bower`.
-- [ ] **5c.** Flip this EPIC's Status rows and append the corrigendum.
+- [x] **5c.** Flip this EPIC's Status rows and append the corrigendum.
 
 ---
 
@@ -446,3 +446,90 @@ Exit criteria:
 4. A directive naming an unknown repo fails `mdbook build` with the chapter and
    line named.
 5. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 1 September 2026, branch `docs/epic-01`.
+
+### 1. The kernel had to grow, against this EPIC's own Context
+
+`ShowMark` and `show_marker` were `pub(crate)`. The preprocessor needs that
+grammar, and the alternative was a second copy of it in a consumer — precisely
+the drift `bower-core` exists to prevent. They are `pub` now and in the prelude.
+Additive and pure: `cargo tree -p bower-core -e normal` still prints one line.
+The Context was wrong, not the change.
+
+### 2. `# `-hiding is a Rust-only trick
+
+The design said elided lines become `# `-prefixed hidden lines. mdBook's toggle
+only exists for Rust; a `# ` prefix in a YAML or Makefile block would corrupt
+the file rather than hide it. Chapter 6's `ci.yml` forced the split: `rust`
+fences get the expandable toggle, and every other language gets one comment line
+per elided run — the epub rendering spec § 3.4 already describes.
+
+### 3. The walker had to become fence-aware, twice over
+
+A book *about* Bower quotes directives inside example fences, and discusses
+`bower:show` in prose. The first version stripped both, erasing the thing the
+page was teaching. Directive *lines* are instructions and go; a directive or
+marker named in prose is content and stays. Two tests hold each side of that
+line: `render__a_directive_shown_inside_a_fence_survives` and
+`sample_book_keeps_no_directive_lines`.
+
+### 4. Exit criterion 1 was wrong as written
+
+It said "no `<!-- bower` survives into any rendered page". Chapter 1 says
+"introduced by a `` `<!-- bower … -->` `` comment" in prose, and that must
+survive. The criterion now says no directive *line*.
+
+### 5. A footer bug that made the feature a no-op
+
+The footer lookup keyed off `i - 1`, arithmetic on a cursor that had already
+advanced past the directive. Zero footers were emitted, and every other Phase 3
+test still passed because they tested `footer()` in isolation. The line number
+is now bound once as `directive_line` before `i` moves.
+
+### 6. Templates are per repo, and spans are per link
+
+`chapter` takes a `BTreeMap<String, LinkTemplates>`, not one set: a chapter may
+feed several repos, and a repo with no templates must get plain text rather than
+another repo's URLs. And a footer emits one link per *shown span*, because a
+block showing two slices of a file would otherwise link only the first.
+
+### 7. A regression this EPIC caused, found in EPIC-04
+
+Adding a second binary made `cargo run -p bower` ambiguous — the exact form the
+README and three EPIC verification blocks use. No test caught it, because they
+all invoke `CARGO_BIN_EXE_bower` directly. `default-run = "bower"` fixes it. The
+lesson is not about cargo: a test suite that bypasses the documented entry point
+cannot defend it.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (protocol, passthrough) | Shipped | item 7 |
+| 1 (planning from JSON) | Shipped | lib restructure |
+| 2 (the rewrite) | Shipped | items 1–4 |
+| 3 (footers and links) | Shipped | items 5, 6 |
+| 4 (goldens) | Shipped | including a real `mdbook build` |
+| 5 (documentation) | Shipped | |
+
+### Verified end to end
+
+`PATH="$PWD/target/debug:$PATH" mdbook build books/hello-playbook` succeeds.
+In the rendered HTML: **zero** raw directive comments, the prose mention in
+chapter 1 surviving escaped, 31 `class="boring"` hidden lines in chapter 4
+behind mdBook's own toggle, an anchor per step, and a footer whose
+`…/blob/step-011-test-that-fails/src/lib.rs#L18-L21` names exactly the four
+lines of the marked test in the generated repository.
+
+### Still open after this EPIC
+
+- **The epub/pandoc target does not exist**, so the non-Rust elision comment
+  form is implemented but never rendered into a book that needs it.
+- **Play cells** (spec § 15) are not rendered.
+- **`mdbook serve`** was not tried; only `build`.

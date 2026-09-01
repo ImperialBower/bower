@@ -8,18 +8,20 @@ source of truth, and Bower turns them into deterministic, replayable git
 repositories — one commit per teaching step, with links in both directions
 between the page and the code.
 
-This workspace is **Phases 1 to 3** of the [design spec](https://github.com/ImperialBower)
-(`bower-spec.md`, Draft 0.2): the pure kernel, its testkit, the replay layer that
-turns a plan into real commits, and the verifier that checks every step's
-declared `expect` against a real compiler. Publishing surfaces — the mdBook
-preprocessor, `push`, and `status` — are Phase 4 and are not built yet.
+This workspace is **Phases 1 to 4** of the [design spec](https://github.com/ImperialBower)
+(`bower-spec.md`, Draft 0.2), bar one piece: the pure kernel, its testkit, the
+replay layer that turns a plan into real commits, the verifier that checks every
+step's declared `expect` against a real compiler, the `mdbook-bower`
+preprocessor, and the `status` drift report. Only `push` is missing from Phase
+4. Migration — standing up the real *Rust for Failers* book — is Phase 5.
 
 ## Crates
 
 | Crate | What it is |
 |---|---|
 | `bower-core` | The domain kernel. Parses `<!-- bower … -->` directives out of chapter markdown, groups blocks into steps, orders them (document order, bent by `after=`), folds every step into a complete `TreeState`, computes display spans and line-anchored ranges, binds `notebook="play"` cells to their steps for the Jupyter target, and reports every error it can find in one located pass. Zero dependencies; nothing in the public API does I/O or serialization. |
-| `bower` | The CLI. Reads `bower.toml` and the book's `SUMMARY.md`, resolves the plan through the kernel, replays it into a git repository with `gix` — one commit per step, annotated tags, commit trailers pointing back at the chapter, and a generated `STEPS.md` — and verifies every step's declared `expect` against a real compiler. Two runs of an unchanged book produce identical SHAs. |
+| `bower` | The CLI. Reads `bower.toml` and the book's `SUMMARY.md`, resolves the plan through the kernel, replays it into a git repository with `gix` — one commit per step, annotated tags, commit trailers pointing back at the chapter, and a generated `STEPS.md` — verifies every step's declared `expect` against a real compiler, and reports drift between the book, the lock, and a built repo. Two runs of an unchanged book produce identical SHAs. |
+| `mdbook-bower` | The mdBook preprocessor, a second binary in the same crate behind the `preprocessor` feature. Strips directives, applies display markers so a block prints only what it marks, injects `#step-<id>` anchors, and adds a footer linking each block to its exact lines in the generated repository. A directive naming an unknown repo fails `mdbook build`. |
 | `bower-testkit` | The controllability half, per the kernel-testkit pattern: a fixture corpus covering every op, mechanism, and error variant (the *data textures* of book sources); proptest generators over arbitrary valid books; and a *state coverage* report over (op × expect × mechanism). |
 
 ## The invariants (proven in the test suites)
@@ -41,6 +43,9 @@ preprocessor, `push`, and `status` — are Phase 4 and are not built yet.
 - **Drift is visible** — a freshly built book reports in sync; edit a chapter,
   delete a file, or drop a tag and `bower status` names exactly what changed
   (`bower/tests/status.rs`).
+- **The page links to the code, by line** — every rendered block carries a
+  footer naming its file and line range at a tag, and those lines are the lines
+  the reader just saw (`bower/tests/preprocessor.rs`).
 
 ## Quick tour
 
@@ -95,6 +100,17 @@ date? It compares the book against `bower.lock` and against a previously built
 repository, names the steps, tags, and files that drifted, and exits non-zero
 if any did. A book nobody has planned and a repo nobody has built are reported
 as such and are **not** drift, so it is safe in CI on a fresh checkout.
+
+## Rendering the book
+
+```
+cargo build -p bower
+PATH="$PWD/target/debug:$PATH" mdbook build books/hello-playbook
+```
+
+`books/hello-playbook/book.toml` declares `[preprocessor.bower]`, so `mdbook`
+needs `mdbook-bower` on `PATH`. Without it the build **fails** rather than
+quietly rendering a book whose directives were never applied.
 
 ## License
 
