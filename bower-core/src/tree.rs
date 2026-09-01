@@ -274,10 +274,14 @@ pub(crate) fn hidden_line(raw: &str) -> Hidden {
     Hidden::No
 }
 
-/// Kinds of `bower:show` marker lines. Public to the crate so the display
-/// engine shares one definition of the syntax with assembly.
+/// Kinds of `bower:show` marker lines.
+///
+/// Public so that render-time consumers — the mdBook preprocessor above all —
+/// use the kernel's definition of the syntax rather than reimplementing it.
+/// A second copy of this grammar in a consumer is exactly the drift this crate
+/// exists to prevent.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ShowMark {
+pub enum ShowMark {
     /// `bower:show` or `bower:show begin <name>`
     Begin(Option<String>),
     /// `bower:show end`
@@ -286,7 +290,8 @@ pub(crate) enum ShowMark {
 
 /// Recognize a display-marker line in any comment style the books will
 /// meet: `//`, `#`, `--`, `;`, or bare.
-pub(crate) fn show_marker(line: &str) -> Option<ShowMark> {
+#[must_use]
+pub fn show_marker(line: &str) -> Option<ShowMark> {
     let body = comment_body(line)?;
     let rest = body
         .strip_prefix("bower:show")

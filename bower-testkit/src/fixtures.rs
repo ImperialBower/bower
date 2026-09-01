@@ -31,6 +31,49 @@ fn chapter(path: &str, text: &str) -> Chapter {
     Chapter::new(path, text)
 }
 
+/// Every tag `hello-playbook` produces, in order. Public so the kernel's tests
+/// and the CLI's replay tests assert against one list rather than two that can
+/// drift apart.
+pub const HELLO_PLAYBOOK_TAGS: &[&str] = &[
+    "step-001-cargo-init",
+    "step-002-hello-runs",
+    "step-003-makefile",
+    "step-004-make-help",
+    "step-005-rustfmt",
+    "step-006-toolchain",
+    "step-007-lints",
+    "step-008-gate-fmt-clippy",
+    "step-009-greet-lib",
+    "step-010-greet-test",
+    "step-011-test-that-fails",
+    "step-012-test-that-passes",
+    "step-013-wont-compile",
+    "step-014-scratch-fixed",
+    "step-015-deny-toml",
+    "step-016-security-scan",
+    "step-017-gate-test-audit",
+    "step-018-tool-versions",
+    "step-019-ci-workflow",
+    "step-020-drop-scratch",
+];
+
+
+/// Every path the book's twenty steps leave behind. The generated repository
+/// adds `STEPS.md` on top of these; the kernel never sees that file.
+pub const HELLO_PLAYBOOK_FINAL_PATHS: &[&str] = &[
+    ".github/workflows/ci.yml",
+    ".tool-versions",
+    "Cargo.toml",
+    "Makefile",
+    "bin/security-scan",
+    "deny.toml",
+    "rust-toolchain.toml",
+    "rustfmt.toml",
+    "src/lib.rs",
+    "src/main.rs",
+];
+
+
 fn hello_playbook_catalog() -> RepoCatalog {
     RepoCatalog::from_names(&["hello-playbook"])
 }

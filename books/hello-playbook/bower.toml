@@ -15,6 +15,10 @@ email = "bower@imperialbower.example"
 [repos.hello-playbook]
 template = "template"
 keep_region_markers = false
+# Two commands, because the book distinguishes "does not compile" from
+# "compiles, tests fail". `bower verify` needs both to tell them apart.
+check = "cargo check"
+verify = "cargo test"
 
 [repos.hello-playbook.links]
 blob = "https://github.com/ImperialBower/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"

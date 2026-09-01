@@ -43,7 +43,11 @@ pub struct RepoConfig {
     pub github: Option<String>,
     /// Book-relative directory applied as step 0 scaffolding.
     pub template: Option<PathBuf>,
-    /// Command a later phase runs to verify each step.
+    /// Command that must *compile* a step's tree. Distinguishing "fails to
+    /// compile" from "compiles, tests fail" needs two commands, not one
+    /// (spec § 6). Defaults live in the verifier, not here.
+    pub check: Option<String>,
+    /// Command that must *test* a step's tree.
     pub verify: Option<String>,
     /// The one setting the kernel cares about.
     pub keep_region_markers: bool,
@@ -138,6 +142,7 @@ impl BookConfig {
                         RepoConfig {
                             github: r.github,
                             template: r.template,
+                            check: r.check,
                             verify: r.verify,
                             keep_region_markers: r.keep_region_markers,
                             links: LinkTemplates { blob: r.links.blob },
@@ -198,6 +203,7 @@ struct WireIdentity {
 struct WireRepo {
     github: Option<String>,
     template: Option<PathBuf>,
+    check: Option<String>,
     verify: Option<String>,
     #[serde(default)]
     keep_region_markers: bool,
@@ -239,6 +245,8 @@ mod config_tests {
         assert_eq!(repo.template, Some(PathBuf::from("template")));
         assert!(!repo.keep_region_markers);
         assert!(repo.github.is_none());
+        assert_eq!(repo.check.as_deref(), Some("cargo check"));
+        assert_eq!(repo.verify.as_deref(), Some("cargo test"));
         assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
     }
 
@@ -281,7 +289,8 @@ mod config_tests {
         assert!(catalog.contains("hello-playbook"));
         assert_eq!(catalog.0.len(), 1);
         // `RepoSpec` has exactly one field, so this equality is the proof that
-        // nothing else — github, template, verify, links — crossed the boundary.
+        // nothing else — github, template, check, verify, links — crossed the
+        // boundary.
         assert_eq!(
             catalog.spec(&RepoName::new("hello-playbook")),
             RepoSpec {

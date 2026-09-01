@@ -4,24 +4,23 @@
 //! parsing `bower.toml`, and writing git objects. `bower-core` stays pure, and
 //! CI asserts that with `cargo tree -p bower-core -e normal`.
 //!
-//! As of EPIC-01 Phase 2, `bower plan` is real: it loads the book, resolves it
-//! through the kernel, prints the step table, and writes `bower.lock`.
-//! `bower build` still reports its configuration and exits non-zero, so no
-//! script can mistake progress for completion.
+//! `plan` resolves the book and writes `bower.lock`; `build` replays the plan
+//! into a git repository, one commit per step, from an empty tree every time;
+//! `verify` runs a compiler against every step's tree and checks that what the
+//! book declared is what actually happens.
 
 #![warn(clippy::pedantic, clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use bower_core::prelude::{lock_text, plan, BookPlan, PlannedStep};
 use clap::{Parser, Subcommand};
 
-mod config;
-mod loader;
-
-use bower_core::prelude::{plan, PlannedStep};
-use config::BookConfig;
-use loader::BookLoader;
+use bower::config::BookConfig;
+use bower::loader::BookLoader;
+use bower::replay::Replayer;
+use bower::verify::{Verdict, Verifier};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -46,13 +45,33 @@ enum Command {
         #[arg(long)]
         repo: Option<String>,
     },
+    /// Check every step's declared `expect` against a real compiler.
+    Verify {
+        /// Limit the run to one target repository.
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// Verify only this step.
+        #[arg(long, conflicts_with = "from")]
+        step: Option<String>,
+
+        /// Verify from this step onward.
+        #[arg(long)]
+        from: Option<String>,
+
+        /// Scratch directory for the trees under test and their shared cargo
+        /// target directory.
+        #[arg(long, default_value = "target/bower-verify")]
+        work: PathBuf,
+    },
     /// Replay the plan into a local git repository, one commit per step.
     Build {
         /// Limit the run to one target repository.
         #[arg(long)]
         repo: Option<String>,
 
-        /// Directory to write the generated repository into.
+        /// Where to write. One repo uses this directory as-is; several get a
+        /// subdirectory each, because two repos cannot share a working tree.
         #[arg(short, long, default_value = "out")]
         out: PathBuf,
     },
@@ -71,31 +90,38 @@ fn main() -> ExitCode {
 
     match cli.command {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
-        Command::Build { repo, out } => {
-            report(&cfg, repo.as_deref());
-            eprintln!("bower build: not implemented yet — see EPIC-01 Phase 3.");
-            eprintln!("             (would have written to {})", out.display());
-            ExitCode::FAILURE
-        }
+        Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
+        Command::Verify {
+            repo,
+            step,
+            from,
+            work,
+        } => run_verify(&cli.book, &cfg, repo.as_deref(), step.as_deref(), from.as_deref(), &work),
     }
 }
 
-/// Resolve the book into a plan, print the step table, and write `bower.lock`.
-fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode {
+/// Load the book and resolve it through the kernel, reporting either failure in
+/// the same shape.
+fn resolve(book_root: &Path, cfg: &BookConfig) -> Option<BookPlan> {
     let book = match BookLoader::new(book_root).load() {
         Ok(b) => b,
         Err(e) => {
             eprintln!("bower: {e}");
-            return ExitCode::FAILURE;
+            return None;
         }
     };
-
-    let resolved = match plan(&book, &cfg.catalog()) {
-        Ok(p) => p,
+    match plan(&book, &cfg.catalog()) {
+        Ok(p) => Some(p),
         Err(errs) => {
             eprintln!("bower: the book does not resolve:\n{errs}");
-            return ExitCode::FAILURE;
+            None
         }
+    }
+}
+
+fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode {
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
     };
 
     for repo in &resolved.repos {
@@ -107,14 +133,14 @@ fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode 
             println!(
                 "  {:<28} {:<12} {}",
                 PlannedStep::tag(step),
-                step.expect.to_string(),
+                step.expect,
                 step.msg
             );
         }
     }
 
     let lock_path = book_root.join("bower.lock");
-    if let Err(e) = std::fs::write(&lock_path, bower_core::prelude::lock_text(&resolved)) {
+    if let Err(e) = std::fs::write(&lock_path, lock_text(&resolved)) {
         eprintln!("bower: cannot write {}: {e}", lock_path.display());
         return ExitCode::FAILURE;
     }
@@ -122,32 +148,121 @@ fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode 
     ExitCode::SUCCESS
 }
 
-/// Print what the configuration says, so the parser is observable before the
-/// phases that consume it exist.
-fn report(cfg: &BookConfig, only: Option<&str>) {
-    println!("epoch:    {}", cfg.epoch);
-    println!("identity: {} <{}>", cfg.identity.name, cfg.identity.email);
-    println!("site:     {}", cfg.site.as_deref().unwrap_or("(none)"));
-    println!("catalog:  {} repo(s) declared to the kernel", cfg.catalog().0.len());
+fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path) -> ExitCode {
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
 
-    for (name, repo) in &cfg.repos {
-        if only.is_some_and(|want| want != name) {
-            continue;
-        }
-        println!("\n[{name}]");
-        println!("  github:              {}", opt(repo.github.as_deref()));
-        println!(
-            "  template:            {}",
-            repo.template
-                .as_deref()
-                .map_or_else(|| "(none)".to_string(), |p| p.display().to_string())
-        );
-        println!("  verify:              {}", opt(repo.verify.as_deref()));
-        println!("  keep_region_markers: {}", repo.keep_region_markers);
-        println!("  links.blob:          {}", opt(repo.links.blob.as_deref()));
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only.is_none_or(|want| want == r.repo.0))
+        .collect();
+
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
     }
+    let single = selected.len() == 1;
+
+    for repo in selected {
+        let dir = if single {
+            out.to_path_buf()
+        } else {
+            out.join(&repo.repo.0)
+        };
+        let replayer = Replayer {
+            config: cfg,
+            book_root,
+            out_dir: &dir,
+        };
+        match replayer.run(repo) {
+            Ok(report) => println!(
+                "{}: {} commits, {} tags, HEAD {} → {}",
+                report.repo,
+                report.commits,
+                report.tags.len(),
+                report.head,
+                dir.display()
+            ),
+            Err(e) => {
+                eprintln!("bower: replaying {} failed: {e}", repo.repo);
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    ExitCode::SUCCESS
 }
 
-fn opt(v: Option<&str>) -> &str {
-    v.unwrap_or("(none)")
+#[allow(clippy::too_many_lines)]
+fn run_verify(
+    book_root: &Path,
+    cfg: &BookConfig,
+    only_repo: Option<&str>,
+    step: Option<&str>,
+    from: Option<&str>,
+    work: &Path,
+) -> ExitCode {
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+
+    let mut broken_total = 0_usize;
+
+    for repo in &resolved.repos {
+        if only_repo.is_some_and(|want| want != repo.repo.0) {
+            continue;
+        }
+        let verifier = Verifier {
+            config: cfg,
+            book_root,
+            work_dir: work,
+        };
+        let report = match verifier.run(repo, step, from) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("bower: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        println!("{} — {} step(s)", report.repo, report.verdicts.len());
+        for v in &report.verdicts {
+            let mark = match &v.verdict {
+                Verdict::Upheld => "ok  ",
+                Verdict::Skipped => "skip",
+                Verdict::Broken { .. } => "FAIL",
+            };
+            println!("  {mark} {:03} {:<28} expect={}", v.seq, v.id.0, v.expect);
+        }
+
+        for v in report.broken() {
+            broken_total += 1;
+            let Verdict::Broken {
+                happened,
+                command,
+                stderr,
+            } = &v.verdict
+            else {
+                continue;
+            };
+            eprintln!(
+                "\n{}: step `{}` claims `{}`, but {happened}.",
+                v.anchor, v.id.0, v.expect
+            );
+            eprintln!("    (`{command}` in the step's tree)");
+            let tail: Vec<&str> = stderr.lines().rev().take(8).collect();
+            for line in tail.iter().rev() {
+                eprintln!("    {line}");
+            }
+        }
+    }
+
+    if broken_total == 0 {
+        println!("\nevery claim holds");
+        ExitCode::SUCCESS
+    } else {
+        eprintln!("\n{broken_total} claim(s) in the book are not true");
+        ExitCode::FAILURE
+    }
 }

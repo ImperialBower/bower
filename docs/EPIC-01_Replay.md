@@ -45,13 +45,13 @@ targets. **`bower-core` gains no I/O and no new dependency**; its purity contrac
 | `BookConfig` — `bower.toml` parser | **Complete** |
 | `BookLoader` — disk → `BookSource` | **Complete** |
 | `bower plan` + `bower.lock` on disk | **Complete** |
-| `Replayer` — empty tree → commits | Planned |
-| Deterministic identity and timestamps | Planned |
-| Annotated step tags + chapter-end tags | Planned |
-| Commit trailers | Planned |
-| `STEPS.md` generation | Planned |
-| Step-0 template scaffolding | Planned |
-| Byte-identical-SHA golden test | Planned |
+| `Replayer` — empty tree → commits | **Complete** |
+| Deterministic identity and timestamps | **Complete** |
+| Annotated step tags + chapter-end tags | **Complete** |
+| Commit trailers | **Complete** |
+| `STEPS.md` generation | **Complete** |
+| Step-0 template scaffolding | **Complete** |
+| Byte-identical-SHA golden test | **Complete** |
 
 ---
 
@@ -96,17 +96,17 @@ The rules this EPIC must obey, from spec § 5 and § 7:
 
 | Domain concept | Code construct | Status |
 |---|---|---|
-| Book (an mdBook on disk) | `BookLoader` → `BookSource` | ❌ absent |
-| Book configuration | `BookConfig` from `bower.toml` | ❌ absent |
+| Book (an mdBook on disk) | `BookLoader` → `BookSource` | ✅ done |
+| Book configuration | `BookConfig` from `bower.toml` | ✅ done |
 | Plan (pure value) | `BookPlan` `bower-core/src/plan.rs:15` | ✅ done |
 | Step (a commit-to-be) | `PlannedStep` `bower-core/src/plan.rs:37` | ✅ done |
 | Tree state after a step | `TreeState` `bower-core/src/tree.rs:24` | ✅ done |
 | File content, text or bytes | `FileBody` `bower-core/src/tree.rs:15` | ✅ done |
 | Tag name | `PlannedStep::tag()` `bower-core/src/plan.rs:67` | ✅ done |
 | Lockfile text | `lock_text()` `bower-core/src/plan.rs:216` | ✅ done |
-| Replay (plan → git) | `Replayer` | ❌ absent |
-| Commit identity + epoch | `Identity`, `Epoch` | ❌ absent |
-| Repo index back into the book | `steps_md()` | ❌ absent |
+| Replay (plan → git) | `Replayer` | ✅ done |
+| Commit identity + epoch | `Identity` + `Replayer::stamp` | ✅ done |
+| Repo index back into the book | `steps_md()` | ✅ done |
 
 ---
 
@@ -351,42 +351,100 @@ it.
 
 ### Phase 3 — Replay
 
-- [ ] **3a.** `bower/src/replay.rs`: init an empty repo, write a `TreeState`
-  (`bower-core/src/tree.rs:24`) to disk, honouring both `FileBody` variants
-  (`bower-core/src/tree.rs:15`).
-- [ ] **3b.** Apply the configured `template` directory as step 0,
-  "Initial commit — scaffolding".
-- [ ] **3c.** Commit each step with `step_time(epoch, seq)` for both author and
-  committer time, and the fixed identity.
-- [ ] **3d.** Create an annotated tag per step from `PlannedStep::tag()`
-  (`bower-core/src/plan.rs:67`), plus a `<chapter-stem>-end` tag at each chapter
-  boundary, derived from `step.anchor.chapter`.
-- [ ] **3e.** `bower build [--repo R] [-o DIR]` wires it together.
+- [x] **3a.** `bower/src/replay.rs`: `Replayer`, `ReplayReport`, `ReplayError`.
+  Trees are built directly in the object database with `gix`'s tree editor from
+  `ObjectId::empty_tree`, not by staging files — nested paths like
+  `.github/workflows/ci.yml` come out right and no index churn is involved.
+  **Deviation:** the kernel does not model file modes (`FileBody` is text or
+  bytes, `bower-core/src/tree.rs:15`), so the executable bit is inferred here
+  from a `#!` shebang. That is what makes `bin/security-scan` land as `100755`,
+  which the generated `Makefile` needs in order to invoke it.
+- [x] **3b.** The configured `template` directory is read recursively and
+  committed as step 0, "chore: initial commit — scaffolding", at `seq = 0`.
+  Kernel steps are 1-based (`bower-core/src/plan.rs:39`), so there is no
+  timestamp collision.
+- [x] **3c.** Both author and committer are the same fixed signature, and both
+  times are `epoch + seq` minutes formatted as `<unix> +0000`. **Deviation:**
+  `gix_actor::SignatureRef::time` is a raw git time *string*, not a typed
+  instant, so `time` is used only to add minutes and produce a unix timestamp.
+  The offset is pinned at `+0000`; a local one would change every SHA.
+- [x] **3d.** Annotated tags — a real tag object with a tagger and the step's
+  own timestamp, so tags are deterministic too. Twenty `step-NNN-<id>` tags plus
+  six `<chapter-stem>-end` tags.
+- [x] **3e.** `bower build [--repo R] [-o DIR]`. **Deviation:** with one repo
+  selected `DIR` is used as-is; with several, each gets a subdirectory, because
+  two repositories cannot share one working tree. Two further additions the
+  design did not specify: `HEAD` is rewritten to `refs/heads/main` because
+  `gix::init` otherwise honours the machine's `init.defaultBranch`, and the
+  final step is materialized into the working tree with a matching index, so
+  the generated repository is one a reader can `cd` into and `git status`.
 
 ### Phase 4 — The links back
 
-- [ ] **4a.** `bower/src/trailers.rs`: `commit_message()` emitting all four
-  trailers, omitting `Book-Url` when no site is configured.
-- [ ] **4b.** `steps_md()`, written into the final step's tree only.
-- [ ] **4c.** Tests: `trailers__name_the_chapter_and_line`,
-  `trailers__book_url_is_omitted_without_a_site`.
+- [x] **4a.** `bower/src/trailers.rs`: `commit_message()` emitting
+  `Book-Source`, `Book-Url`, `Bower-Step`, and `Generated-By`, with `Book-Url`
+  omitted entirely when the book declares no site — a plausible-looking broken
+  link is worse than no link. **Addition:** `scaffolding_message()`, because
+  step 0 comes from the template directory rather than any chapter and a
+  `Book-Source` on it would name a chapter that did not produce it.
+- [x] **4b.** `steps_md()`, inserted into the final step's blobs only. The
+  generated repository therefore holds eleven files at HEAD, not the kernel's
+  ten — see the corrigendum.
+- [x] **4c.** Five tests, including `html_name__matches_what_mdbook_emits`,
+  which pins the `src/ch03-….md` → `ch03-….html` mapping the `Book-Url` depends
+  on.
 
 ### Phase 5 — The golden
 
-- [ ] **5a.** `bower/tests/determinism.rs`: replay `hello-playbook` into two
-  temporary directories and assert **identical HEAD SHAs**.
-- [ ] **5b.** Assert the twenty tags match `EXPECTED_TAGS`
-  (`bower-testkit/tests/sample_book.rs:13`), and that the working tree at
-  `step-020-drop-scratch` matches `FINAL_PATHS`
-  (`bower-testkit/tests/sample_book.rs:79`).
-- [ ] **5c.** Assert replaying over a **dirty** output directory still yields the
-  same SHAs — proving replay really does start from empty.
+- [x] **5a.** `bower/tests/determinism.rs`. **Deviation:** the tests drive the
+  **installed binary** via `CARGO_BIN_EXE_bower` rather than the crate's
+  internals. The artifact a reader runs is then the artifact under test, and the
+  CLI's own argument handling falls inside the guarantee. It also avoids
+  splitting `bower` into a lib and a bin purely to satisfy a test.
+- [x] **5b.** **Deviation:** `EXPECTED_TAGS` and `FINAL_PATHS` were consts
+  inside `bower-testkit/tests/sample_book.rs`, unreachable from another crate.
+  They are now `fixtures::HELLO_PLAYBOOK_TAGS` and
+  `fixtures::HELLO_PLAYBOOK_FINAL_PATHS`, and both test suites assert against
+  the one list. Tags are read straight from `.git/refs/tags` rather than through
+  a git library, so the test cannot share a bug with the code it checks.
+- [x] **5c.** `starts_from_empty_even_over_a_dirty_directory` plants a stray
+  file and corrupts `Cargo.toml` between two runs, then asserts the SHAs still
+  match and the stray is gone.
 
 ### Phase 6 — Documentation
 
-- [ ] **6a.** Update `README.md` — the workspace is no longer Phase 1 only.
-- [ ] **6b.** Record the `gix` decision against spec § 12 Q1 in `bower-spec.md`.
-- [ ] **6c.** Flip this EPIC's Status rows and append the corrigendum.
+- [x] **6a.** `README.md` now says Phases 1 and 2, lists the `bower` crate,
+  documents the purity gate, and shows how to build the sample book's repo.
+- [x] **6b.** Spec § 12 Q1 struck through and answered: `gix`, with the
+  reasoning that actually decided it once the code existed.
+- [x] **6c.** Status rows flipped, domain map updated, corrigendum below.
+
+---
+
+## Evidence — the book's own claim, checked by hand
+
+Phase 3 did not automate verification; **EPIC-02 did**. What follows is the
+manual check made on 1 September 2026, kept as the record of what was true at
+the time this EPIC shipped. It is now asserted by
+`bower/tests/verification.rs::upholds_the_two_deliberate_failures`, which runs
+in the default gate.
+
+```
+$ cargo test                       # at HEAD
+test result: ok. 2 passed
+
+$ git checkout step-011-test-that-fails && cargo test
+tests::greet__ignores_stray_whitespace --- FAILED
+test result: FAILED. 1 passed; 1 failed
+
+$ git checkout step-013-wont-compile && cargo build
+error[E0308]: mismatched types
+error: could not compile `hello-playbook` (lib)
+```
+
+The two steps that *declare* failure genuinely fail, and every other step builds
+and passes. Turning that paragraph into a test was exactly what spec § 11
+Phase 3 — EPIC-02 — was for.
 
 ---
 
@@ -410,12 +468,16 @@ it.
 - `loader__missing_book_is_an_error` — a bad `--book` path fails by name.
 - `trailers__name_the_chapter_and_line` — `Book-Source` points at a real file.
 - `trailers__book_url_is_omitted_without_a_site` — no broken links.
-- `replay__hello_playbook_is_byte_identical_across_runs` — the headline
-  requirement of spec § 5.1.
-- `replay__starts_from_empty_even_over_a_dirty_directory` — the no-incremental
-  rule, tested rather than assumed.
-- `replay__tags_match_the_planned_tags` — tags are the book's only stable link
-  target, so a drifted tag is a broken book.
+- `hello_playbook_is_byte_identical_across_runs` — the headline requirement of
+  spec § 5.1.
+- `starts_from_empty_even_over_a_dirty_directory` — the no-incremental rule,
+  tested rather than assumed.
+- `tags_match_the_planned_tags` — tags are the book's only stable link target,
+  so a drifted tag is a broken book.
+- `final_worktree_is_the_kernels_tree_plus_steps_md` — the generated repository
+  is exactly the kernel's tree, plus the one file the replay layer adds.
+- `steps_md_indexes_every_step_back_into_the_book` — no step is missing from
+  the repository's own table of contents.
 
 ## Key Files
 
@@ -442,8 +504,9 @@ it.
   `step.tree` is the tree to write, markers stripped.
 - `bower-core/src/tree.rs:15` — `FileBody`. Binary assets are already modelled;
   do not add a second byte path.
-- `bower-testkit/tests/sample_book.rs:13,79` — `EXPECTED_TAGS` and `FINAL_PATHS`.
-  The golden test asserts against these, not against a fresh list.
+- `bower-testkit/src/fixtures.rs:37,63` — `HELLO_PLAYBOOK_TAGS` and
+  `HELLO_PLAYBOOK_FINAL_PATHS`. Both test suites assert against these, not
+  against a fresh list.
 
 ## Compatibility
 
@@ -477,7 +540,8 @@ cargo run -p bower --  plan  --repo hello-playbook
 cargo run -p bower --  build --repo hello-playbook -o /tmp/hp-1
 cargo run -p bower --  build --repo hello-playbook -o /tmp/hp-2
 diff <(git -C /tmp/hp-1 log --format=%H) <(git -C /tmp/hp-2 log --format=%H)
-git -C /tmp/hp-1 tag | wc -l        # 20 step tags + 6 chapter-end tags
+git -C /tmp/hp-1 tag | wc -l        # 26: 20 step tags + 6 chapter-end tags
+git -C /tmp/hp-1 status --short     # empty: the worktree and index match HEAD
 ```
 
 Exit criteria:
@@ -485,10 +549,107 @@ Exit criteria:
 1. Two independent replays of an unchanged `hello-playbook` produce identical
    commit SHAs, and the `diff` above is empty.
 2. The generated repository holds twenty commits plus a scaffolding commit, and
-   the ten files listed at `bower-testkit/tests/sample_book.rs:79` at HEAD.
+   at HEAD the ten files listed at `bower-testkit/src/fixtures.rs:63` **plus**
+   the generated `STEPS.md` — eleven in all. See corrigendum item 6.
 3. Every commit carries `Book-Source` and `Bower-Step` trailers pointing at a
    chapter file that exists.
 4. `cargo tree -p bower-core -e normal` still lists no dependencies — the kernel did not
    acquire I/O to make replay convenient.
 5. `bower-testkit` and the CLI loader produce equal `BookSource` values for the
    sample book.
+
+
+---
+
+## Implementation corrigendum
+
+What the design assumed, and what building it actually showed. Recorded
+1 September 2026, branch `docs/epic-01`.
+
+### 1. `time` was needed a phase earlier than planned
+
+The design put `time` in Phase 3 with `gix`. But `config__missing_epoch_is_an_error`
+is a Phase 1 requirement, and an epoch cannot be validated without a type that
+knows what an instant is. It landed in Phase 1. The general rule survived — a
+dependency arrives in the phase that uses it — the schedule was simply wrong
+about which phase that was.
+
+### 2. The kernel does not model file modes, so the replayer had to
+
+`FileBody` is text or bytes (`bower-core/src/tree.rs:15`); there is no
+permission bit anywhere in the kernel. But `bin/security-scan` has to be
+`100755` or the generated `Makefile` cannot invoke it. The rule chosen lives in
+`blobs_of`: a text file beginning `#!` is executable, and nothing else is.
+Verified by `blobs_of__marks_shebang_scripts_executable` and by the mode `git
+ls-tree` reports. If a future book needs an executable without a shebang, the
+honest fix is a `mode=` directive key in the kernel, not a longer heuristic here.
+
+### 3. `gix::init` inherits the machine's default branch
+
+Left alone, one developer's replay produces `master` and another's `main`. That
+is not a SHA difference, but it is a reproducibility difference, and it would
+have surfaced as a confusing diff rather than a failing test. `HEAD` is now
+written explicitly as `ref: refs/heads/main`.
+
+### 4. `SignatureRef::time` is a string, and that turned out to be a feature
+
+`gix_actor::SignatureRef::time` is `&str` holding git's own `<unix> <offset>`
+format, not a typed instant. It reads like a wart. In practice it is exactly
+what determinism wants: the offset is written as `+0000` by hand, so no local
+timezone can reach a SHA. `time` is used only to add minutes and produce a unix
+timestamp.
+
+### 5. A repository needs a working tree, and the design never said so
+
+The design described commits and tags and stopped there. A reader who runs
+`bower build` and then `ls` should see files. `write_worktree` materializes the
+final step and writes a matching index from the HEAD tree, so `git status` on a
+freshly generated repository is clean. Asserted by
+`final_worktree_is_the_kernels_tree_plus_steps_md`.
+
+### 6. `STEPS.md` makes HEAD eleven files, not ten
+
+Exit criterion 2 originally said the generated repository holds the ten files
+the kernel's tree holds. It holds eleven: the replay layer adds `STEPS.md`, and
+that file exists precisely because it is *not* book content. The criterion has
+been corrected rather than quietly satisfied. `STEPS.md` is written into the
+final step's tree only — it lists every step, so putting it in each commit would
+make step 3's tree depend on step 20.
+
+### 7. The golden tests drive the binary, not the crate
+
+An integration test in `bower/tests/` cannot reach a binary crate's modules.
+The two ways out are splitting `bower` into a lib plus a bin purely to satisfy a
+test, or driving the built binary through `CARGO_BIN_EXE_bower`. The second was
+chosen: the artifact a reader runs is the artifact under test, and the CLI's own
+argument handling falls inside the guarantee. It also forced
+`HELLO_PLAYBOOK_TAGS` and `HELLO_PLAYBOOK_FINAL_PATHS` out of a test file and
+into `bower-testkit`'s public surface, which is where shared expectations
+belonged anyway.
+
+### 8. Chapter paths changed shape, and one test now guards it
+
+Work item 2c was predicted in the design and landed as written: the fixture's
+bare `ch01-….md` became `src/ch01-….md` to match the loader. The visible effect
+is in `bower.lock` and every `Book-Source` trailer, which now name a path a
+reader can open. `loader__matches_the_testkit_fixture_exactly` is what stops the
+two representations drifting again.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (the crate exists) | Shipped | dependencies deferred to their own phases |
+| 1 (configuration) | Shipped | `time` pulled forward, see item 1 |
+| 2 (loading and `plan`) | Shipped | chapter paths changed shape, see item 8 |
+| 3 (replay) | Shipped | items 2–5 |
+| 4 (the links back) | Shipped | item 6 |
+| 5 (the golden) | Shipped | item 7 |
+| 6 (documentation) | Shipped | spec § 12 Q1 closed in favour of `gix` |
+
+### Still open after this EPIC
+
+- ~~**Verification.**~~ Closed by EPIC-02.
+- **`push`, the mdBook preprocessor, and `status`.** Spec § 11 Phase 4.
+- **Multi-repo books.** The code loops over repos and gives each its own
+  directory, but no book exercises it, so it is untested rather than proven.

@@ -55,7 +55,7 @@ mod tests {
     use super::greet;
 
     #[test]
-    fn greet__uses_the_name() {
+    fn greet_uses_the_name() {
         assert_eq!(greet("world"), "Hello, world!");
     }
 }
@@ -75,13 +75,13 @@ mod tests {
     use super::greet;
 
     #[test]
-    fn greet__uses_the_name() {
+    fn greet_uses_the_name() {
         assert_eq!(greet("world"), "Hello, world!");
     }
 
     // bower:show
     #[test]
-    fn greet__ignores_stray_whitespace() {
+    fn greet_ignores_stray_whitespace() {
         assert_eq!(greet("  world  "), "Hello, world!");
     }
     // bower:show end

@@ -46,7 +46,7 @@ pub mod prelude {
     pub use crate::plan::{lock_text, plan, BookPlan, PlannedStep, PlayCell, RepoPlan};
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
-    pub use crate::tree::{FileBody, TreeState};
+    pub use crate::tree::{show_marker, FileBody, ShowMark, TreeState};
     pub use crate::BowerError;
 }
 

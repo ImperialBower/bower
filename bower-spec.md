@@ -497,13 +497,20 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
 
 ## 12. Open questions
 
-1. **gix vs git2** for replay. gix is pure-Rust and fits the no-C-deps instinct;
-   git2 is boring and complete. Phase 2 decision, kernel unaffected.
+1. ~~**gix vs git2** for replay.~~ **Decided: `gix`** (EPIC-01, 1 September 2026).
+   Pure Rust, so the supply-chain posture keeps no C library; and deterministic
+   commits need direct control of author and committer time, which `gix` gives
+   plainly — `SignatureRef::time` is git's own time string, so the offset is
+   pinned at `+0000` by hand rather than inherited from a machine. The kernel
+   was unaffected, as predicted.
 2. **One book per repo of book-source, or one workspace holding both books?**
    A single `books` workspace sharing templates and CI is the current lean.
-3. **Diagnostic snapshots for `compile_fail`** — store expected stderr like
-   trybuild, or assert failure only? Snapshots are stronger claims but churn
-   with rustc versions; suggest failure-only by default, snapshot opt-in.
+3. ~~**Diagnostic snapshots for `compile_fail`**~~ **Decided: failure-only**
+   (EPIC-02, 1 September 2026). `bower verify` asserts that the check command
+   fails and captures its stderr for the failure report, but matches nothing
+   against a stored pattern. Snapshots remain a plausible opt-in; nothing in the
+   verifier's shape prevents adding them later, and no book has yet needed the
+   stronger claim.
 4. **Should generated repos carry GitHub Actions** that re-verify on push, as a
    public badge that every step passes? Cheap and on-message.
 5. **Crate naming on crates.io.** `bower` may or may not be free (and carries a
