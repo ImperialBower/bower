@@ -20,6 +20,8 @@ use clap::{Parser, Subcommand};
 use bower::config::BookConfig;
 use bower::loader::BookLoader;
 use bower::replay::{book_name, final_blobs, Replayer};
+use bower::forge::{Forge, GitHubForge};
+use bower::push::{plan_push, PushPlan};
 use bower::status::{lock_drift, repo_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
@@ -45,6 +47,24 @@ enum Command {
         /// Limit the run to one target repository.
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// Publish a built repository to its configured remote.
+    ///
+    /// Reports what it would do and changes nothing unless `--execute` is
+    /// given. Refuses to force-push over any repository Bower did not generate,
+    /// and there is no way to override that.
+    Push {
+        /// Limit the run to one target repository.
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// The built repository to publish.
+        #[arg(short, long, default_value = "out")]
+        out: PathBuf,
+
+        /// Actually push. Without this the command only reports.
+        #[arg(long)]
+        execute: bool,
     },
     /// Report what is out of date: the lock, a built repo, or neither.
     Status {
@@ -104,6 +124,11 @@ fn main() -> ExitCode {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
+        Command::Push {
+            repo,
+            out,
+            execute,
+        } => run_push(&cli.book, &cfg, repo.as_deref(), &out, execute),
         Command::Verify {
             repo,
             step,
@@ -338,6 +363,108 @@ fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path
 
     if drifted {
         eprintln!("\nsomething is out of date");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn run_push(
+    book_root: &Path,
+    cfg: &BookConfig,
+    only: Option<&str>,
+    out: &Path,
+    execute: bool,
+) -> ExitCode {
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+
+    let forge = match GitHubForge::preflight() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only.is_none_or(|want| want == r.repo.0))
+        .collect();
+
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+    let single = selected.len() == 1;
+    let mut blocked = false;
+
+    for repo in selected {
+        let dir = if single {
+            out.to_path_buf()
+        } else {
+            out.join(&repo.repo.0)
+        };
+
+        let plan = match plan_push(&forge, cfg, repo, &dir, book_root) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("bower: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        match plan {
+            PushPlan::NotConfigured { repo } => {
+                println!("{repo}: no `github` key — this book does not publish it");
+            }
+            PushPlan::Blocked { repo, reason } => {
+                blocked = true;
+                println!("{repo}: REFUSED");
+                println!("  {reason}");
+            }
+            PushPlan::Ready {
+                repo,
+                remote,
+                branch,
+                tags,
+                create,
+            } => {
+                println!("{repo} → {remote}");
+                println!("  branch    {branch}");
+                println!("  tags      {tags}");
+                if create {
+                    println!("  create    the remote does not exist yet");
+                }
+                if !execute {
+                    println!("  dry run   nothing was sent; pass --execute to publish");
+                    continue;
+                }
+                if create {
+                    let desc = format!("Generated from the book `{repo}`. Do not open pull requests.");
+                    if let Err(e) = forge.create(&remote, &desc) {
+                        eprintln!("bower: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+                match forge.push(&dir, &remote, &branch) {
+                    Ok(outcome) => println!(
+                        "  pushed    {} commits, {} tags",
+                        outcome.commits, outcome.tags
+                    ),
+                    Err(e) => {
+                        eprintln!("bower: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                }
+            }
+        }
+    }
+
+    if blocked {
+        eprintln!("\nnothing was published");
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS

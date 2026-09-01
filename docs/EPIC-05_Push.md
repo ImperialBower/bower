@@ -39,9 +39,9 @@ creation needs, does not push the *book's* own repository, and does not touch
 | `Forge` trait + `FakeForge` | **Complete** |
 | **The generated-repo marker gate** | **Complete** |
 | Preconditions: built, and in sync | **Complete** |
-| `GitHubForge` — `git` and `gh` | Planned |
-| `bower push` CLI, dry-run by default | Planned |
-| Goldens against the fake forge | Planned |
+| `GitHubForge` — `git` and `gh` | **Complete** |
+| `bower push` CLI, dry-run by default | **Complete** |
+| Goldens against the fake forge | **Complete** |
 
 ---
 
@@ -116,7 +116,7 @@ other.
 | Is the build current? | `repo_drift` `bower/src/status.rs:132` | ✅ done |
 | A place to publish to | `Forge` + `FakeForge` | ✅ done |
 | The gate | `MarkerVerdict` | ✅ done |
-| The command | `plan_push()` | 🟡 decides; the CLI is Phase 2 |
+| The command | `plan_push()` + `bower push` | ✅ done |
 
 ---
 
@@ -285,30 +285,30 @@ command named when absent.
 
 ### Phase 2 — The command
 
-- [ ] **2a.** `bower push [--repo R] [-o DIR] [--execute]` in
+- [x] **2a.** `bower push [--repo R] [-o DIR] [--execute]` in
   `bower/src/main.rs`, dry run by default.
-- [ ] **2b.** The dry-run report: remote, branch, tag count, verdict, and — when
+- [x] **2b.** The dry-run report: remote, branch, tag count, verdict, and — when
   refusing — the reason and what to do about it.
-- [ ] **2c.** Exit `0` on a clean dry run, `1` on any refusal.
+- [x] **2c.** Exit `0` on a clean dry run, `1` on any refusal.
 
 ### Phase 3 — The real forge
 
-- [ ] **3a.** `GitHubForge`: `gh api` for probe, `STEPS.md`, and create;
+- [x] **3a.** `GitHubForge`: `gh api` for probe, `STEPS.md`, and create;
   `git push --force-with-lease --tags` for the push itself.
-- [ ] **3b.** Check for `git` and `gh` up front and name the install command
+- [x] **3b.** Check for `git` and `gh` up front and name the install command
   when either is missing.
-- [ ] **3c.** Creation sets the description and leaves `archived: false`
+- [x] **3c.** Creation sets the description and leaves `archived: false`
   (spec § 5.5).
 
 ### Phase 4 — Goldens and documentation
 
-- [ ] **4a.** `bower/tests/push.rs` driving the binary in dry-run mode against
+- [x] **4a.** `bower/tests/push.rs` driving the binary in dry-run mode against
   the sample book: reports the remote and refuses nothing.
-- [ ] **4b.** A golden that asserts a **refusal** — the fake forge returns
+- [x] **4b.** A golden that asserts a **refusal** — the fake forge returns
   content with no `STEPS.md`, and `Forge::push` is never called.
-- [ ] **4c.** `README.md` and `BACKLOG.md`; document that there is no override
+- [x] **4c.** `README.md` and `BACKLOG.md`; document that there is no override
   and why, and that adopting an existing repo means pushing a `STEPS.md` by hand.
-- [ ] **4d.** Flip Status rows, append the corrigendum.
+- [x] **4d.** Flip Status rows, append the corrigendum.
 
 ---
 
@@ -392,3 +392,69 @@ Exit criteria:
    codebase that bypasses the gate. `grep -ri "force\|override\|skip" bower/src`
    turns up nothing that does.
 6. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 1 September 2026, branch `docs/epic-01`.
+
+### 1. Phases 2 and 3 are one unit
+
+A CLI with no `Forge` implementation is a command that cannot run. The same
+lesson EPIC-02 learned about dead code applies to half-wired commands: the
+boundary was administrative, and both were carried through together.
+
+### 2. The design listed a gate test that cannot exist
+
+`gate__unreadable_remote_is_refused` — but an unreadable remote is a
+`ForgeError` at the caller and never reaches the gate as `None`. Conflating
+"no such file" with "could not look" is exactly how a guard becomes a hazard,
+because *empty is safe to overwrite*. The distinction is enforced twice now: in
+`is_not_found`, which treats only a 404 as an answer and a 401 as a refusal to
+answer, and in `plan__unreadable_remote_is_an_error_not_a_verdict`.
+
+### 3. Tags are force-pushed without a lease, and that is deliberate
+
+The branch goes with `--force-with-lease`. Tags go with plain `--force`: a
+replay recreates every tag under the same name with a new SHA, so a lease on
+them would only ever say no. The gate has already established that the remote is
+ours; that is what earns the plain force, and it is the only place in this
+command where one is used.
+
+### 4. The sample book deliberately declares no `github` key
+
+Which means **no test in this repository can reach the network**, even by
+accident. The binary-driven golden can only exercise the "does not publish"
+path; every other path runs through `FakeForge`. Adding a real remote to the
+sample book would have made the test suite capable of publishing, and a test
+suite that *can* publish eventually does.
+
+### 5. Exit criterion 5 became a test
+
+"There is no override" was a claim in a document. It is now
+`dry_run_is_the_default_and_no_flag_overrides_the_guard`, which reads
+`bower push --help` and asserts that `--force`, `--override`, `--skip`,
+`--no-verify`, and `--yes` are all absent from the surface a user can reach.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (the gate) | Shipped | marker extracted to one definition |
+| 1 (deciding, against a fake) | Shipped | preconditions before any network call |
+| 2 (the command) | Shipped | item 1 |
+| 3 (the real forge) | Shipped | items 1, 3 |
+| 4 (goldens and docs) | Shipped | items 4, 5 |
+
+### Still open after this EPIC
+
+- **`GitHubForge` itself is untested.** That is the stated last inch: the
+  decisions are tested against `FakeForge`, the shelling-out is not. The pure
+  parts that could be extracted — `remote_url`, `state_from`, `is_not_found` —
+  were, and are.
+- **No `--execute` has ever been run.** Nothing in this repository has been
+  published, because no book here declares a remote.
+- **Branch protection and `archived: false`** (spec § 5.5) are not managed
+  beyond what `gh repo create` sets.

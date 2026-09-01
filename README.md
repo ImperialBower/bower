@@ -9,11 +9,12 @@ repositories — one commit per teaching step, with links in both directions
 between the page and the code.
 
 This workspace is **Phases 1 to 4** of the [design spec](https://github.com/ImperialBower)
-(`bower-spec.md`, Draft 0.2), bar one piece: the pure kernel, its testkit, the
-replay layer that turns a plan into real commits, the verifier that checks every
-step's declared `expect` against a real compiler, the `mdbook-bower`
-preprocessor, and the `status` drift report. Only `push` is missing from Phase
-4. Migration — standing up the real *Rust for Failers* book — is Phase 5.
+(`bower-spec.md`, Draft 0.2): the pure kernel, its testkit, the replay layer that
+turns a plan into real commits, the verifier that checks every step's declared
+`expect` against a real compiler, the `mdbook-bower` preprocessor, the `status`
+drift report, and `push`. Migration — standing up the real *Rust for Failers*
+book — is Phase 5, and is where all of this first meets a book that was not
+written to flatter it.
 
 ## Crates
 
@@ -89,11 +90,20 @@ cargo run -p bower -- --book books/hello-playbook plan
 cargo run -p bower -- --book books/hello-playbook build -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook verify
 cargo run -p bower -- --book books/hello-playbook status -o /tmp/hello-playbook
+cargo run -p bower -- --book books/hello-playbook push   -o /tmp/hello-playbook
 ```
 
 `verify` writes each step's tree to a scratch directory and runs the repo's
 `check` and `verify` commands against it, comparing what happens to what the
 book claimed. It never touches git, so it works before `build` has ever run.
+
+`push` publishes a built repository to the `github` remote its `bower.toml`
+declares. It **reports and changes nothing** unless given `--execute`, and it
+refuses to force-push over any repository that does not carry Bower's own
+`STEPS.md` marker naming this book. **There is no override** — no flag, no
+environment variable, no config key. To adopt an existing repository, push a
+`STEPS.md` to it by hand first. Force-pushing is a generated repo's normal life,
+and the guard is what keeps that from being anyone else's problem.
 
 `status` answers the question between the other commands: what here is out of
 date? It compares the book against `bower.lock` and against a previously built
