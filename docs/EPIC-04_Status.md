@@ -38,8 +38,8 @@ below. And it does not touch `bower-core`.
 |---|---|
 | `LockDrift` — regenerated vs on-disk lock | **Complete** |
 | `RepoDrift` — tags and worktree | **Complete** |
-| `StatusReport` and its verdict | Planned |
-| `bower status` CLI + exit codes | Planned |
+| `StatusReport` and its verdict | **Complete** |
+| `bower status` CLI + exit codes | **Complete** |
 | Goldens: clean, stale lock, stale repo | Planned |
 
 ---
@@ -84,7 +84,7 @@ below. And it does not touch `bower-core`.
 | The repo's extra file | `steps_md` `bower/src/trailers.rs:50` | ✅ done |
 | Lock drift | `LockDrift` | ✅ done |
 | Repo drift | `RepoDrift` | ✅ done |
-| The verdict | `StatusReport` | ❌ absent |
+| The verdict | `StatusReport` | ✅ done |
 
 ---
 
@@ -236,11 +236,30 @@ sets `default-run = "bower"`.
 
 ### Phase 2 — The command
 
-- [ ] **2a.** `StatusReport`, `has_drift()`, and the printer.
-- [ ] **2b.** `bower status [--repo R] [-o DIR]` in `bower/src/main.rs`,
-  reusing `resolve()`; exit `1` on drift, `0` otherwise.
-- [ ] **2c.** Tests: `report__absent_artifacts_are_not_drift`,
-  `report__a_stale_lock_is_drift`.
+- [x] **2a.** `StatusReport`, `has_drift()`, and a `Display` impl — the printer
+  lives on the type so it can be tested without a subprocess. **Addition:** long
+  lists are capped at five with an "… and N more" tail; a report longer than a
+  screen is a report nobody reads. Lock lines print diff-shaped (`-`/`+`, one
+  character) rather than in the labelled column the other kinds use, because
+  there the content is the point and padding pushed every line off screen.
+- [x] **2b.** `bower status [--repo R] [-o DIR]`, reusing `resolve()`.
+  **Deviation:** two more things had to be shared rather than re-derived.
+  `replay` gained `pub fn book_name()` and `pub fn final_blobs()`, and `replay`
+  itself now uses them. `status` must expect the exact `STEPS.md` that `replay`
+  wrote; a second guess at the book's name would produce a file differing by one
+  word and report drift forever. `replay::run` is shorter for it.
+- [x] **2c.** Five tests. **Additions:** `report__packed_tags_are_not_drift_either`,
+  `report__a_stale_repo_is_drift`, and `report__long_lists_are_capped`.
+  Verified on branch `docs/epic-01`, 1 September 2026: 155 tests pass, clippy
+  silent.
+
+**Checked by hand, ahead of the Phase 3 goldens.** A freshly built sample book
+reports `lock in sync` / `repo in sync` and exits `0` — which is also the
+strongest evidence yet that `expected_tags` and `final_blobs` agree with what
+`replay` actually writes. Deleting `Makefile`, tampering with `src/lib.rs`,
+adding a stray file and removing one tag produced exactly four named lines and
+exit `1`. Editing a chapter in a copied book made the lock stale and printed
+both the old and new line for step 011.
 
 ### Phase 3 — Goldens
 
@@ -282,6 +301,9 @@ sets `default-run = "bower"`.
   `status` expects is the one `replay` writes.
 - `report__absent_artifacts_are_not_drift` — the distinction that makes this
   usable in CI. Without it, every fresh checkout is a red build.
+- `report__packed_tags_are_not_drift_either` — an admission is not a failure.
+- `report__a_stale_repo_is_drift`, `report__long_lists_are_capped` — the report
+  names its findings, and stays readable when there are many.
 - `status__a_freshly_built_book_is_clean` — the golden.
 - `status__an_edited_chapter_makes_the_lock_stale` — the golden's negative.
 - `status__a_deleted_file_is_reported` — the repo's negative.

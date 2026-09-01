@@ -83,10 +83,7 @@ impl Replayer<'_> {
         let repo_name = plan.repo.0.clone();
         // The book's own name, for `Book-Source` trailers. It is the book
         // directory's name, which is what a reader sees in a URL.
-        let book_name = self
-            .book_root
-            .file_name()
-            .map_or_else(|| repo_name.clone(), |n| n.to_string_lossy().into_owned());
+        let book_name = book_name(self.book_root, &repo_name);
 
         // From scratch, always: an existing directory is replaced, never merged.
         if self.out_dir.exists() {
@@ -116,17 +113,12 @@ impl Replayer<'_> {
         }
 
         let last_seq = plan.steps.last().map(|s| s.seq);
-        let mut final_blobs = Blobs::new();
+        let final_blobs = final_blobs(plan, &book_name, self.config.site.as_deref());
 
         for step in &plan.steps {
             let mut blobs = blobs_of(&step.tree);
-            // `STEPS.md` lists every step, later ones included, so it can only
-            // live in the final tree. Writing it at every step would make each
-            // commit depend on commits that do not exist yet.
             if Some(step.seq) == last_seq {
-                let md = trailers::steps_md(plan, &book_name, self.config.site.as_deref());
-                blobs.insert("STEPS.md".to_string(), (md.into_bytes(), false));
-                final_blobs.clone_from(&blobs);
+                blobs.clone_from(&final_blobs);
             }
             let tree = Self::write_tree(&repo, &blobs)?;
             let msg =
@@ -256,6 +248,36 @@ impl Replayer<'_> {
             .map_err(git)?;
         Ok(())
     }
+}
+
+/// The book's own name, as `Book-Source` trailers and `STEPS.md` print it: the
+/// book directory's name, which is what a reader sees in a URL.
+///
+/// Public because `status` must expect the same `STEPS.md` that `replay` wrote,
+/// and a second guess at the book's name would produce a file that differs by a
+/// word and reports as drift forever.
+#[must_use]
+pub fn book_name(book_root: &Path, fallback: &str) -> String {
+    book_root
+        .file_name()
+        .map_or_else(|| fallback.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// The files a replay leaves in the working tree: the final step's tree, plus
+/// the generated `STEPS.md`.
+///
+/// `STEPS.md` lists every step, later ones included, so it can only live in the
+/// final tree — writing it at every step would make each commit's tree depend
+/// on commits that do not exist yet.
+#[must_use]
+pub fn final_blobs(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> Blobs {
+    let Some(last) = plan.steps.last() else {
+        return Blobs::new();
+    };
+    let mut blobs = blobs_of(&last.tree);
+    let md = trailers::steps_md(plan, book_name, site);
+    blobs.insert("STEPS.md".to_string(), (md.into_bytes(), false));
+    blobs
 }
 
 /// Every tag a replay of `plan` creates: one per step, plus one per chapter.

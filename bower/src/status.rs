@@ -233,6 +233,109 @@ fn loose_tags(dir: &Path) -> std::io::Result<Vec<String>> {
     Ok(out)
 }
 
+/// One repository's verdict.
+#[derive(Clone, Debug)]
+pub struct StatusReport {
+    pub repo: String,
+    pub steps: usize,
+    pub lock: LockDrift,
+    pub repo_state: RepoDrift,
+}
+
+impl StatusReport {
+    /// True when something compared is out of date.
+    ///
+    /// Absent artifacts are **not** drift. A book nobody has planned and a
+    /// repository nobody has built are honest states, not failures — without
+    /// that distinction every fresh checkout is a red build, and a red build
+    /// nobody believes is one they mute. `TagsPacked` is likewise an admission
+    /// that a check could not run, not a claim that it failed.
+    #[must_use]
+    pub fn has_drift(&self) -> bool {
+        matches!(self.lock, LockDrift::Stale { .. })
+            || matches!(self.repo_state, RepoDrift::Stale { .. })
+    }
+}
+
+/// At most this many items of any one drift kind are printed; the rest are
+/// summarized. A report longer than a screen is a report nobody reads.
+const SHOWN: usize = 5;
+
+impl fmt::Display for StatusReport {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{} — {} steps", self.repo, self.steps)?;
+
+        match &self.lock {
+            LockDrift::NeverPlanned => {
+                writeln!(f, "  lock      never planned — run `bower plan`")?;
+            }
+            LockDrift::InSync => writeln!(f, "  lock      in sync")?,
+            LockDrift::Stale {
+                only_in_lock,
+                only_in_book,
+            } => {
+                let n = only_in_lock.len() + only_in_book.len();
+                writeln!(f, "  lock      STALE — {n} line(s) differ; run `bower plan`")?;
+                diff(f, '-', only_in_lock)?;
+                diff(f, '+', only_in_book)?;
+            }
+        }
+
+        match &self.repo_state {
+            RepoDrift::NeverBuilt => {
+                writeln!(f, "  repo      never built — run `bower build`")?;
+            }
+            RepoDrift::TagsPacked => {
+                writeln!(f, "  repo      tags are packed; cannot check them here")?;
+            }
+            RepoDrift::InSync => writeln!(f, "  repo      in sync")?,
+            RepoDrift::Stale {
+                missing_tags,
+                unexpected_tags,
+                differing_files,
+                missing_files,
+                unexpected_files,
+            } => {
+                writeln!(f, "  repo      STALE — run `bower build`")?;
+                list(f, "missing tag", missing_tags)?;
+                list(f, "extra tag", unexpected_tags)?;
+                list(f, "differs", differing_files)?;
+                list(f, "missing", missing_files)?;
+                list(f, "extra", unexpected_files)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Diff-shaped lines, where the marker is one character and the content is the
+/// point. Padding it into a column would push every line off the screen.
+fn diff(f: &mut fmt::Formatter<'_>, mark: char, items: &[String]) -> fmt::Result {
+    for item in items.iter().take(SHOWN) {
+        writeln!(f, "              {mark} {item}")?;
+    }
+    if items.len() > SHOWN {
+        writeln!(f, "              {mark} … and {} more", items.len() - SHOWN)?;
+    }
+    Ok(())
+}
+
+/// Labelled lines, where the label names the kind of drift.
+fn list(f: &mut fmt::Formatter<'_>, label: &str, items: &[String]) -> fmt::Result {
+    for item in items.iter().take(SHOWN) {
+        writeln!(f, "              {label:<12} {item}")?;
+    }
+    if items.len() > SHOWN {
+        writeln!(
+            f,
+            "              {:<12} … and {} more",
+            "",
+            items.len() - SHOWN
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 #[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
 mod status_tests {
@@ -468,5 +571,94 @@ mod repo_tests {
     fn expected_tags__covers_every_step_and_one_end_tag_per_chapter() {
         let p = one_step_plan();
         assert_eq!(expected_tags(&p), vec!["step-001-first", "ch01-end"]);
+    }
+}
+
+#[cfg(test)]
+#[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
+mod report_tests {
+    use super::*;
+
+    fn report(lock: LockDrift, repo_state: RepoDrift) -> StatusReport {
+        StatusReport {
+            repo: "r".to_string(),
+            steps: 1,
+            lock,
+            repo_state,
+        }
+    }
+
+    #[test]
+    fn report__absent_artifacts_are_not_drift() {
+        // The distinction that makes this usable in CI. Without it every
+        // fresh checkout is a red build, and a red build nobody believes is
+        // one they mute.
+        let r = report(LockDrift::NeverPlanned, RepoDrift::NeverBuilt);
+        assert!(!r.has_drift());
+        let text = r.to_string();
+        assert!(text.contains("never planned"), "{text}");
+        assert!(text.contains("never built"), "{text}");
+    }
+
+    #[test]
+    fn report__packed_tags_are_not_drift_either() {
+        // An admission that a check could not run, not a claim it failed.
+        let r = report(LockDrift::InSync, RepoDrift::TagsPacked);
+        assert!(!r.has_drift());
+        assert!(r.to_string().contains("cannot check"), "{r}");
+    }
+
+    #[test]
+    fn report__a_stale_lock_is_drift() {
+        let r = report(
+            LockDrift::Stale {
+                only_in_lock: vec!["001 a expect=pass".to_string()],
+                only_in_book: vec!["001 a expect=test_fail".to_string()],
+            },
+            RepoDrift::InSync,
+        );
+        assert!(r.has_drift());
+        let text = r.to_string();
+        assert!(text.contains("- 001 a expect=pass"), "{text}");
+        assert!(text.contains("+ 001 a expect=test_fail"), "{text}");
+        assert!(text.contains("bower plan"), "the fix must be named: {text}");
+    }
+
+    #[test]
+    fn report__a_stale_repo_is_drift() {
+        let r = report(
+            LockDrift::InSync,
+            RepoDrift::Stale {
+                missing_tags: vec!["step-001-a".to_string()],
+                unexpected_tags: vec![],
+                differing_files: vec!["src/lib.rs".to_string()],
+                missing_files: vec![],
+                unexpected_files: vec![],
+            },
+        );
+        assert!(r.has_drift());
+        let text = r.to_string();
+        assert!(text.contains("missing tag  step-001-a"), "{text}");
+        assert!(text.contains("differs      src/lib.rs"), "{text}");
+    }
+
+    #[test]
+    fn report__long_lists_are_capped() {
+        // A report longer than a screen is a report nobody reads.
+        let many: Vec<String> = (0..12).map(|i| format!("file{i}.rs")).collect();
+        let r = report(
+            LockDrift::InSync,
+            RepoDrift::Stale {
+                missing_tags: vec![],
+                unexpected_tags: vec![],
+                differing_files: many,
+                missing_files: vec![],
+                unexpected_files: vec![],
+            },
+        );
+        let text = r.to_string();
+        assert!(text.contains("file4.rs"), "{text}");
+        assert!(!text.contains("file5.rs"), "{text}");
+        assert!(text.contains("and 7 more"), "{text}");
     }
 }

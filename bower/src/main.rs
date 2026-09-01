@@ -19,7 +19,8 @@ use clap::{Parser, Subcommand};
 
 use bower::config::BookConfig;
 use bower::loader::BookLoader;
-use bower::replay::Replayer;
+use bower::replay::{book_name, final_blobs, Replayer};
+use bower::status::{lock_drift, repo_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
 #[derive(Debug, Parser)]
@@ -44,6 +45,17 @@ enum Command {
         /// Limit the run to one target repository.
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// Report what is out of date: the lock, a built repo, or neither.
+    Status {
+        /// Limit the run to one target repository.
+        #[arg(long)]
+        repo: Option<String>,
+
+        /// A previously built repository to check. Absent means "not built",
+        /// which is reported rather than treated as an error.
+        #[arg(short, long, default_value = "out")]
+        out: PathBuf,
     },
     /// Check every step's declared `expect` against a real compiler.
     Verify {
@@ -91,6 +103,7 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
+        Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Verify {
             repo,
             step,
@@ -264,5 +277,69 @@ fn run_verify(
     } else {
         eprintln!("\n{broken_total} claim(s) in the book are not true");
         ExitCode::FAILURE
+    }
+}
+
+fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path) -> ExitCode {
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+
+    let lock = match lock_drift(book_root, &resolved) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only.is_none_or(|want| want == r.repo.0))
+        .collect();
+
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+    let single = selected.len() == 1;
+    let mut drifted = false;
+
+    for repo in selected {
+        let dir = if single {
+            out.to_path_buf()
+        } else {
+            out.join(&repo.repo.0)
+        };
+        let name = book_name(book_root, &repo.repo.0);
+        let expected = final_blobs(repo, &name, cfg.site.as_deref());
+
+        let repo_state = match repo_drift(&dir, repo, &expected) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("bower: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+
+        let report = StatusReport {
+            repo: repo.repo.0.clone(),
+            steps: repo.steps.len(),
+            // The lock covers the whole book, so every repo reports the same
+            // verdict for it. Repeating it beats hiding it above the repo it
+            // applies to.
+            lock: lock.clone(),
+            repo_state,
+        };
+        print!("{report}");
+        drifted |= report.has_drift();
+    }
+
+    if drifted {
+        eprintln!("\nsomething is out of date");
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
     }
 }
