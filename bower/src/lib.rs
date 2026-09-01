@@ -17,6 +17,7 @@ pub mod loader;
 pub mod materialize;
 pub mod render;
 pub mod replay;
+pub mod status;
 pub mod trailers;
 pub mod verify;
 

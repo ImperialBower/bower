@@ -36,7 +36,7 @@ below. And it does not touch `bower-core`.
 
 | Component | Status |
 |---|---|
-| `LockDrift` — regenerated vs on-disk lock | Planned |
+| `LockDrift` — regenerated vs on-disk lock | **Complete** |
 | `RepoDrift` — tags and worktree | Planned |
 | `StatusReport` and its verdict | Planned |
 | `bower status` CLI + exit codes | Planned |
@@ -82,7 +82,7 @@ below. And it does not touch `bower-core`.
 | A tree, as files | `blobs_of` `bower/src/materialize.rs:26` | ✅ done |
 | A directory, as files | `read_dir_recursive` `bower/src/materialize.rs:44` | ✅ done |
 | The repo's extra file | `steps_md` `bower/src/trailers.rs:50` | ✅ done |
-| Lock drift | `LockDrift` | ❌ absent |
+| Lock drift | `LockDrift` | ✅ done |
 | Repo drift | `RepoDrift` | ❌ absent |
 | The verdict | `StatusReport` | ❌ absent |
 
@@ -190,11 +190,21 @@ hello-playbook — 20 steps
 
 ### Phase 0 — Lock drift
 
-- [ ] **0a.** `bower/src/status.rs`: `StatusError`, `LockDrift`, `lock_drift()`.
-- [ ] **0b.** Register the module in `bower/src/lib.rs`.
-- [ ] **0c.** Tests: `lock__absent_is_never_planned`,
-  `lock__identical_text_is_in_sync`,
-  `lock__a_changed_step_shows_both_lines`.
+- [x] **0a.** `bower/src/status.rs`: `StatusError`, `LockDrift`, `lock_drift()`.
+  **Deviation:** the design named the drift fields `added` and `removed`, which
+  do not say which side they belong to. They are `only_in_lock` (stale lines on
+  disk) and `only_in_book` (what a fresh plan would write). The comparison is a
+  line-set difference rather than a positional diff, because the lock is one
+  line per step and a step that moved already shows it in its own `NNN` prefix.
+- [x] **0b.** Registered in `bower/src/lib.rs`. Worth noting that the EPIC-03
+  library restructure paid off here: `lock_drift` is public API of a library, so
+  it does not warn as dead code while waiting for its Phase 2 caller — the
+  problem that forced Phases 1–3 of EPIC-02 to be carried through in one pass.
+- [x] **0c.** Four tests. **Addition:**
+  `lock__an_unreadable_lock_is_an_error_not_a_verdict` — a directory where the
+  lock should be. Reporting "in sync" there would be a lie, and "never planned"
+  would hide a real problem. Verified on branch `docs/epic-01`, 1 September
+  2026: 140 tests pass, clippy silent.
 
 ### Phase 1 — Repo drift
 
@@ -241,6 +251,8 @@ hello-playbook — 20 steps
 - `lock__identical_text_is_in_sync` — the happy path, which must not be noisy.
 - `lock__a_changed_step_shows_both_lines` — a report that says "something
   changed" without saying what is not a report.
+- `lock__an_unreadable_lock_is_an_error_not_a_verdict` — an unreadable lock is
+  neither "in sync" nor "never planned".
 - `repo__missing_directory_is_never_built`,
   `repo__directory_without_git_is_never_built` — the two shapes of unbuilt.
 - `repo__missing_tag_is_named`, `repo__changed_file_is_named`,
