@@ -14,5 +14,8 @@ authors = ["ImperialBower"]
 bower-core = { path = "bower-core", version = "0.1.0" }
 bower-testkit = { path = "bower-testkit", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+time = { version = "0.3", features = ["parsing"] }
+toml = "1"
 proptest = "1"
 rstest = "0.23"

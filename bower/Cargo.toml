@@ -9,8 +9,11 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-# Phase 0 takes only the CLI surface. `toml`/`serde` arrive with the config
-# parser (Phase 1), `gix`/`time` with replay (Phase 3) — a dependency lands in
-# the phase that uses it, never before.
+# A dependency lands in the phase that uses it, never before. `gix` arrives
+# with replay (Phase 3). `time` was scheduled for Phase 3 but is needed here:
+# the epoch has to be validated at load, not at commit.
 bower-core = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+toml = { workspace = true }

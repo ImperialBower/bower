@@ -42,7 +42,7 @@ targets. **`bower-core` gains no I/O and no new dependency**; its purity contrac
 | Component | Status |
 |---|---|
 | `bower` binary crate + workspace member | **Complete** |
-| `BookConfig` — `bower.toml` parser | Planned |
+| `BookConfig` — `bower.toml` parser | **Complete** |
 | `BookLoader` — disk → `BookSource` | Planned |
 | `bower plan` + `bower.lock` on disk | Planned |
 | `Replayer` — empty tree → commits | Planned |
@@ -172,6 +172,9 @@ pub struct LinkTemplates {
 
 impl BookConfig {
     pub fn load(book_root: &Path) -> Result<Self, ConfigError>;
+    /// Parse configuration text. Split from `load` so the rules can be
+    /// tested without touching a filesystem.
+    pub fn parse(text: &str) -> Result<Self, ConfigError>;
     /// The catalog the kernel wants — the narrow projection of this config.
     pub fn catalog(&self) -> RepoCatalog;
 }
@@ -304,15 +307,22 @@ it.
 
 ### Phase 1 — Configuration
 
-- [ ] **1a.** `bower/src/config.rs`: `BookConfig`, `Identity`, `RepoConfig`,
-  `LinkTemplates`, and `BookConfig::load`.
-- [ ] **1b.** `BookConfig::catalog()` projecting to `RepoCatalog`
+- [x] **1a.** `bower/src/config.rs`: `BookConfig`, `Identity`, `RepoConfig`,
+  `LinkTemplates`, `ConfigError`, and `BookConfig::load`. **Deviation:** added
+  `BookConfig::parse(&str)` beside `load`, because the error rules cannot be
+  tested through a path without inventing temporary files.
+- [x] **1b.** `BookConfig::catalog()` projecting to `RepoCatalog`
   (`bower-core/src/source.rs:109`), carrying `keep_region_markers` only.
-- [ ] **1c.** Extend `books/hello-playbook/bower.toml` with the `[book]` epoch
-  and site and the `[identity]` block it currently lacks.
-- [ ] **1d.** Tests: `config__loads_the_sample_book`,
-  `config__missing_epoch_is_an_error`,
-  `config__catalog_carries_only_kernel_settings`.
+- [x] **1c.** Extended `books/hello-playbook/bower.toml` with `[book]` (epoch,
+  site) and `[identity]`, and corrected its header comment, which still claimed
+  nothing parsed the file.
+- [x] **1d.** Four tests, not three — every wire struct carries
+  `#[serde(deny_unknown_fields)]`, so a typo in `bower.toml` fails at load
+  rather than being silently ignored, and that rule earned its own test.
+  **Deviation:** `time` was scheduled for Phase 3 but landed here; an epoch that
+  is not a valid instant has to fail at load, not at commit. Verified on branch
+  `docs/epic-01`, 1 September 2026: 84 tests pass, clippy silent,
+  `cargo tree -p bower-core -e normal` unchanged.
 
 ### Phase 2 — Loading and `bower plan`
 
@@ -374,6 +384,8 @@ it.
 - `config__loads_the_sample_book` — `bower.toml` round-trips into `BookConfig`.
 - `config__missing_epoch_is_an_error` — a book with no epoch cannot replay
   deterministically, so it must fail loudly at load, not silently at commit.
+- `config__unknown_key_is_an_error` — `deny_unknown_fields` holds; a misspelled
+  setting is a loud failure, not a silent default.
 - `config__catalog_carries_only_kernel_settings` — pins the purity boundary: the
   projection drops `github`, `template`, `verify`, and `links`.
 - `loader__reads_hello_playbook_in_summary_order` — the loader's `BookSource`

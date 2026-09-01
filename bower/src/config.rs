@@ -1,0 +1,292 @@
+//! `bower.toml` — the replay layer's configuration.
+//!
+//! Everything the kernel deliberately refuses to know lives here: where to push,
+//! which template seeds step 0, what command verifies a step, and the epoch that
+//! makes commit SHAs reproducible. Exactly one setting crosses back into the
+//! kernel — [`BookConfig::catalog`] projects `keep_region_markers` into a
+//! [`RepoCatalog`] and drops the rest. Adding a key to this file must never
+//! require touching `bower-core`.
+
+use std::collections::BTreeMap;
+use std::fmt;
+use std::path::{Path, PathBuf};
+
+use bower_core::prelude::{RepoCatalog, RepoName, RepoSpec};
+use serde::Deserialize;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
+
+/// The parsed `bower.toml`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BookConfig {
+    /// Timestamp base for deterministic commits: step `n` commits at
+    /// `epoch + n` minutes. Replay never reads a clock.
+    pub epoch: OffsetDateTime,
+    /// Public site the rendered book lives at, for `Book-Url` trailers.
+    pub site: Option<String>,
+    pub identity: Identity,
+    pub repos: BTreeMap<String, RepoConfig>,
+}
+
+/// The fixed author and committer of every generated commit. Fixed, because a
+/// per-machine identity would change every SHA.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Identity {
+    pub name: String,
+    pub email: String,
+}
+
+/// One target repository's settings.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct RepoConfig {
+    /// `owner/name`; enables push. Absent means local-only.
+    pub github: Option<String>,
+    /// Book-relative directory applied as step 0 scaffolding.
+    pub template: Option<PathBuf>,
+    /// Command a later phase runs to verify each step.
+    pub verify: Option<String>,
+    /// The one setting the kernel cares about.
+    pub keep_region_markers: bool,
+    pub links: LinkTemplates,
+}
+
+/// Forge URL templates. Keeping these as templates is what lets a book point at
+/// Codeberg or a self-hosted forge without a code change.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct LinkTemplates {
+    /// e.g. `https://…/blob/{tag}/{path}#L{start}-L{end}`
+    pub blob: Option<String>,
+}
+
+/// Why a configuration could not be loaded. Every variant names the file, so a
+/// reader is never left guessing which `bower.toml` is wrong.
+#[derive(Debug)]
+pub enum ConfigError {
+    Read { path: PathBuf, source: std::io::Error },
+    Parse { path: PathBuf, source: toml::de::Error },
+    Epoch { value: String, reason: String },
+}
+
+impl fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read { path, source } => {
+                write!(f, "cannot read {}: {source}", path.display())
+            }
+            Self::Parse { path, source } => {
+                write!(f, "cannot parse {}: {source}", path.display())
+            }
+            Self::Epoch { value, reason } => {
+                write!(f, "book epoch `{value}` is not a valid instant: {reason}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ConfigError {}
+
+impl BookConfig {
+    /// Read and parse `<book_root>/bower.toml`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] if the file cannot be read, is not valid TOML,
+    /// carries an unknown key, or declares an epoch that is not an instant.
+    pub fn load(book_root: &Path) -> Result<Self, ConfigError> {
+        let path = book_root.join("bower.toml");
+        let text = std::fs::read_to_string(&path).map_err(|source| ConfigError::Read {
+            path: path.clone(),
+            source,
+        })?;
+        Self::parse(&text).map_err(|e| match e {
+            ConfigError::Parse { source, .. } => ConfigError::Parse { path, source },
+            other => other,
+        })
+    }
+
+    /// Parse configuration text. Split out from [`Self::load`] so the rules can
+    /// be tested without touching a filesystem.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::load`], minus the read failure.
+    pub fn parse(text: &str) -> Result<Self, ConfigError> {
+        let wire: Wire = toml::from_str(text).map_err(|source| ConfigError::Parse {
+            path: PathBuf::from("bower.toml"),
+            source,
+        })?;
+
+        let raw = wire.book.epoch.to_string();
+        let epoch = OffsetDateTime::parse(&raw, &Rfc3339).map_err(|e| ConfigError::Epoch {
+            value: raw,
+            reason: e.to_string(),
+        })?;
+
+        Ok(Self {
+            epoch,
+            site: wire.book.site,
+            identity: Identity {
+                name: wire.identity.name,
+                email: wire.identity.email,
+            },
+            repos: wire
+                .repos
+                .into_iter()
+                .map(|(name, r)| {
+                    (
+                        name,
+                        RepoConfig {
+                            github: r.github,
+                            template: r.template,
+                            verify: r.verify,
+                            keep_region_markers: r.keep_region_markers,
+                            links: LinkTemplates { blob: r.links.blob },
+                        },
+                    )
+                })
+                .collect(),
+        })
+    }
+
+    /// The narrow projection the kernel accepts: repo names plus the single
+    /// setting that changes pure computation. Everything else stays here.
+    #[must_use]
+    pub fn catalog(&self) -> RepoCatalog {
+        RepoCatalog(
+            self.repos
+                .iter()
+                .map(|(name, cfg)| {
+                    (
+                        RepoName::new(name),
+                        RepoSpec {
+                            keep_region_markers: cfg.keep_region_markers,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The wire form. `deny_unknown_fields` throughout: a typo in `bower.toml` is a
+/// loud error at load, not a silently ignored setting discovered at push time.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Wire {
+    book: WireBook,
+    identity: WireIdentity,
+    #[serde(default)]
+    repos: BTreeMap<String, WireRepo>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireBook {
+    epoch: toml::value::Datetime,
+    site: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireIdentity {
+    name: String,
+    email: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRepo {
+    github: Option<String>,
+    template: Option<PathBuf>,
+    verify: Option<String>,
+    #[serde(default)]
+    keep_region_markers: bool,
+    #[serde(default)]
+    links: WireLinks,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireLinks {
+    blob: Option<String>,
+}
+
+#[cfg(test)]
+#[allow(non_snake_case, clippy::unwrap_used)]
+mod config_tests {
+    use super::*;
+
+    fn sample_book_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("books")
+            .join("hello-playbook")
+    }
+
+    #[test]
+    fn config__loads_the_sample_book() {
+        let cfg = BookConfig::load(&sample_book_root()).unwrap();
+
+        assert_eq!(cfg.epoch.to_string(), "2026-09-01 0:00:00.0 +00:00:00");
+        assert_eq!(
+            cfg.site.as_deref(),
+            Some("https://imperialbower.github.io/hello-playbook")
+        );
+        assert_eq!(cfg.identity.name, "ImperialBower Bower");
+        assert_eq!(cfg.identity.email, "bower@imperialbower.example");
+
+        let repo = cfg.repos.get("hello-playbook").unwrap();
+        assert_eq!(repo.template, Some(PathBuf::from("template")));
+        assert!(!repo.keep_region_markers);
+        assert!(repo.github.is_none());
+        assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
+    }
+
+    #[test]
+    fn config__missing_epoch_is_an_error() {
+        let text = concat!(
+            "[book]\n",
+            "site = \"https://example.invalid\"\n\n",
+            "[identity]\n",
+            "name = \"N\"\n",
+            "email = \"e@example.invalid\"\n",
+        );
+        let err = BookConfig::parse(text).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::Parse { .. }),
+            "expected a parse error, got {err:?}"
+        );
+        assert!(err.to_string().contains("epoch"), "{err}");
+    }
+
+    #[test]
+    fn config__unknown_key_is_an_error() {
+        let text = concat!(
+            "[book]\n",
+            "epoch = 2026-09-01T00:00:00Z\n",
+            "sight = \"typo\"\n\n",
+            "[identity]\n",
+            "name = \"N\"\n",
+            "email = \"e@example.invalid\"\n",
+        );
+        let err = BookConfig::parse(text).unwrap_err();
+        assert!(err.to_string().contains("sight"), "{err}");
+    }
+
+    #[test]
+    fn config__catalog_carries_only_kernel_settings() {
+        let cfg = BookConfig::load(&sample_book_root()).unwrap();
+        let catalog = cfg.catalog();
+
+        assert!(catalog.contains("hello-playbook"));
+        assert_eq!(catalog.0.len(), 1);
+        // `RepoSpec` has exactly one field, so this equality is the proof that
+        // nothing else — github, template, verify, links — crossed the boundary.
+        assert_eq!(
+            catalog.spec(&RepoName::new("hello-playbook")),
+            RepoSpec {
+                keep_region_markers: false
+            }
+        );
+    }
+}
