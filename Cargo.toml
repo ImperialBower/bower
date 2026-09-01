@@ -1,0 +1,17 @@
+[workspace]
+resolver = "2"
+members = ["bower-core", "bower-testkit"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ImperialBower/bower"
+authors = ["ImperialBower"]
+
+[workspace.dependencies]
+bower-core = { path = "bower-core", version = "0.1.0" }
+bower-testkit = { path = "bower-testkit", version = "0.1.0" }
+proptest = "1"
+rstest = "0.23"

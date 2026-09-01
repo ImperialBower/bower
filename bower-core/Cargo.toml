@@ -1,0 +1,15 @@
+[package]
+name = "bower-core"
+description = "The Bower domain kernel: parse annotated book sources into deterministic repo plans and tree states. Pure — no I/O, no git, no serialization in the public API."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# None. The kernel is pure by construction, and CI asserts `cargo tree` stays empty.
+
+[dev-dependencies]
+rstest = { workspace = true }

@@ -1,0 +1,16 @@
+[package]
+name = "bower-testkit"
+description = "The Bower kernel testkit: fixture corpus, annotation data textures, proptest generators, and the state-coverage report. Ships alongside bower-core per the kernel-testkit pattern."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+bower-core = { workspace = true }
+proptest = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
