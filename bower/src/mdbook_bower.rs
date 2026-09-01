@@ -79,7 +79,15 @@ fn preprocess() -> Result<String, String> {
         .map_err(|errs| format!("the book does not resolve:\n{errs}"))?;
 
     let mut book = book;
-    mdbook::map_chapters(&mut book, |path, text| render::chapter(text, path, &resolved));
+    let links: std::collections::BTreeMap<_, _> = config
+        .repos
+        .iter()
+        .map(|(name, r)| (name.clone(), r.links.clone()))
+        .collect();
+
+    mdbook::map_chapters(&mut book, |path, text| {
+        render::chapter(text, path, &resolved, &links)
+    });
 
     serde_json::to_string(&book).map_err(|e| format!("cannot serialize the book: {e}"))
 }

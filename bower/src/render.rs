@@ -10,12 +10,22 @@
 
 use std::collections::BTreeMap;
 
-use bower_core::prelude::{show_marker, BookPlan, Directive, ShowMark};
+use bower_core::prelude::{
+    show_marker, BlockDisplay, BookPlan, Directive, LineRange, PlannedStep, ShowMark,
+};
+
+use crate::config::LinkTemplates;
 
 /// Rewrite one chapter's markdown.
 #[must_use]
-pub fn chapter(text: &str, chapter_path: &str, plan: &BookPlan) -> String {
+pub fn chapter(
+    text: &str,
+    chapter_path: &str,
+    plan: &BookPlan,
+    forge: &BTreeMap<String, LinkTemplates>,
+) -> String {
     let anchors = anchors_by_line(plan, chapter_path);
+    let blocks = blocks_by_line(plan, chapter_path);
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut i = 0;
@@ -49,7 +59,11 @@ pub fn chapter(text: &str, chapter_path: &str, plan: &BookPlan) -> String {
         // An anchor for the step this directive opens, so `#step-<id>` in a
         // commit trailer resolves on the rendered page. Steps whose anchor is
         // some other block get none — one step, one anchor.
-        if let Some(id) = anchors.get(&(i + 1)) {
+        // Fixed before `i` moves: every later lookup uses this, not arithmetic
+        // on a cursor that has since advanced.
+        let directive_line = i + 1;
+
+        if let Some(id) = anchors.get(&directive_line) {
             out.push(format!("<a id=\"step-{id}\"></a>"));
             // Only add a separator if the book has not already left one.
             if !lines.get(i + 1).is_some_and(|l| l.trim().is_empty()) {
@@ -83,6 +97,19 @@ pub fn chapter(text: &str, chapter_path: &str, plan: &BookPlan) -> String {
         out.extend(body_lines(&info, &body));
         if k < lines.len() {
             out.push(lines[k].to_string());
+        }
+        // The footer belongs after the closing fence: it describes the block,
+        // and inside the fence it would be code.
+        if let Some((repo, step, display)) = blocks.get(&directive_line) {
+            // A chapter may feed several repos, and each declares its own forge
+            // templates. A repo with none gets a footer with plain text where
+            // the links would be, never someone else's URLs.
+            let empty = LinkTemplates::default();
+            let repo_links = forge.get(repo).unwrap_or(&empty);
+            if let Some(line) = footer(step, display, repo, repo_links) {
+                out.push(String::new());
+                out.push(line);
+            }
         }
         i = k + 1;
     }
@@ -179,6 +206,84 @@ fn fence_info(line: &str) -> String {
     line.trim_start().trim_start_matches('`').trim().to_string()
 }
 
+/// The source-link footer for one block.
+///
+/// Returns `None` when nothing in the block resolved to a line range — a
+/// `delete`, a prose step, or a block that is entirely elided. A footer that
+/// names no code is furniture.
+#[must_use]
+pub fn footer(
+    step: &PlannedStep,
+    display: &BlockDisplay,
+    repo: &str,
+    links: &LinkTemplates,
+) -> Option<String> {
+    let ranges: Vec<&LineRange> = display.ranges.iter().flatten().collect();
+    let first = ranges.first()?;
+    let tag = step.tag();
+
+    let mut parts = vec![format!("`{}`", first.file)];
+
+    // One link per shown span, because a block may show two slices of a file
+    // and a reader following the link deserves the one they just read.
+    for range in &ranges {
+        let label = format!("L{}–L{}", range.start, range.end);
+        parts.push(match subst(links.blob.as_deref(), &tag, Some(range)) {
+            Some(url) => format!("[{label}]({url})"),
+            None => label,
+        });
+    }
+
+    parts.push(format!("step {:03} of {repo}", step.seq));
+
+    if let Some(url) = subst(links.commit.as_deref(), &tag, None) {
+        parts.push(format!("[diff]({url})"));
+    }
+    if let Some(url) = subst(links.tree.as_deref(), &tag, None) {
+        parts.push(format!("[browse]({url})"));
+    }
+
+    Some(format!("<sub>{}</sub>", parts.join(" · ")))
+}
+
+/// Fill `{tag}`, `{path}`, `{start}`, `{end}` in a template.
+///
+/// Literal replacement, not a template engine: four placeholders do not justify
+/// a dependency, and a template that can compute is one that can fail at render
+/// time. An absent template yields no link at all rather than a plausible
+/// broken one — the rule `Book-Url` already follows.
+fn subst(template: Option<&str>, tag: &str, range: Option<&LineRange>) -> Option<String> {
+    let mut url = template?.replace("{tag}", tag);
+    if let Some(r) = range {
+        url = url
+            .replace("{path}", &r.file)
+            .replace("{start}", &r.start.to_string())
+            .replace("{end}", &r.end.to_string());
+    }
+    Some(url)
+}
+
+/// Line number → the block that directive introduces, with its step and repo.
+///
+/// Keyed by the *block's* location rather than the step's: a step may hold
+/// several blocks, and each gets its own footer naming its own file.
+fn blocks_by_line<'a>(
+    plan: &'a BookPlan,
+    chapter_path: &str,
+) -> BTreeMap<usize, (String, &'a PlannedStep, &'a BlockDisplay)> {
+    let mut out = BTreeMap::new();
+    for repo in &plan.repos {
+        for step in &repo.steps {
+            for display in &step.displays {
+                if display.loc.chapter == chapter_path {
+                    out.insert(display.loc.line, (repo.repo.0.clone(), step, display));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Line number → step id, for every step anchored in this chapter.
 fn anchors_by_line(plan: &BookPlan, chapter_path: &str) -> BTreeMap<usize, String> {
     let mut out = BTreeMap::new();
@@ -197,6 +302,23 @@ fn anchors_by_line(plan: &BookPlan, chapter_path: &str) -> BTreeMap<usize, Strin
 mod render_tests {
     use super::*;
     use bower_core::prelude::{plan, BookSource, Chapter, RepoCatalog};
+
+    fn no_links() -> BTreeMap<String, LinkTemplates> {
+        BTreeMap::new()
+    }
+
+    fn github_links() -> BTreeMap<String, LinkTemplates> {
+        let mut m = BTreeMap::new();
+        m.insert(
+            "r".to_string(),
+            LinkTemplates {
+                blob: Some("https://x.invalid/blob/{tag}/{path}#L{start}-L{end}".to_string()),
+                tree: Some("https://x.invalid/tree/{tag}".to_string()),
+                commit: Some("https://x.invalid/commit/{tag}".to_string()),
+            },
+        );
+        m
+    }
 
     fn lines(text: &str) -> Vec<String> {
         text.lines().map(str::to_string).collect()
@@ -260,13 +382,13 @@ mod render_tests {
 
     #[test]
     fn render__directive_comments_do_not_survive() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH));
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
         assert!(!out.contains("<!-- bower"), "{out}");
     }
 
     #[test]
     fn render__anchor_precedes_the_block() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH));
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
         let anchor = out.find("<a id=\"step-first\"></a>").expect("anchor missing");
         let fence = out.find("```rust").expect("fence missing");
         assert!(anchor < fence, "{out}");
@@ -274,7 +396,7 @@ mod render_tests {
 
     #[test]
     fn render__applies_display_markers_and_keeps_prose() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH));
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
         assert!(out.contains("pub fn shown() {}"), "{out}");
         assert!(out.contains("# fn hidden() {}"), "{out}");
         assert!(!out.contains("bower:show"), "{out}");
@@ -291,13 +413,72 @@ mod render_tests {
             "<!-- bower repo=\"r\" file=\"src/lib.rs\" -->\n",
             "````\n",
         );
-        let out = chapter(text, "src/ch01.md", &tiny_plan(CH));
+        let out = chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links());
         assert!(out.contains("<!-- bower repo="), "{out}");
     }
 
     #[test]
     fn render__a_chapter_with_no_directives_is_unchanged() {
         let text = "# Plain\n\nJust prose.\n";
-        assert_eq!(chapter(text, "src/ch01.md", &tiny_plan(CH)), text);
+        assert_eq!(chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links()), text);
+    }
+
+    #[test]
+    fn footer__names_the_file_and_line_range() {
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &github_links());
+        assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
+        assert!(out.contains("step 001 of r"), "{out}");
+        assert!(
+            out.contains("[L1–L1](https://x.invalid/blob/step-001-first/src/lib.rs#L1-L1)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("[diff](https://x.invalid/commit/step-001-first)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("[browse](https://x.invalid/tree/step-001-first)"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn footer__omits_links_without_templates() {
+        // A plausible-looking broken link is worse than plain text.
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
+        assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
+        assert!(out.contains("L1–L1"), "{out}");
+        assert!(!out.contains("]("), "no links may be invented: {out}");
+        assert!(!out.contains("diff"), "{out}");
+    }
+
+    #[test]
+    fn footer__comes_after_the_closing_fence() {
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &github_links());
+        let fence_end = out.rfind("```").expect("closing fence");
+        let footer = out.find("<sub>").expect("footer");
+        assert!(footer > fence_end, "a footer inside the fence is code: {out}");
+    }
+
+    const PROSE_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"note\" op=\"none\" -->\n\n",
+        "Just narrative, no code.\n",
+    );
+
+    #[test]
+    fn footer__absent_when_a_block_has_no_range() {
+        // A prose step names no file. A footer here would be furniture.
+        let plan = {
+            let book = bower_core::prelude::BookSource::from_chapters(vec![Chapter::new(
+                "src/ch01.md",
+                PROSE_CH,
+            )]);
+            bower_core::prelude::plan(&book, &RepoCatalog::from_names(&["r"])).unwrap()
+        };
+        let out = chapter(PROSE_CH, "src/ch01.md", &plan, &github_links());
+        assert!(!out.contains("<sub>"), "{out}");
+        assert!(out.contains("<a id=\"step-note\"></a>"), "{out}");
+        assert!(out.contains("Just narrative"), "{out}");
     }
 }

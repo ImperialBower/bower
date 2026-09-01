@@ -58,8 +58,12 @@ pub struct RepoConfig {
 /// Codeberg or a self-hosted forge without a code change.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LinkTemplates {
-    /// e.g. `https://…/blob/{tag}/{path}#L{start}-L{end}`
+    /// The exact lines shown: `https://…/blob/{tag}/{path}#L{start}-L{end}`
     pub blob: Option<String>,
+    /// The whole repository at this step: `https://…/tree/{tag}`
+    pub tree: Option<String>,
+    /// The diff this step introduced: `https://…/commit/{tag}`
+    pub commit: Option<String>,
 }
 
 /// Why a configuration could not be loaded. Every variant names the file, so a
@@ -145,7 +149,11 @@ impl BookConfig {
                             check: r.check,
                             verify: r.verify,
                             keep_region_markers: r.keep_region_markers,
-                            links: LinkTemplates { blob: r.links.blob },
+                            links: LinkTemplates {
+                                blob: r.links.blob,
+                                tree: r.links.tree,
+                                commit: r.links.commit,
+                            },
                         },
                     )
                 })
@@ -215,6 +223,8 @@ struct WireRepo {
 #[serde(deny_unknown_fields)]
 struct WireLinks {
     blob: Option<String>,
+    tree: Option<String>,
+    commit: Option<String>,
 }
 
 #[cfg(test)]
@@ -248,6 +258,8 @@ mod config_tests {
         assert_eq!(repo.check.as_deref(), Some("cargo check"));
         assert_eq!(repo.verify.as_deref(), Some("cargo test"));
         assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
+        assert!(repo.links.tree.as_ref().unwrap().contains("{tag}"));
+        assert!(repo.links.commit.as_ref().unwrap().contains("{tag}"));
     }
 
     #[test]

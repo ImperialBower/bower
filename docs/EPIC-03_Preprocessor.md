@@ -43,8 +43,8 @@ which stays pure and dependency-free.
 | Directive stripping | **Complete** |
 | Display markers: elided spans as hidden lines | **Complete** |
 | `#step-<id>` anchors | **Complete** |
-| Source-link footer | Planned |
-| `tree` and `commit` link templates | Planned |
+| Source-link footer | **Complete** |
+| `tree` and `commit` link templates | **Complete** |
 | Goldens over the sample book | Planned |
 
 ---
@@ -97,7 +97,7 @@ which stays pure and dependency-free.
 | Where those lines live in the tree | `LineRange` `bower-core/src/display.rs:41` | ✅ done |
 | A block's display outcome | `BlockDisplay` `bower-core/src/display.rs:50` | ✅ done |
 | The step a block belongs to | `PlannedStep::displays` `bower-core/src/plan.rs:48` | ✅ done |
-| Forge URL shapes | `LinkTemplates` `bower/src/config.rs:60` | 🟡 `blob` only |
+| Forge URL shapes | `LinkTemplates` `bower/src/config.rs:60` | ✅ done |
 | mdBook's book, as data | `mdbook::{split, chapters, map_chapters}` | ✅ done |
 | The rewrite | `render::chapter()` | ✅ done |
 
@@ -291,14 +291,35 @@ wrong rather than the change.
 
 ### Phase 3 — Footers and links
 
-- [ ] **3a.** `LinkTemplates` gains `tree` and `commit`; declare all three in
+- [x] **3a.** `LinkTemplates` gains `tree` and `commit`, all three declared in
   `books/hello-playbook/bower.toml`.
-- [ ] **3b.** `render::footer` substituting `{tag}`, `{path}`, `{start}`,
-  `{end}`, omitting any link whose template is absent, and omitting the footer
-  entirely when a block has no resolvable range.
-- [ ] **3c.** Tests: `footer__names_the_file_and_line_range`,
-  `footer__omits_links_without_templates`,
-  `footer__absent_when_a_block_has_no_range`.
+- [x] **3b.** `render::footer` and `subst`. **Deviation:** `chapter` takes a
+  `BTreeMap<String, LinkTemplates>`, not one set. Templates are per repo, and a
+  chapter may feed several — a repo with no templates gets plain text where the
+  links would be, never another repo's URLs. **Second deviation:** a footer
+  emits **one link per shown span**, not one per block. A block that shows two
+  slices of a file would otherwise link only the first, and a reader following
+  it lands somewhere they did not read.
+- [x] **3c.** Four tests, including `footer__comes_after_the_closing_fence` —
+  a footer inside the fence is code, not prose.
+
+**Bug found by those tests.** The footer lookup keyed off `i - 1`, arithmetic on
+a cursor that had already advanced past the directive. No footer was emitted at
+all. The line number is now bound once as `directive_line` before `i` moves,
+and every later lookup uses it.
+
+**Checked end to end.** Over the real six chapters the preprocessor injects 21
+footers — one per code block, correctly skipping the prose and delete steps that
+name no file. Chapter 4's reads:
+
+```
+<sub>`src/lib.rs` · [L18–L21](…/blob/step-011-test-that-fails/src/lib.rs#L18-L21)
+ · step 011 of hello-playbook · [diff](…) · [browse](…)</sub>
+```
+
+and `git checkout step-011-test-that-fails && sed -n '18,21p' src/lib.rs` in the
+generated repository prints exactly the four lines of the marked test. The
+line-anchored link does not lie.
 
 ### Phase 4 — Goldens
 
@@ -353,6 +374,9 @@ wrong rather than the change.
 - `footer__names_the_file_and_line_range` — the line anchor is the whole point;
   a footer that names the wrong lines is worse than none.
 - `footer__omits_links_without_templates` — no plausible-looking broken links.
+- `footer__comes_after_the_closing_fence` — a footer inside the fence is code.
+- `footer__absent_when_a_block_has_no_range` — a prose step names no file, and a
+  footer naming nothing is furniture.
 - `preprocessor__sample_book_round_trip` — the golden, over real chapters.
 
 ## Key Files

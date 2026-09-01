@@ -21,4 +21,9 @@ check = "cargo check"
 verify = "cargo test"
 
 [repos.hello-playbook.links]
+# Three templates, three questions a reader might have about a block: which
+# lines, what changed, and what the whole repo looked like. Point them at
+# Codeberg or a self-hosted forge and every link in the book follows.
 blob = "https://github.com/ImperialBower/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"
+tree = "https://github.com/ImperialBower/hello-playbook/tree/{tag}"
+commit = "https://github.com/ImperialBower/hello-playbook/commit/{tag}"
