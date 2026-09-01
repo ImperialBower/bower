@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bower-core", "bower-testkit"]
+members = ["bower", "bower-core", "bower-testkit"]
 
 [workspace.package]
 version = "0.1.0"
@@ -13,5 +13,6 @@ authors = ["ImperialBower"]
 [workspace.dependencies]
 bower-core = { path = "bower-core", version = "0.1.0" }
 bower-testkit = { path = "bower-testkit", version = "0.1.0" }
+clap = { version = "4", features = ["derive"] }
 proptest = "1"
 rstest = "0.23"

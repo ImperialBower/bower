@@ -41,7 +41,7 @@ targets. **`bower-core` gains no I/O and no new dependency**; its purity contrac
 
 | Component | Status |
 |---|---|
-| `bower` binary crate + workspace member | Planned |
+| `bower` binary crate + workspace member | **Complete** |
 | `BookConfig` — `bower.toml` parser | Planned |
 | `BookLoader` — disk → `BookSource` | Planned |
 | `bower plan` + `bower.lock` on disk | Planned |
@@ -289,13 +289,18 @@ it.
 
 ### Phase 0 — The crate exists
 
-- [ ] **0a.** Create `bower/Cargo.toml` and add `"bower"` to the members list at
-  `Cargo.toml:3`. Depend on `bower-core`, `clap`, `toml`, `serde`, `gix`, `time`.
-- [ ] **0b.** `bower/src/main.rs` with a `clap` skeleton for `plan` and `build`,
-  both returning "not implemented".
-- [ ] **0c.** Confirm `cargo build --workspace` and
-  `cargo clippy --workspace --all-targets` are green, and that
-  `cargo tree -p bower-core` still shows **zero** dependencies.
+- [x] **0a.** Create `bower/Cargo.toml` and add `"bower"` to the members list at
+  `Cargo.toml:3`. **Deviation:** only `bower-core` and `clap` were added.
+  `toml`/`serde` land with Phase 1 and `gix`/`time` with Phase 3 — a dependency
+  arrives in the phase that uses it, so an abandoned phase leaves no dead weight
+  in the lockfile.
+- [x] **0b.** `bower/src/main.rs` with a `clap` skeleton for `plan` and `build`.
+  Both print the phase that will implement them and exit `ExitCode::FAILURE`, so
+  no script can mistake the skeleton for a working tool.
+- [x] **0c.** `cargo build --workspace` and `cargo clippy --workspace --all-targets`
+  are green (0 warnings), `cargo test --workspace` is 80 passed, and
+  `cargo tree -p bower-core -e normal` prints the crate and nothing else.
+  Landed on branch `docs/epic-01`, 1 September 2026.
 
 ### Phase 1 — Configuration
 
@@ -413,7 +418,9 @@ it.
 ## Compatibility
 
 - **Preserves** every `bower-core` public signature and its zero-dependency,
-  no-I/O contract (`bower-core/src/lib.rs:11`). Verified by `cargo tree -p bower-core`.
+  no-I/O contract (`bower-core/src/lib.rs:11`). Verified by
+  `cargo tree -p bower-core -e normal` — plain `cargo tree` also prints
+  dev-dependencies, which would mask a real regression.
 - **Adds** a new binary crate and one changed chapter-path convention in
   `bower-testkit` (work item 2c), which is internal to the workspace.
 - **Breaks** nothing published. Neither crate has been released.
@@ -435,7 +442,7 @@ it.
 cargo build --workspace
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo tree -p bower-core            # must list no dependencies
+cargo tree -p bower-core -e normal  # must print the crate and nothing else
 cargo run -p bower --  plan  --repo hello-playbook
 cargo run -p bower --  build --repo hello-playbook -o /tmp/hp-1
 cargo run -p bower --  build --repo hello-playbook -o /tmp/hp-2
@@ -451,7 +458,7 @@ Exit criteria:
    the ten files listed at `bower-testkit/tests/sample_book.rs:79` at HEAD.
 3. Every commit carries `Book-Source` and `Bower-Step` trailers pointing at a
    chapter file that exists.
-4. `cargo tree -p bower-core` still lists no dependencies — the kernel did not
+4. `cargo tree -p bower-core -e normal` still lists no dependencies — the kernel did not
    acquire I/O to make replay convenient.
 5. `bower-testkit` and the CLI loader produce equal `BookSource` values for the
    sample book.

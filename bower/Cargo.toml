@@ -1,0 +1,16 @@
+[package]
+name = "bower"
+description = "The Bower CLI: replays a book's plan into deterministic git repositories. Owns every side effect the kernel refuses — filesystem, configuration, and git."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Phase 0 takes only the CLI surface. `toml`/`serde` arrive with the config
+# parser (Phase 1), `gix`/`time` with replay (Phase 3) — a dependency lands in
+# the phase that uses it, never before.
+bower-core = { workspace = true }
+clap = { workspace = true }
