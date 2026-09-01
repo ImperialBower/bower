@@ -36,8 +36,8 @@ creation needs, does not push the *book's* own repository, and does not touch
 
 | Component | Status |
 |---|---|
-| `Forge` trait + `FakeForge` | Planned |
-| **The generated-repo marker gate** | Planned |
+| `Forge` trait + `FakeForge` | 🟡 trait done, fake is Phase 1 |
+| **The generated-repo marker gate** | **Complete** |
 | Preconditions: built, and in sync | Planned |
 | `GitHubForge` — `git` and `gh` | Planned |
 | `bower push` CLI, dry-run by default | Planned |
@@ -111,11 +111,11 @@ other.
 | Domain concept | Code construct | Status |
 |---|---|---|
 | The remote's name | `RepoConfig::github` `bower/src/config.rs:43` | 🟡 parsed, unused |
-| The repo's own marker | `steps_md` `bower/src/trailers.rs:50` | ✅ done |
+| The repo's own marker | `marker_line` / `book_named_in` | ✅ done |
 | What must be pushed | `expected_tags` `bower/src/replay.rs:288` | ✅ done |
 | Is the build current? | `repo_drift` `bower/src/status.rs:132` | ✅ done |
-| A place to publish to | `Forge` | ❌ absent |
-| The gate | `MarkerVerdict` | ❌ absent |
+| A place to publish to | `Forge` | 🟡 trait only |
+| The gate | `MarkerVerdict` | ✅ done |
 | The command | `push()` | ❌ absent |
 
 ---
@@ -231,16 +231,33 @@ command named when absent.
 
 ### Phase 0 — The gate, pure and alone
 
-- [ ] **0a.** `bower/src/forge.rs`: `Forge`, `RemoteState`, `PushOutcome`,
-  `ForgeError`. No implementation yet.
-- [ ] **0b.** `bower/src/push.rs`: `MarkerVerdict` and `marker_verdict()`.
-- [ ] **0c.** Tests, one per row of the Scope table:
-  `gate__absent_remote_is_safe`, `gate__empty_remote_is_safe`,
-  `gate__our_own_book_is_safe`, `gate__a_different_book_is_refused`,
-  `gate__content_without_steps_md_is_refused`,
-  `gate__unreadable_remote_is_refused`.
-- [ ] **0d.** `gate__refusal_names_the_repository_and_the_reason` — a refusal a
-  reader cannot act on will be worked around.
+- [x] **0a.** `bower/src/forge.rs`: `Forge`, `RemoteState`, `PushOutcome`,
+  `ForgeError`. No implementation yet, as planned.
+- [x] **0b.** `bower/src/push.rs`: `MarkerVerdict`, `is_safe()`, and
+  `marker_verdict()`. **Deviation:** the function takes the remote's name as its
+  first argument. The design's signature omitted it, and item 0d requires the
+  refusal to name the repository — a refusal cannot name what it was not told.
+  **Second deviation, and the more important one:** the marker sentence was
+  inline in `steps_md`. It is now `trailers::marker_line()` with an inverse,
+  `trailers::book_named_in()`, and `steps_md` calls the former. The guard reads
+  back exactly what the writer writes; reword one and the other follows.
+  `marker__round_trips_through_its_own_reader` is what pins it. This is EPIC-04's
+  lesson a fourth time: a checker that re-derives what it checks reports its own
+  disagreement first.
+- [x] **0c.** Eight tests. **Addition:**
+  `gate__content_with_unrelated_steps_md_is_refused` — a *file* called
+  `STEPS.md` proves nothing; the marker inside it does. Somebody's release
+  checklist under that name must not be mistaken for consent.
+  **Correction to the design:** `gate__unreadable_remote_is_refused` is not a
+  gate test and cannot be. An unreadable remote is a `ForgeError` at the caller
+  and never reaches the gate as `None` — conflating "no such file" with "could
+  not look" is exactly how a guard becomes a hazard. The distinction is now
+  stated in `marker_verdict`'s own docs, and Phase 1 must enforce it.
+- [x] **0d.** `gate__refusal_names_the_repository_and_the_reason` asserts the
+  refusal carries the remote, the reason, and the way out. Verified on branch
+  `docs/epic-01`, 1 September 2026: 180 tests pass, clippy silent, and
+  `grep -rniE "override|bypass|--force\b|skip_gate|no_gate" bower/src/` returns
+  only the doc comment saying no override exists.
 
 ### Phase 1 — Deciding, against a fake
 
@@ -285,8 +302,11 @@ command named when absent.
 
 ## Test Plan
 
-- `gate__*` — one per row of the Scope table. This is the only feature in the
-  project where a missed branch is measured in someone else's lost work.
+- `gate__*` — one per row of the Scope table, plus
+  `gate__content_with_unrelated_steps_md_is_refused`. This is the only feature
+  in the project where a missed branch is measured in someone else's lost work.
+- `marker__round_trips_through_its_own_reader` — the guard recognizes what the
+  writer wrote.
 - `gate__refusal_names_the_repository_and_the_reason` — a refusal nobody can act
   on gets worked around.
 - `plan__refuses_an_unbuilt_repo`, `plan__refuses_a_stale_repo` — a stale build

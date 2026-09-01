@@ -45,15 +45,35 @@ pub fn scaffolding_message(repo_name: &str) -> String {
     )
 }
 
+/// The line that identifies a repository as generated, and by which book.
+///
+/// `bower push` reads this back off a remote before it will force-push over it,
+/// so the writer and the reader must be one definition. Change the wording here
+/// and [`book_named_in`] follows; change it in only one place and the guard
+/// stops recognizing repositories it wrote itself.
+#[must_use]
+pub fn marker_line(book_name: &str) -> String {
+    format!("This repository is generated from the book *{book_name}*. Do not open")
+}
+
+/// The book named by a `STEPS.md`, if it carries the marker at all.
+///
+/// The inverse of [`marker_line`]. `None` means the text is not something Bower
+/// wrote — which, for `bower push`, means it is not something Bower may
+/// overwrite.
+#[must_use]
+pub fn book_named_in(steps_md: &str) -> Option<&str> {
+    let after = steps_md.split("generated from the book *").nth(1)?;
+    let name = after.split('*').next()?;
+    (!name.is_empty()).then_some(name)
+}
+
 /// The repository's own table of contents back into the book.
 #[must_use]
 pub fn steps_md(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "# Steps\n");
-    let _ = writeln!(
-        out,
-        "This repository is generated from the book *{book_name}*. Do not open"
-    );
+    let _ = writeln!(out, "{}", marker_line(book_name));
     let _ = writeln!(
         out,
         "pull requests here — change the book instead. Every row below is one\n\
@@ -163,6 +183,28 @@ mod trailer_tests {
         let msg = scaffolding_message("hello-playbook");
         assert!(!msg.contains("Book-Source"), "{msg}");
         assert!(msg.contains("Bower-Step: hello-playbook/000"));
+    }
+
+    #[test]
+    fn marker__round_trips_through_its_own_reader() {
+        // The writer and the reader are one definition, and this is what
+        // proves it. `bower push` refuses to overwrite a repository whose
+        // marker it cannot recognize.
+        let line = marker_line("hello-playbook");
+        assert_eq!(book_named_in(&line), Some("hello-playbook"));
+    }
+
+    #[test]
+    fn marker__is_found_in_a_whole_steps_md() {
+        let plan = sample_plan();
+        let md = steps_md(&plan, "hello-playbook", None);
+        assert_eq!(book_named_in(&md), Some("hello-playbook"));
+    }
+
+    #[test]
+    fn marker__absent_from_ordinary_prose() {
+        assert_eq!(book_named_in("# My Project\n\nA real repository.\n"), None);
+        assert_eq!(book_named_in(""), None);
     }
 
     #[test]
