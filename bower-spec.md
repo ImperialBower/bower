@@ -513,9 +513,14 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
    stronger claim.
 4. **Should generated repos carry GitHub Actions** that re-verify on push, as a
    public badge that every step passes? Cheap and on-message.
-5. **Crate naming on crates.io.** `bower` may or may not be free (and carries a
-   faint echo of the retired JS package manager); fallbacks `bower-cli` /
-   `imperial-bower` with the binary still named `bower`. Check before Phase 1.
+5. ~~**Crate naming on crates.io.**~~ **Checked 2 September 2026: all free.**
+   `bower`, `bower-core`, `bower-testkit`, `bower-cli`, `imperial-bower`, and
+   `mdbook-bower` all return 404 from the crates.io API — none is registered. No
+   rename is needed and the fallbacks are unnecessary. The long-dead JavaScript
+   package manager of the same name never occupied this registry. Names are not
+   reserved by this check; anyone could take them first. Reserving them is a
+   separate, deliberate act of publishing.
+
 6. **Block library: core or extension?** (§ 14.3.) It starts as an extension;
    promote it to core only if Scrivener authoring proves worth keeping.
 7. **Wheel distribution for notebooks** (§ 15.3): CI-built wheels attached to

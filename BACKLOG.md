@@ -31,13 +31,12 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 ## Open questions — decisions, not code
 
-From `bower-spec.md` § 12. Two are closed; these seven are not.
+From `bower-spec.md` § 12. Three are closed; these six are not.
 
 | # | Question |
 |---|---|
 | 2 | One repo per book, or one workspace holding both books? |
 | 4 | Should generated repos carry GitHub Actions that re-verify on push? |
-| 5 | Crate naming on crates.io — is `bower` free? Fallbacks `bower-cli` / `imperial-bower`. **Check before publishing.** |
 | 6 | Block library — core or extension? |
 | 7 | Wheel distribution for notebooks |
 | 8 | `expect` for play cells |
