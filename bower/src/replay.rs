@@ -17,7 +17,7 @@ use gix::ObjectId;
 use time::Duration;
 
 use crate::config::BookConfig;
-use crate::materialize::{blobs_of, read_dir_recursive, write_files, Blobs};
+use crate::materialize::{blobs_of, check_all, read_dir_recursive, write_files, Blobs};
 use crate::trailers;
 
 /// The branch every generated repository uses. Fixed, not inherited from the
@@ -213,6 +213,14 @@ impl Replayer<'_> {
     }
 
     fn write_tree(repo: &gix::Repository, blobs: &Blobs) -> Result<ObjectId, ReplayError> {
+        // `gix` happens to reject `..` as a tree filename, which masked this
+        // for `build` while `verify` — which writes files with no git in the
+        // loop — was wide open. Refuse here explicitly, so the guarantee is
+        // ours and survives a change of git backend.
+        check_all(blobs).map_err(|source| ReplayError::Io {
+            path: PathBuf::from("<book>"),
+            source,
+        })?;
         let mut editor = repo
             .edit_tree(ObjectId::empty_tree(repo.object_hash()))
             .map_err(git)?;

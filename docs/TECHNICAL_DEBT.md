@@ -83,6 +83,18 @@
   **no `bower push --execute` has ever been run**, here or anywhere, because no
   book in this repository declares a `github` remote.
 
+- [ ] **Symlinks in a `template/` directory are followed.**
+  A book cannot create a symlink — the kernel has no op for it — but
+  `materialize::read_dir_recursive` follows one it finds while reading a
+  configured `template/`, so a symlinked file would be copied by content into
+  every generated repo. Related to `docs/DEFECT_Path_Traversal.md`, and out of
+  scope for that fix.
+
+- [ ] **Path case is not normalized.**
+  On a case-insensitive filesystem, `SRC/lib.rs` and `src/lib.rs` are one file
+  but two `TreeState` keys. Not an escape; a way for two steps to collide
+  without anyone noticing.
+
 ## 🤖 Automated review findings
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->

@@ -29,6 +29,10 @@ pub enum LoadError {
     /// rather than a deliberately empty book, so it is an error, not an
     /// empty plan.
     NoChapters { path: PathBuf },
+    /// A `SUMMARY.md` link points outside the book. Refused rather than
+    /// skipped: a book that asks to read `/etc/passwd` is not a book with a
+    /// typo, and quietly omitting the chapter would hide that.
+    UnsafeLink { link: String, reason: String },
 }
 
 impl fmt::Display for LoadError {
@@ -37,6 +41,9 @@ impl fmt::Display for LoadError {
             Self::Read { path, source } => write!(f, "cannot read {}: {source}", path.display()),
             Self::NoChapters { path } => {
                 write!(f, "{} lists no chapters", path.display())
+            }
+            Self::UnsafeLink { link, reason } => {
+                write!(f, "SUMMARY.md links outside the book: `{link}` — {reason}")
             }
         }
     }
@@ -69,6 +76,12 @@ impl BookLoader {
 
         let mut chapters = Vec::with_capacity(links.len());
         for link in links {
+            // A `SUMMARY.md` is book content, so its links are as untrusted as
+            // any `file="…"` directive.
+            crate::materialize::check_path(&link).map_err(|e| LoadError::UnsafeLink {
+                link: link.clone(),
+                reason: e.to_string(),
+            })?;
             let on_disk = self.root.join("src").join(&link);
             let text = read(&on_disk)?;
             chapters.push(Chapter::new(&format!("src/{link}"), &text));
@@ -178,6 +191,21 @@ mod loader_tests {
         // fixture from drifting into two different books.
         let loaded = BookLoader::new(&sample_book_root()).load().unwrap();
         assert_eq!(loaded, bower_testkit::fixtures::hello_playbook().book);
+    }
+
+    #[test]
+    fn loader__refuses_a_summary_link_that_climbs_out() {
+        let dir = std::env::temp_dir().join("bower-loader-escape");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("src").join("SUMMARY.md"),
+            "# Summary\n\n- [Out](../../../../etc/hosts.md)\n",
+        )
+        .unwrap();
+
+        let err = BookLoader::new(&dir).load().unwrap_err();
+        assert!(matches!(err, LoadError::UnsafeLink { .. }), "{err:?}");
     }
 
     #[test]

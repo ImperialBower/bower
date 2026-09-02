@@ -43,6 +43,13 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 | 9 | JupyterLite / pyodide |
 | 10 | `devenv.nix` — hand-authored per repo, or derived? |
 
+## Recently fixed
+
+- **[DEFECT: path traversal](docs/DEFECT_Path_Traversal.md)** — book-controlled
+  `file="…"` and `SUMMARY.md` links reached `Path::join` unvalidated. Found in
+  review, reproduced against the real binary, fixed at the I/O boundary, and
+  covered by eleven tests.
+
 ## Recently completed
 
 - **[EPIC-01 — replay](docs/EPIC-01_Replay.md)** — 11/11 components. Deterministic git replay, tags, trailers, `STEPS.md`.
@@ -56,7 +63,7 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 
 | Signal | State |
 |---|---|
-| Tests | 194 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 206 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
