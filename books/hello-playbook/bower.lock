@@ -1,0 +1,23 @@
+# bower.lock — generated; review, don't edit
+
+[hello-playbook]
+001 cargo-init expect=pass anchor=src/ch01-a-repo-that-builds.md:6 files=Cargo.toml,src/main.rs
+002 hello-runs expect=pass anchor=src/ch01-a-repo-that-builds.md:40 files=
+003 makefile expect=pass anchor=src/ch02-the-gate.md:8 files=Makefile
+004 make-help expect=pass anchor=src/ch02-the-gate.md:35 files=Makefile
+005 rustfmt expect=pass anchor=src/ch03-lints-and-format.md:9 files=rustfmt.toml
+006 toolchain expect=pass anchor=src/ch03-lints-and-format.md:19 files=rust-toolchain.toml
+007 lints expect=pass anchor=src/ch03-lints-and-format.md:33 files=Cargo.toml
+008 gate-fmt-clippy expect=pass anchor=src/ch03-lints-and-format.md:51 files=Makefile
+009 greet-lib expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:10 files=src/lib.rs,src/main.rs
+010 greet-test expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:48 files=src/lib.rs
+011 test-that-fails expect=test_fail anchor=src/ch04-tests-and-failing-on-purpose.md:70 files=src/lib.rs
+012 test-that-passes expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:103 files=src/lib.rs
+013 wont-compile expect=compile_fail anchor=src/ch04-tests-and-failing-on-purpose.md:119 files=src/scratch.rs,src/lib.rs
+014 scratch-fixed expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:149 files=src/scratch.rs
+015 deny-toml expect=pass anchor=src/ch05-supply-chain.md:9 files=deny.toml
+016 security-scan expect=pass anchor=src/ch05-supply-chain.md:27 files=bin/security-scan
+017 gate-test-audit expect=pass anchor=src/ch05-supply-chain.md:45 files=Makefile
+018 tool-versions expect=pass anchor=src/ch06-ci.md:8 files=.tool-versions
+019 ci-workflow expect=pass anchor=src/ch06-ci.md:20 files=.github/workflows/ci.yml
+020 drop-scratch expect=pass anchor=src/ch06-ci.md:56 files=src/scratch.rs,src/lib.rs

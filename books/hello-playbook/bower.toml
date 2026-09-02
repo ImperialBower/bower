@@ -1,9 +1,29 @@
-# Nothing parses this file yet. It records what the replay layer will need,
-# so the book is complete as an example even while Phase 2 is unwritten.
+# The replay layer's configuration. `bower/src/config.rs` parses this file;
+# `bower-core` never sees it, and only `keep_region_markers` crosses into the
+# kernel's `RepoCatalog`.
+
+[book]
+# The timestamp base for deterministic commit SHAs. Replay never reads a clock:
+# every commit's time is this epoch plus its step number, in minutes.
+epoch = 2026-09-01T00:00:00Z
+site = "https://imperialbower.github.io/hello-playbook"
+
+[identity]
+name = "ImperialBower Bower"
+email = "bower@imperialbower.example"
 
 [repos.hello-playbook]
 template = "template"
 keep_region_markers = false
+# Two commands, because the book distinguishes "does not compile" from
+# "compiles, tests fail". `bower verify` needs both to tell them apart.
+check = "cargo check"
+verify = "cargo test"
 
 [repos.hello-playbook.links]
+# Three templates, three questions a reader might have about a block: which
+# lines, what changed, and what the whole repo looked like. Point them at
+# Codeberg or a self-hosted forge and every link in the book follows.
 blob = "https://github.com/ImperialBower/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"
+tree = "https://github.com/ImperialBower/hello-playbook/tree/{tag}"
+commit = "https://github.com/ImperialBower/hello-playbook/commit/{tag}"

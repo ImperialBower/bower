@@ -9,30 +9,7 @@ use bower_testkit::prelude::*;
 
 const REPO: &str = "hello-playbook";
 
-/// Every expected tag, in order. Grows one task at a time.
-const EXPECTED_TAGS: &[&str] = &[
-    "step-001-cargo-init",
-    "step-002-hello-runs",
-    "step-003-makefile",
-    "step-004-make-help",
-    "step-005-rustfmt",
-    "step-006-toolchain",
-    "step-007-lints",
-    "step-008-gate-fmt-clippy",
-    "step-009-greet-lib",
-    "step-010-greet-test",
-    "step-011-test-that-fails",
-    "step-012-test-that-passes",
-    "step-013-wont-compile",
-    "step-014-scratch-fixed",
-    "step-015-deny-toml",
-    "step-016-security-scan",
-    "step-017-gate-test-audit",
-    "step-018-tool-versions",
-    "step-019-ci-workflow",
-    "step-020-drop-scratch",
-];
-
+use bower_testkit::fixtures::{HELLO_PLAYBOOK_FINAL_PATHS, HELLO_PLAYBOOK_TAGS};
 fn book_plan() -> BookPlan {
     let f = fixtures::hello_playbook();
     match plan(&f.book, &f.catalog) {
@@ -53,7 +30,7 @@ fn tags(p: &BookPlan) -> Vec<String> {
 #[test]
 fn plans_cleanly_with_the_expected_tags() {
     let p = book_plan();
-    assert_eq!(tags(&p), EXPECTED_TAGS);
+    assert_eq!(tags(&p), HELLO_PLAYBOOK_TAGS);
 }
 
 #[test]
@@ -74,21 +51,6 @@ fn records_the_two_deliberate_failures() {
     assert_eq!(expect_of("scratch-fixed"), Expect::Pass);
 }
 
-/// Every path the book's twenty steps leave behind. Template scaffolding is
-/// not here: the kernel never sees it (spec § 9.1).
-const FINAL_PATHS: &[&str] = &[
-    ".github/workflows/ci.yml",
-    ".tool-versions",
-    "Cargo.toml",
-    "Makefile",
-    "bin/security-scan",
-    "deny.toml",
-    "rust-toolchain.toml",
-    "rustfmt.toml",
-    "src/lib.rs",
-    "src/main.rs",
-];
-
 fn final_tree() -> TreeState {
     let p = book_plan();
     let repo = p.repo(REPO).expect("repo present");
@@ -99,7 +61,7 @@ fn final_tree() -> TreeState {
 fn final_tree_holds_exactly_the_expected_files() {
     let tree = final_tree();
     let paths: Vec<&str> = tree.paths().collect();
-    assert_eq!(paths, FINAL_PATHS);
+    assert_eq!(paths, HELLO_PLAYBOOK_FINAL_PATHS);
 }
 
 #[test]
@@ -149,7 +111,7 @@ fn cargo_toml_and_lib_rs_match_their_goldens() {
     let lib = tree.text("src/lib.rs").expect("src/lib.rs exists");
     assert!(lib.starts_with("//! A greeting, and nothing else.\n\n/// Build a greeting"));
     assert!(lib.contains("format!(\"Hello, {}!\", name.trim())"));
-    assert!(lib.contains("fn greet__ignores_stray_whitespace()"));
+    assert!(lib.contains("fn greet_ignores_stray_whitespace()"));
     assert!(!lib.contains("pub mod scratch;"));
     assert!(
         !lib.contains("\n\n\n"),

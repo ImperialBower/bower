@@ -5,5 +5,12 @@ authors = ["ImperialBower"]
 language = "en"
 src = "src"
 
+# Requires the `mdbook-bower` binary on PATH:
+#   cargo build -p bower && export PATH="$PWD/target/debug:$PATH"
+# Without it, `mdbook build` fails rather than quietly rendering a book whose
+# directives were never applied.
+[preprocessor.bower]
+command = "mdbook-bower"
+
 [output.html]
 default-theme = "ayu"

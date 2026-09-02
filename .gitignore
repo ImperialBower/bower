@@ -22,3 +22,10 @@ target
 
 # mdBook render output
 books/*/book/
+
+# A bare `bin` line is common in global gitignores (it means compiled output),
+# and it hides this repo's `bin/security-scan` — which the Makefile contract
+# fixes at that exact path, so the script cannot simply move. Git cannot
+# re-include a file whose parent directory is excluded, hence both lines.
+!/bin/
+!/bin/*
