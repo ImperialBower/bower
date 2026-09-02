@@ -21,7 +21,7 @@ use bower::config::BookConfig;
 use bower::forge::{Forge, GitHubForge};
 use bower::loader::BookLoader;
 use bower::push::{plan_push, PushPlan};
-use bower::replay::{book_name, final_blobs, Replayer};
+use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
 use bower::status::{lock_drift, repo_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
@@ -167,10 +167,20 @@ fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode 
         return ExitCode::FAILURE;
     };
 
-    for repo in &resolved.repos {
-        if only.is_some_and(|want| want != repo.repo.0) {
-            continue;
-        }
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only.is_none_or(|want| want == r.repo.0))
+        .collect();
+
+    // `build`, `status`, and `push` all refuse an unmatched `--repo`. Printing
+    // nothing and exiting 0 reads as success, which is worse than an error.
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+
+    for repo in selected {
         println!("{} — {} steps", repo.repo, repo.steps.len());
         for step in &repo.steps {
             println!(
@@ -250,12 +260,32 @@ fn run_verify(
         return ExitCode::FAILURE;
     };
 
-    let mut broken_total = 0_usize;
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only_repo.is_none_or(|want| want == r.repo.0))
+        .collect();
 
-    for repo in &resolved.repos {
-        if only_repo.is_some_and(|want| want != repo.repo.0) {
-            continue;
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+
+    let named_step = step.or(from);
+    let mut broken_total = 0_usize;
+    let mut ran_any = false;
+
+    for repo in selected {
+        // A step id belongs to one repo. Judging `--step` against every repo's
+        // plan makes a valid request fail on whichever repo happens to sort
+        // first — so skip the repos that do not hold it, and let the check
+        // below catch a name that no repo holds at all.
+        if let Some(id) = named_step {
+            if !repo.steps.iter().any(|s| s.id.0 == id) {
+                continue;
+            }
         }
+        ran_any = true;
         let verifier = Verifier {
             config: cfg,
             book_root,
@@ -301,6 +331,13 @@ fn run_verify(
         }
     }
 
+    // Skipping repos that lack the step must not turn a typo into a silent
+    // success.
+    if let (false, Some(id)) = (ran_any, named_step) {
+        eprintln!("bower: no step named `{id}` in any repo");
+        return ExitCode::FAILURE;
+    }
+
     if broken_total == 0 {
         println!("\nevery claim holds");
         ExitCode::SUCCESS
@@ -343,7 +380,14 @@ fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path
             out.join(&repo.repo.0)
         };
         let name = book_name(book_root, &repo.repo.0);
-        let expected = final_blobs(repo, &name, cfg.site.as_deref());
+        let scaffold = match scaffolding(cfg, book_root, &repo.repo.0) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("bower: cannot read the template: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let expected = final_blobs(repo, &name, cfg.site.as_deref(), &scaffold);
 
         let repo_state = match repo_drift(&dir, repo, &expected) {
             Ok(r) => r,

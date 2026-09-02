@@ -24,7 +24,7 @@ use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
 use crate::forge::{Forge, ForgeError, RemoteState};
-use crate::replay::{book_name, expected_tags, final_blobs, BRANCH};
+use crate::replay::{book_name, expected_tags, final_blobs, scaffolding, BRANCH};
 use crate::status::{repo_drift, RepoDrift, StatusError};
 use crate::trailers::book_named_in;
 
@@ -146,7 +146,15 @@ pub fn plan_push(
     };
 
     let book = book_name(book_root, &repo);
-    let expected = final_blobs(plan, &book, cfg.site.as_deref());
+    // The same scaffolding `build` commits, or a published repo would look
+    // stale the moment it was pushed.
+    let scaffold = scaffolding(cfg, book_root, &repo).map_err(|source| {
+        PushError::Status(StatusError::Io {
+            path: book_root.to_path_buf(),
+            source,
+        })
+    })?;
+    let expected = final_blobs(plan, &book, cfg.site.as_deref(), &scaffold);
 
     let blocked = |reason: String| {
         Ok(PushPlan::Blocked {
@@ -350,7 +358,12 @@ mod plan_tests {
             std::fs::write(tags.join(tag), "0\n").unwrap();
         }
         let name = book_name(root, &plan.repo.0);
-        write_files(&dir, &final_blobs(plan, &name, cfg.site.as_deref())).unwrap();
+        let scaffold = scaffolding(cfg, root, &plan.repo.0).unwrap();
+        write_files(
+            &dir,
+            &final_blobs(plan, &name, cfg.site.as_deref(), &scaffold),
+        )
+        .unwrap();
         dir
     }
 

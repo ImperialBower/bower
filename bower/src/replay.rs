@@ -103,22 +103,31 @@ impl Replayer<'_> {
         let mut tags = Vec::new();
 
         // Step 0 — scaffolding the book never shows.
-        if let Some(template) = self.template_dir(&repo_name) {
-            let blobs = read_dir_recursive(&template).map_err(io(&template))?;
-            if !blobs.is_empty() {
-                let tree = Self::write_tree(&repo, &blobs)?;
-                let msg = trailers::scaffolding_message(&repo_name);
-                let id = self.commit(&repo, 0, &msg, tree, parent)?;
-                parent = Some(id);
-                commits += 1;
-            }
+        let scaffolding =
+            scaffolding(self.config, self.book_root, &repo_name).map_err(|source| {
+                ReplayError::Io {
+                    path: self.book_root.to_path_buf(),
+                    source,
+                }
+            })?;
+        if !scaffolding.is_empty() {
+            let tree = Self::write_tree(&repo, &scaffolding)?;
+            let msg = trailers::scaffolding_message(&repo_name);
+            let id = self.commit(&repo, 0, &msg, tree, parent)?;
+            parent = Some(id);
+            commits += 1;
         }
 
         let last_seq = plan.steps.last().map(|s| s.seq);
-        let final_blobs = final_blobs(plan, &book_name, self.config.site.as_deref());
+        let final_blobs = final_blobs(plan, &book_name, self.config.site.as_deref(), &scaffolding);
 
         for step in &plan.steps {
-            let mut blobs = blobs_of(&step.tree);
+            // Each step's tree *replaces* the tree, so the scaffolding has to
+            // be laid down under every one of them. Building a step from the
+            // kernel's paths alone silently deletes the licences that step 0
+            // had just added — which is exactly what it used to do.
+            let mut blobs = scaffolding.clone();
+            blobs.extend(blobs_of(&step.tree));
             if Some(step.seq) == last_seq {
                 blobs.clone_from(&final_blobs);
             }
@@ -149,11 +158,6 @@ impl Replayer<'_> {
             commits,
             tags,
         })
-    }
-
-    fn template_dir(&self, repo_name: &str) -> Option<PathBuf> {
-        let dir = self.config.repos.get(repo_name)?.template.as_ref()?;
-        Some(self.book_root.join(dir))
     }
 
     /// Git's own time format: seconds since the epoch, then a UTC offset. Held
@@ -278,18 +282,52 @@ pub fn book_name(book_root: &Path, fallback: &str) -> String {
     )
 }
 
-/// The files a replay leaves in the working tree: the final step's tree, plus
-/// the generated `STEPS.md`.
+/// The repo-level boilerplate a book never shows: the configured `template/`
+/// directory, read from disk.
+///
+/// Public because four commands need the same answer. `build` commits it,
+/// `verify` checks against it, and `status` and `push` compare against it — and
+/// a second reading of the same directory is a second chance to disagree.
+///
+/// An unconfigured template is an empty set, not an error: a book without
+/// scaffolding is a normal book.
+///
+/// # Errors
+///
+/// If the configured directory exists but cannot be read.
+pub fn scaffolding(
+    config: &BookConfig,
+    book_root: &Path,
+    repo_name: &str,
+) -> std::io::Result<Blobs> {
+    let Some(dir) = config
+        .repos
+        .get(repo_name)
+        .and_then(|r| r.template.as_ref())
+    else {
+        return Ok(Blobs::new());
+    };
+    read_dir_recursive(&book_root.join(dir))
+}
+
+/// The files a replay leaves in the working tree: the scaffolding, the final
+/// step's tree overlaid on it, and the generated `STEPS.md`.
 ///
 /// `STEPS.md` lists every step, later ones included, so it can only live in the
 /// final tree — writing it at every step would make each commit's tree depend
 /// on commits that do not exist yet.
 #[must_use]
-pub fn final_blobs(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> Blobs {
+pub fn final_blobs(
+    plan: &RepoPlan,
+    book_name: &str,
+    site: Option<&str>,
+    scaffolding: &Blobs,
+) -> Blobs {
     let Some(last) = plan.steps.last() else {
-        return Blobs::new();
+        return scaffolding.clone();
     };
-    let mut blobs = blobs_of(&last.tree);
+    let mut blobs = scaffolding.clone();
+    blobs.extend(blobs_of(&last.tree));
     let md = trailers::steps_md(plan, book_name, site);
     blobs.insert("STEPS.md".to_string(), (md.into_bytes(), false));
     blobs

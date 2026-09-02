@@ -94,7 +94,11 @@ pub fn chapter(
             body.push(lines[k].to_string());
             k += 1;
         }
-        out.extend(body_lines(&info, &body));
+        out.extend(body_lines(
+            &info,
+            &body,
+            blocks.get(&directive_line).map(|(_, _, d)| *d),
+        ));
         if k < lines.len() {
             out.push(lines[k].to_string());
         }
@@ -131,10 +135,18 @@ pub fn chapter(
 /// how much was left out. Emitting `# ` into a Makefile would not hide
 /// anything; it would corrupt it.
 #[must_use]
-pub fn body_lines(info: &str, raw: &[String]) -> Vec<String> {
+pub fn body_lines(info: &str, raw: &[String], display: Option<&BlockDisplay>) -> Vec<String> {
     if !raw.iter().any(|l| show_marker(l).is_some()) {
         return raw.to_vec();
     }
+
+    // Which spans actually render is the kernel's answer, not ours: a `show=`
+    // key on the directive narrows a block to named spans
+    // (`bower-core`'s `display::filter_by_show`). Re-deriving that from the
+    // markers alone renders every marked span, so the page would show what the
+    // footer does not link.
+    let kept: Option<Vec<Option<String>>> =
+        display.map(|d| d.spans.iter().map(|s| s.name.clone()).collect());
 
     let rustish = info.split([',', ' ']).next() == Some("rust");
     let comment = comment_token(info);
@@ -153,9 +165,10 @@ pub fn body_lines(info: &str, raw: &[String]) -> Vec<String> {
 
     for line in raw {
         match show_marker(line) {
-            Some(ShowMark::Begin(_)) => {
+            Some(ShowMark::Begin(name)) => {
                 flush(&mut out, &mut elided);
-                showing = true;
+                // A span the kernel dropped is elided like any unmarked code.
+                showing = kept.as_ref().is_none_or(|k| k.contains(&name));
             }
             Some(ShowMark::End) => {
                 showing = false;
@@ -327,7 +340,7 @@ mod render_tests {
     #[test]
     fn render__unmarked_block_is_untouched() {
         let body = lines("fn main() {}\nlet x = 1;");
-        assert_eq!(body_lines("rust", &body), body);
+        assert_eq!(body_lines("rust", &body, None), body);
     }
 
     #[test]
@@ -336,7 +349,7 @@ mod render_tests {
             "mod tests {\n    // bower:show\n    fn new() {}\n    // bower:show end\n    fn old() {}\n}",
         );
         assert_eq!(
-            body_lines("rust", &body),
+            body_lines("rust", &body, None),
             vec![
                 "# mod tests {",
                 "    fn new() {}",
@@ -353,7 +366,7 @@ mod render_tests {
         let body =
             lines("jobs:\n  # bower:show\n  - run: make ayce\n  # bower:show end\n  extra: 1");
         assert_eq!(
-            body_lines("yaml", &body),
+            body_lines("yaml", &body, None),
             vec![
                 "# ⋯ 1 line elided",
                 "  - run: make ayce",
@@ -408,6 +421,36 @@ mod render_tests {
         assert!(out.contains("# fn hidden() {}"), "{out}");
         assert!(!out.contains("bower:show"), "{out}");
         assert!(out.contains("Prose after."), "{out}");
+    }
+
+    const SHOW_KEY_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"first\" file=\"src/lib.rs\" show=\"second\" -->\n\n",
+        "```rust\n",
+        "// bower:show begin first\n",
+        "pub fn one() {}\n",
+        "// bower:show end\n",
+        "// bower:show begin second\n",
+        "pub fn two() {}\n",
+        "// bower:show end\n",
+        "```\n",
+    );
+
+    #[test]
+    fn render__honours_the_show_key() {
+        // The kernel filters spans by `show=` (`display::filter_by_show`).
+        // Walking the raw markers instead renders every marked span, so the
+        // page shows two and the footer links one.
+        let plan = tiny_plan(SHOW_KEY_CH);
+        let out = chapter(SHOW_KEY_CH, "src/ch01.md", &plan, &no_links());
+        assert!(
+            out.contains("pub fn two() {}"),
+            "the named span must show: {out}"
+        );
+        assert!(
+            out.contains("# pub fn one() {}"),
+            "the span `show=` did not name must be hidden: {out}"
+        );
     }
 
     #[test]

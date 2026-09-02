@@ -15,7 +15,7 @@ use bower::forge::{FakeForge, RemoteState};
 use bower::loader::BookLoader;
 use bower::materialize::write_files;
 use bower::push::{plan_push, PushPlan};
-use bower::replay::{book_name, expected_tags, final_blobs};
+use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
 use bower::trailers::marker_line;
 use bower_core::prelude::{plan, RepoPlan};
 
@@ -58,7 +58,8 @@ fn built(case: &str, p: &RepoPlan, cfg: &BookConfig) -> PathBuf {
         std::fs::write(tags.join(tag), "0\n").unwrap();
     }
     let name = book_name(&book_root(), &p.repo.0);
-    write_files(&dir, &final_blobs(p, &name, cfg.site.as_deref())).unwrap();
+    let scaffold = scaffolding(cfg, &book_root(), &p.repo.0).unwrap();
+    write_files(&dir, &final_blobs(p, &name, cfg.site.as_deref(), &scaffold)).unwrap();
     dir
 }
 

@@ -24,12 +24,30 @@
   shape: a list of verify commands per step range, or a `verify_from = "<step>"`
   key.
 
-- [ ] **Multi-repo books are untested.**
-  `bower/src/main.rs` loops over `plan.repos` and gives each its own output
-  directory, and `bower/src/replay.rs` takes a `&RepoPlan` precisely so repos
-  replay independently. No book targets two repos, so this is untested rather
-  than proven (EPIC-01, still-open list). A second tiny repo in
-  `books/hello-playbook` would close it cheaply.
+- [x] ~~**Multi-repo books are untested.**~~ Closed 2 September 2026 by
+  `bower/tests/multi_repo.rs`. The gap was hiding a real bug — see
+  `docs/DEFECT_Review_Findings.md` item 2.
+
+- [ ] **The push gate identifies a book by its directory basename.**
+  `replay::book_name` is `book_root.file_name()`, so two books in different
+  directories that happen to share a basename would each pass the other's
+  `STEPS.md` marker check in `bower push`. Narrow, but the gate is the one place
+  in this project where a wrong answer costs somebody else's repository. A
+  stronger identity — a `book_id` in `bower.toml`, or the `github` remote itself
+  — would close it. Flagged by review, not yet verified.
+
+- [ ] **`bower push` does not consider lock drift.**
+  `plan_push` refuses an unbuilt or stale *repository*, but ignores a stale
+  `bower.lock`. What gets pushed is still correct, because `repo_drift` compares
+  against the current plan — so this is a warning worth printing rather than a
+  bug. Flagged by review, not yet verified.
+
+- [ ] **The preprocessor has never seen a `README.md` chapter.**
+  mdBook treats `README.md` specially, rendering it as `index.html`.
+  `mdbook::chapter_path` prefixes whatever `path` the JSON carries with `src/`,
+  and `trailers::html_name` maps `.md` to `.html` — neither knows about that
+  rename, so a book with a `README.md` chapter may produce a `Book-Url` that
+  404s. No current book has one. Flagged by review, not yet verified.
 
 - [ ] **Verification is sequential.**
   Spec § 6 calls verification embarrassingly parallel. It is not parallel

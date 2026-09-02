@@ -23,7 +23,6 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
-- [ ] Multi-repo books are untested; the code loops over repos but no book exercises it
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
@@ -45,6 +44,11 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 
 ## Recently fixed
 
+- **[DEFECT: three review findings](docs/DEFECT_Review_Findings.md)** — the
+  scaffolding was deleted at step 1 (every generated repo shipped with no
+  licence), `verify --step` failed on multi-repo books, and the `show=` key was
+  ignored at render time.
+
 - **[DEFECT: path traversal](docs/DEFECT_Path_Traversal.md)** — book-controlled
   `file="…"` and `SUMMARY.md` links reached `Path::join` unvalidated. Found in
   review, reproduced against the real binary, fixed at the I/O boundary, and
@@ -63,7 +67,7 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 
 | Signal | State |
 |---|---|
-| Tests | 206 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 212 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
