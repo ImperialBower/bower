@@ -3,10 +3,13 @@
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
-> Created 1 September 2026 at `b3def07`; refreshed when the Makefile landed. There are **no `TODO`, `FIXME`, `HACK`,
-> or `XXX` markers anywhere in this codebase**, so nothing here came from a code
-> comment. Every item below was written down deliberately, in an EPIC
-> corrigendum, at the moment the shortcut was taken.
+> Created 1 September 2026 at `b3def07`. Last refreshed 2 September 2026, when
+> the Makefile landed.
+>
+> There are **no `TODO`, `FIXME`, `HACK`, or `XXX` markers anywhere in this
+> codebase**, so nothing here came from a code comment. Most items were written
+> down deliberately in an EPIC corrigendum at the moment the shortcut was taken;
+> the rest were found by `make ayce`.
 
 ## Tracked debt
 
@@ -70,8 +73,15 @@
   `git2` (EPIC-01 corrigendum) or if a downstream consumer forbids copyleft
   outright.
 
-- [ ] **The book's `template/` directory is applied but never asserted.**
-  Unchanged from the first pass; still true.
+- [ ] **`GitHubForge` is untested.**
+  `bower/src/forge.rs`'s real implementation — every `gh api` call and both
+  `git push` invocations — is executed by no test. This is the acknowledged last
+  inch of EPIC-05: the *decisions* are tested against `FakeForge`, and the pure
+  parts that could be extracted (`remote_url`, `state_from`, `is_not_found`)
+  were. What remains untested is the shelling-out itself, and it cannot be
+  covered without a network and a repository we are willing to destroy. Related:
+  **no `bower push --execute` has ever been run**, here or anywhere, because no
+  book in this repository declares a `github` remote.
 
 ## 🤖 Automated review findings
 
