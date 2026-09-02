@@ -65,7 +65,10 @@ fn built(case: &str, p: &RepoPlan, cfg: &BookConfig) -> PathBuf {
 #[test]
 fn a_book_without_a_github_key_publishes_nothing_and_says_so() {
     let out = bower(&["push", "-o", "/nonexistent"]);
-    assert!(out.status.success(), "a book that does not publish is normal");
+    assert!(
+        out.status.success(),
+        "a book that does not publish is normal"
+    );
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("does not publish it"), "{text}");
 }

@@ -126,11 +126,17 @@ fn a_bad_directive_fails_the_build() {
     );
     let out = run(&[], &envelope(bad));
 
-    assert!(!out.status.success(), "a book that does not resolve must fail");
+    assert!(
+        !out.status.success(),
+        "a book that does not resolve must fail"
+    );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("does not resolve"), "{stderr}");
     assert!(stderr.contains("no-such-repo"), "{stderr}");
-    assert!(stderr.contains("src/ch01.md"), "the error must name the chapter: {stderr}");
+    assert!(
+        stderr.contains("src/ch01.md"),
+        "the error must name the chapter: {stderr}"
+    );
 }
 
 #[test]

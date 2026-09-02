@@ -57,7 +57,6 @@ pub const HELLO_PLAYBOOK_TAGS: &[&str] = &[
     "step-020-drop-scratch",
 ];
 
-
 /// Every path the book's twenty steps leave behind. The generated repository
 /// adds `STEPS.md` on top of these; the kernel never sees that file.
 pub const HELLO_PLAYBOOK_FINAL_PATHS: &[&str] = &[
@@ -72,7 +71,6 @@ pub const HELLO_PLAYBOOK_FINAL_PATHS: &[&str] = &[
     "src/lib.rs",
     "src/main.rs",
 ];
-
 
 fn hello_playbook_catalog() -> RepoCatalog {
     RepoCatalog::from_names(&["hello-playbook"])

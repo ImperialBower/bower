@@ -57,8 +57,9 @@ From `bower-spec.md` § 12. Two are closed; these seven are not.
 
 | Signal | State |
 |---|---|
-| Tests | 194 passing, 0 failing |
+| Tests | 194 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
 | Open GitHub issues | none |
+| `make ayce` | green: clean, fmt, build, test, lint, security-scan, docs |

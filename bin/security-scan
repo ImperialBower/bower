@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# One definition of "scan". The Makefile calls this; so will CI. When the scan
+# changes, it changes in one place.
+set -euo pipefail
+
+cargo audit
+cargo deny check advisories bans licenses sources

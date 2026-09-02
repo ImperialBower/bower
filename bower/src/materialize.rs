@@ -182,9 +182,7 @@ mod materialize_tests {
             ])),
         )
         .unwrap();
-        let mode = |p: &str| {
-            std::fs::metadata(dir.join(p)).unwrap().permissions().mode() & 0o777
-        };
+        let mode = |p: &str| std::fs::metadata(dir.join(p)).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode("bin/scan"), 0o755);
         assert_eq!(mode("plain.txt"), 0o644);
     }

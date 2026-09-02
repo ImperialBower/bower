@@ -232,7 +232,11 @@ impl Replayer<'_> {
 
     /// Materialize the final step onto disk and write a matching index, so the
     /// generated repository is one a reader can `cd` into and `git status`.
-    fn write_worktree(&self, repo: &gix::Repository, final_blobs: &Blobs) -> Result<(), ReplayError> {
+    fn write_worktree(
+        &self,
+        repo: &gix::Repository,
+        final_blobs: &Blobs,
+    ) -> Result<(), ReplayError> {
         if final_blobs.is_empty() {
             return Ok(());
         }
@@ -260,9 +264,10 @@ impl Replayer<'_> {
 /// word and reports as drift forever.
 #[must_use]
 pub fn book_name(book_root: &Path, fallback: &str) -> String {
-    book_root
-        .file_name()
-        .map_or_else(|| fallback.to_string(), |n| n.to_string_lossy().into_owned())
+    book_root.file_name().map_or_else(
+        || fallback.to_string(),
+        |n| n.to_string_lossy().into_owned(),
+    )
 }
 
 /// The files a replay leaves in the working tree: the final step's tree, plus
@@ -347,5 +352,4 @@ mod replay_tests {
         assert_eq!(chapter_stem("src/ch01-a-repo.md"), "ch01-a-repo");
         assert_eq!(chapter_stem("ch06-ci.md"), "ch06-ci");
     }
-
 }

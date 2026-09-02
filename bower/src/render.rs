@@ -350,10 +350,15 @@ mod render_tests {
     fn render__marked_yaml_block_elides_with_a_comment() {
         // `# ` is not a hidden-line marker outside Rust, so eliding by
         // prefixing would corrupt the file rather than hide it.
-        let body = lines("jobs:\n  # bower:show\n  - run: make ayce\n  # bower:show end\n  extra: 1");
+        let body =
+            lines("jobs:\n  # bower:show\n  - run: make ayce\n  # bower:show end\n  extra: 1");
         assert_eq!(
             body_lines("yaml", &body),
-            vec!["# ⋯ 1 line elided", "  - run: make ayce", "# ⋯ 1 line elided"]
+            vec![
+                "# ⋯ 1 line elided",
+                "  - run: make ayce",
+                "# ⋯ 1 line elided"
+            ]
         );
     }
 
@@ -389,7 +394,9 @@ mod render_tests {
     #[test]
     fn render__anchor_precedes_the_block() {
         let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
-        let anchor = out.find("<a id=\"step-first\"></a>").expect("anchor missing");
+        let anchor = out
+            .find("<a id=\"step-first\"></a>")
+            .expect("anchor missing");
         let fence = out.find("```rust").expect("fence missing");
         assert!(anchor < fence, "{out}");
     }
@@ -420,7 +427,10 @@ mod render_tests {
     #[test]
     fn render__a_chapter_with_no_directives_is_unchanged() {
         let text = "# Plain\n\nJust prose.\n";
-        assert_eq!(chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links()), text);
+        assert_eq!(
+            chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links()),
+            text
+        );
     }
 
     #[test]
@@ -457,7 +467,10 @@ mod render_tests {
         let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &github_links());
         let fence_end = out.rfind("```").expect("closing fence");
         let footer = out.find("<sub>").expect("footer");
-        assert!(footer > fence_end, "a footer inside the fence is code: {out}");
+        assert!(
+            footer > fence_end,
+            "a footer inside the fence is code: {out}"
+        );
     }
 
     const PROSE_CH: &str = concat!(

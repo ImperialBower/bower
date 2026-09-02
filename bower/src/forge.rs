@@ -359,12 +359,7 @@ impl Forge for GitHubForge {
         // Tags, plainly forced. A replay recreates every tag with the same name
         // and a new SHA, and the gate has already established that this remote
         // is ours — a lease on a tag we always rewrite would only ever say no.
-        let (ok, stderr) = run(vec![
-            "push".into(),
-            "--force".into(),
-            url,
-            "--tags".into(),
-        ])?;
+        let (ok, stderr) = run(vec!["push".into(), "--force".into(), url, "--tags".into()])?;
         if !ok {
             return Err(ForgeError::Failed {
                 what: "git push --force --tags".into(),

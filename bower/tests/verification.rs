@@ -82,7 +82,9 @@ fn reports_a_wrong_expectation_as_broken() {
     let liar = scratch("liar-book");
     copy_dir(&book_root(), &liar);
 
-    let chapter = liar.join("src").join("ch04-tests-and-failing-on-purpose.md");
+    let chapter = liar
+        .join("src")
+        .join("ch04-tests-and-failing-on-purpose.md");
     let text = std::fs::read_to_string(&chapter).unwrap();
     let lie = text.replace(r#"expect="test_fail""#, r#"expect="pass""#);
     assert_ne!(lie, text, "the fixture must actually change");
@@ -113,7 +115,11 @@ fn reports_a_wrong_expectation_as_broken() {
 
 #[test]
 fn unknown_step_is_an_error() {
-    let out = verify(&book_root(), &scratch("unknown"), &["--step", "no-such-step"]);
+    let out = verify(
+        &book_root(),
+        &scratch("unknown"),
+        &["--step", "no-such-step"],
+    );
     assert!(!out.status.success());
     assert!(
         String::from_utf8_lossy(&out.stderr).contains("no step named `no-such-step`"),

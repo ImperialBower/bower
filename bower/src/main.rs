@@ -18,10 +18,10 @@ use bower_core::prelude::{lock_text, plan, BookPlan, PlannedStep};
 use clap::{Parser, Subcommand};
 
 use bower::config::BookConfig;
-use bower::loader::BookLoader;
-use bower::replay::{book_name, final_blobs, Replayer};
 use bower::forge::{Forge, GitHubForge};
+use bower::loader::BookLoader;
 use bower::push::{plan_push, PushPlan};
+use bower::replay::{book_name, final_blobs, Replayer};
 use bower::status::{lock_drift, repo_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
@@ -124,17 +124,22 @@ fn main() -> ExitCode {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
-        Command::Push {
-            repo,
-            out,
-            execute,
-        } => run_push(&cli.book, &cfg, repo.as_deref(), &out, execute),
+        Command::Push { repo, out, execute } => {
+            run_push(&cli.book, &cfg, repo.as_deref(), &out, execute)
+        }
         Command::Verify {
             repo,
             step,
             from,
             work,
-        } => run_verify(&cli.book, &cfg, repo.as_deref(), step.as_deref(), from.as_deref(), &work),
+        } => run_verify(
+            &cli.book,
+            &cfg,
+            repo.as_deref(),
+            step.as_deref(),
+            from.as_deref(),
+            &work,
+        ),
     }
 }
 
@@ -443,7 +448,8 @@ fn run_push(
                     continue;
                 }
                 if create {
-                    let desc = format!("Generated from the book `{repo}`. Do not open pull requests.");
+                    let desc =
+                        format!("Generated from the book `{repo}`. Do not open pull requests.");
                     if let Err(e) = forge.create(&remote, &desc) {
                         eprintln!("bower: {e}");
                         return ExitCode::FAILURE;

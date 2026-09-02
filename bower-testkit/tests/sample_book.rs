@@ -51,7 +51,6 @@ fn records_the_two_deliberate_failures() {
     assert_eq!(expect_of("scratch-fixed"), Expect::Pass);
 }
 
-
 fn final_tree() -> TreeState {
     let p = book_plan();
     let repo = p.repo(REPO).expect("repo present");

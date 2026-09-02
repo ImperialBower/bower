@@ -99,7 +99,9 @@ fn never_planned_and_never_built_is_not_drift() {
 #[test]
 fn an_edited_chapter_makes_the_lock_stale() {
     let book = copy_book("edited");
-    let chapter = book.join("src").join("ch04-tests-and-failing-on-purpose.md");
+    let chapter = book
+        .join("src")
+        .join("ch04-tests-and-failing-on-purpose.md");
     let text = std::fs::read_to_string(&chapter).unwrap();
     let edited = text.replace(r#"expect="test_fail""#, r#"expect="pass""#);
     assert_ne!(edited, text, "the fixture must actually change");
@@ -109,7 +111,10 @@ fn an_edited_chapter_makes_the_lock_stale() {
     assert!(!ok, "a stale lock must exit non-zero:\n{out}");
     assert!(out.contains("lock      STALE"), "{out}");
     // Both sides, so the reader can see what changed rather than that it did.
-    assert!(out.contains("- 011 test-that-fails expect=test_fail"), "{out}");
+    assert!(
+        out.contains("- 011 test-that-fails expect=test_fail"),
+        "{out}"
+    );
     assert!(out.contains("+ 011 test-that-fails expect=pass"), "{out}");
 }
 

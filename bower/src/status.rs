@@ -129,11 +129,7 @@ pub enum RepoDrift {
 /// # Errors
 ///
 /// Returns [`StatusError`] if the directory exists but cannot be walked.
-pub fn repo_drift(
-    dir: &Path,
-    plan: &RepoPlan,
-    expected: &Blobs,
-) -> Result<RepoDrift, StatusError> {
+pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoDrift, StatusError> {
     let git = dir.join(".git");
     if !dir.is_dir() || !git.is_dir() {
         return Ok(RepoDrift::NeverBuilt);
@@ -275,7 +271,10 @@ impl fmt::Display for StatusReport {
                 only_in_book,
             } => {
                 let n = only_in_lock.len() + only_in_book.len();
-                writeln!(f, "  lock      STALE — {n} line(s) differ; run `bower plan`")?;
+                writeln!(
+                    f,
+                    "  lock      STALE — {n} line(s) differ; run `bower plan`"
+                )?;
                 diff(f, '-', only_in_lock)?;
                 diff(f, '+', only_in_book)?;
             }

@@ -3,7 +3,7 @@
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
-> Created 1 September 2026 at `b3def07`. There are **no `TODO`, `FIXME`, `HACK`,
+> Created 1 September 2026 at `b3def07`; refreshed when the Makefile landed. There are **no `TODO`, `FIXME`, `HACK`,
 > or `XXX` markers anywhere in this codebase**, so nothing here came from a code
 > comment. Every item below was written down deliberately, in an EPIC
 > corrigendum, at the moment the shortcut was taken.
@@ -59,6 +59,19 @@
   Spec § 3.4 describes elided spans collapsing to a linked comment for
   pandoc/epub. `bower/src/render.rs` implements the mdBook HTML form and a
   comment form for non-Rust fences, but there is no epub build to render into.
+
+- [ ] **One copyleft crate in the dependency tree.**
+  `uluru` (MPL-2.0) arrives through `gix-pack` → `gix`, and is the only
+  non-permissive licence in a workspace that is otherwise MIT OR Apache-2.0.
+  MPL-2.0 is weak, file-level copyleft: using `uluru` unmodified as a dependency
+  does not affect this workspace's own terms; modifying its files would. It is
+  allowed explicitly in `deny.toml` with that reasoning written beside it, so it
+  is a decision rather than an accident. Revisit if `gix` is ever swapped for
+  `git2` (EPIC-01 corrigendum) or if a downstream consumer forbids copyleft
+  outright.
+
+- [ ] **The book's `template/` directory is applied but never asserted.**
+  Unchanged from the first pass; still true.
 
 ## 🤖 Automated review findings
 

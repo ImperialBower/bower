@@ -182,7 +182,9 @@ mod loader_tests {
 
     #[test]
     fn loader__missing_book_is_an_error() {
-        let err = BookLoader::new(Path::new("/nonexistent-book")).load().unwrap_err();
+        let err = BookLoader::new(Path::new("/nonexistent-book"))
+            .load()
+            .unwrap_err();
         assert!(matches!(err, LoadError::Read { .. }), "{err:?}");
     }
 }

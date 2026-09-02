@@ -211,7 +211,10 @@ mod trailer_tests {
     fn steps_md__lists_every_step_once() {
         let plan = sample_plan();
         let md = steps_md(&plan, "hello-playbook", Some("https://example.invalid"));
-        assert_eq!(md.matches("| step-").count() + md.matches("| `step-").count(), 20);
+        assert_eq!(
+            md.matches("| step-").count() + md.matches("| `step-").count(),
+            20
+        );
         assert!(md.contains("`step-011-test-that-fails`"));
         assert!(md.contains("test_fail"));
     }

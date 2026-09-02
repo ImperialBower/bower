@@ -74,10 +74,16 @@ assert_eq!(step.tree.text("src/lib.rs").unwrap(), "pub fn hello() {}\n");
 ## Developing
 
 ```
-cargo test --workspace
-cargo clippy --workspace --all-targets   # pedantic, zero warnings
-cargo tree -p bower-core -e normal       # must print the crate and nothing else
+make ayce      # clean, fmt, build, test, lint, security-scan, docs
+make help      # every target, self-documented
+make slow      # the two #[ignore]d lanes: the verify sweep and a real mdbook build
+make book      # render the sample book with the preprocessor
 ```
+
+`make ayce` is the whole gate and the default target. `lint` also asserts the
+kernel's purity (`cargo tree -p bower-core -e normal` must print one line), and
+`build` also compiles the CLI with `--no-default-features`, so both invariants
+run on every sweep without changing `ayce`'s prerequisite list.
 
 The last command is the kernel's purity gate. `bower-core` has no dependencies
 and does no I/O; if that line ever grows a second row, something crossed a

@@ -3,17 +3,17 @@
 //! Bower turns an annotated book source into deterministic, replayable git
 //! repositories. This crate is the pure heart of that system: it parses
 //! directives out of chapter markdown, groups them into steps, orders the
-//! steps into a [`BookPlan`], and folds every step into a complete
-//! [`TreeState`] — the file tree a replay layer will commit.
+//! steps into a [`prelude::BookPlan`], and folds every step into a complete
+//! [`prelude::TreeState`] — the file tree a replay layer will commit.
 //!
 //! The kernel's contract, per the Bower design spec:
 //!
-//! * **No I/O.** Input is text handed in by the caller ([`BookSource`]);
+//! * **No I/O.** Input is text handed in by the caller ([`prelude::BookSource`]);
 //!   output is values. No filesystem, no git, no network.
 //! * **No serialization in the public API.** Lock-file *text* is produced as
 //!   a `String`; no format crate appears in any signature.
-//! * **Deterministic.** Given the same [`BookSource`] and [`RepoCatalog`],
-//!   [`plan`] returns an identical [`BookPlan`], down to every tree byte.
+//! * **Deterministic.** Given the same [`prelude::BookSource`] and [`prelude::RepoCatalog`],
+//!   [`prelude::plan`] returns an identical [`prelude::BookPlan`], down to every tree byte.
 //! * **Exhaustive, located errors.** Every failure is a [`BowerError`]
 //!   carrying the chapter and line that caused it. Errors are collected,
 //!   not short-circuited — one pass reports everything it can.

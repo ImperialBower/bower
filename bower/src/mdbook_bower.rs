@@ -18,8 +18,8 @@ use std::io::{Read, Write};
 use std::process::ExitCode;
 
 use bower::config::BookConfig;
-use bower::render;
 use bower::mdbook;
+use bower::render;
 use bower_core::prelude::plan;
 
 /// The renderers this preprocessor knows how to rewrite for. HTML only: the

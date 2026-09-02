@@ -1,0 +1,32 @@
+# Configuration for cargo-deny. Run through `./bin/security-scan`, which the
+# Makefile's `security-scan` target calls.
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+# Exactly the licences this workspace's dependency tree actually needs. A
+# longer list is not safer — it is a longer list of things nobody is checking.
+# Every entry below was added because a named crate required it, not in advance.
+allow = [
+    "Apache-2.0",   # the workspace's own, and most of the tree
+    "MIT",          # the workspace's own, and most of the tree
+    "Unicode-3.0",  # unicode-ident
+    "BSD-3-Clause", # encoding_rs, via gix
+    "Zlib",         # foldhash and zlib-rs, via gix
+    # MPL-2.0 is weak, file-level copyleft — the only non-permissive licence in
+    # this tree. It arrives through `uluru`, a small LRU cache pulled in by
+    # `gix-pack`. Using it unmodified as a dependency does not affect this
+    # workspace's own MIT OR Apache-2.0 terms; modifying uluru's own files
+    # would. Recorded in docs/TECHNICAL_DEBT.md so it is a decision rather than
+    # an accident.
+    "MPL-2.0",      # uluru, via gix-pack
+]
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

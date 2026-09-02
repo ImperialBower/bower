@@ -39,8 +39,8 @@ pub fn split(envelope: Value) -> Result<(Context, Value), String> {
     }
     let book = items.pop().unwrap_or(Value::Null);
     let context = items.pop().unwrap_or(Value::Null);
-    let context: Context =
-        serde_json::from_value(context).map_err(|e| format!("unusable preprocessor context: {e}"))?;
+    let context: Context = serde_json::from_value(context)
+        .map_err(|e| format!("unusable preprocessor context: {e}"))?;
     Ok((context, book))
 }
 
@@ -164,7 +164,10 @@ mod mdbook_tests {
     #[test]
     fn mdbook__chapters_come_back_in_reading_order() {
         let b = book();
-        let paths: Vec<String> = chapters(&b).iter().filter_map(|c| chapter_path(c)).collect();
+        let paths: Vec<String> = chapters(&b)
+            .iter()
+            .filter_map(|c| chapter_path(c))
+            .collect();
         assert_eq!(paths, vec!["src/ch01.md", "src/ch02.md", "src/ch02a.md"]);
     }
 

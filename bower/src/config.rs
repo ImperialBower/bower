@@ -70,9 +70,18 @@ pub struct LinkTemplates {
 /// reader is never left guessing which `bower.toml` is wrong.
 #[derive(Debug)]
 pub enum ConfigError {
-    Read { path: PathBuf, source: std::io::Error },
-    Parse { path: PathBuf, source: toml::de::Error },
-    Epoch { value: String, reason: String },
+    Read {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+    Epoch {
+        value: String,
+        reason: String,
+    },
 }
 
 impl fmt::Display for ConfigError {
