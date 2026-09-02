@@ -76,10 +76,9 @@
   — but nothing asserts its contents. A licence file deleted by accident would
   be noticed by nobody.
 
-- [ ] **The epub elision rendering is designed but unbuilt.**
-  Spec § 3.4 describes elided spans collapsing to a linked comment for
-  pandoc/epub. `bower/src/render.rs` implements the mdBook HTML form and a
-  comment form for non-Rust fences, but there is no epub build to render into.
+- [x] ~~**The epub elision rendering is designed but unbuilt.**~~ Closed
+  2 September 2026 by EPIC-06: `bower publish --target epub` renders it, and the
+  comment now carries the `full file:` link spec § 3.4 asked for.
 
 - [ ] **One copyleft crate in the dependency tree.**
   `uluru` (MPL-2.0) arrives through `gix-pack` → `gix`, and is the only

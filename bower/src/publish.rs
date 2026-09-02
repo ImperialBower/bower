@@ -79,6 +79,10 @@ pub enum PublishError {
         path: PathBuf,
         source: toml::de::Error,
     },
+    /// A renderer's binary is not installed.
+    MissingTool { tool: String, install: String },
+    /// The renderer ran and failed.
+    Failed { what: String, stderr: String },
 }
 
 impl fmt::Display for PublishError {
@@ -86,6 +90,10 @@ impl fmt::Display for PublishError {
         match self {
             Self::Read { path, source } => write!(f, "cannot read {}: {source}", path.display()),
             Self::Parse { path, source } => write!(f, "cannot parse {}: {source}", path.display()),
+            Self::MissingTool { tool, install } => {
+                write!(f, "`{tool}` is not installed; try: {install}")
+            }
+            Self::Failed { what, stderr } => write!(f, "{what} failed: {stderr}"),
         }
     }
 }
@@ -208,6 +216,255 @@ fn heading_of(text: &str) -> Option<String> {
         .filter(|h| !h.is_empty())
 }
 
+/// What a render produced.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Artifact {
+    pub path: PathBuf,
+    pub bytes: u64,
+}
+
+/// Something that turns a [`RenderPlan`] into files.
+///
+/// Shaped like `Forge` (`bower/src/forge.rs:57`) and for the same reason: the
+/// decisions are tested against a fake, and only the shelling-out is not.
+pub trait Renderer {
+    /// The binaries this renderer needs, checked before anything is written.
+    ///
+    /// # Errors
+    ///
+    /// [`PublishError::MissingTool`], naming the install command.
+    fn preflight(&self) -> Result<(), PublishError>;
+
+    /// Produce the artifact under `out`.
+    ///
+    /// # Errors
+    ///
+    /// [`PublishError`] if writing fails or the renderer refuses the input.
+    fn render(&self, plan: &RenderPlan, out: &Path) -> Result<Artifact, PublishError>;
+}
+
+/// Whether a binary can be run at all.
+///
+/// Pure enough to test: point it at a name nothing could plausibly install.
+#[must_use]
+pub fn tool_present(tool: &str) -> bool {
+    std::process::Command::new(tool)
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+fn need(tool: &str, install: &str) -> Result<(), PublishError> {
+    if tool_present(tool) {
+        Ok(())
+    } else {
+        Err(PublishError::MissingTool {
+            tool: tool.to_string(),
+            install: install.to_string(),
+        })
+    }
+}
+
+/// A filename-safe form of a book's title: `Hello, Playbook` → `hello-playbook`.
+#[must_use]
+pub fn slug(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    let mut dash = false;
+    for c in title.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !dash && !out.is_empty() {
+            out.push('-');
+            dash = true;
+        }
+    }
+    // A title of pure punctuation would otherwise name a file `-`.
+    let trimmed = out.trim_end_matches('-');
+    if trimmed.is_empty() {
+        "book".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+/// The epub, via pandoc.
+pub struct PandocRenderer;
+
+impl Renderer for PandocRenderer {
+    fn preflight(&self) -> Result<(), PublishError> {
+        need("pandoc", "brew install pandoc")
+    }
+
+    fn render(&self, plan: &RenderPlan, out: &Path) -> Result<Artifact, PublishError> {
+        let io = |path: &Path| {
+            let path = path.to_path_buf();
+            move |source| PublishError::Read { path, source }
+        };
+
+        std::fs::create_dir_all(out).map_err(io(out))?;
+        // Chapters go to a scratch directory as numbered files: pandoc reads
+        // them in the order it is given, and a numeric prefix makes that order
+        // visible if anyone looks.
+        let src = out.join(".chapters");
+        if src.exists() {
+            std::fs::remove_dir_all(&src).map_err(io(&src))?;
+        }
+        std::fs::create_dir_all(&src).map_err(io(&src))?;
+
+        let mut inputs = Vec::with_capacity(plan.chapters.len());
+        for (i, chapter) in plan.chapters.iter().enumerate() {
+            let stem = chapter
+                .path
+                .rsplit('/')
+                .next()
+                .unwrap_or(&chapter.path)
+                .trim_end_matches(".md");
+            let file = src.join(format!("{:03}-{stem}.md", i + 1));
+            std::fs::write(&file, &chapter.markdown).map_err(io(&file))?;
+            inputs.push(file);
+        }
+
+        let artifact = out.join(format!("{}.epub", slug(&plan.meta.title)));
+        let mut cmd = std::process::Command::new("pandoc");
+        cmd.arg("--from")
+            .arg("markdown")
+            .arg("--to")
+            .arg("epub")
+            .arg("--toc")
+            .arg("--metadata")
+            .arg(format!("title={}", plan.meta.title))
+            .arg("--metadata")
+            .arg(format!("lang={}", plan.meta.language));
+        for author in &plan.meta.authors {
+            cmd.arg("--metadata").arg(format!("author={author}"));
+        }
+        cmd.arg("-o").arg(&artifact).args(&inputs);
+
+        let output = cmd.output().map_err(|e| PublishError::Failed {
+            what: "pandoc".to_string(),
+            stderr: e.to_string(),
+        })?;
+        if !output.status.success() {
+            return Err(PublishError::Failed {
+                what: "pandoc".to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            });
+        }
+
+        let bytes = std::fs::metadata(&artifact).map_err(io(&artifact))?.len();
+        Ok(Artifact {
+            path: artifact,
+            bytes,
+        })
+    }
+}
+
+/// The HTML, via mdBook.
+///
+/// This renderer does **not** consume the `RenderPlan` the way `PandocRenderer`
+/// does: mdBook re-runs `mdbook-bower` itself, so the render happens inside the
+/// preprocessor rather than here. The plan is still built and still checked
+/// first — a book that will not resolve fails before `mdbook` is invoked — but
+/// the HTML path renders twice. Unifying that means teaching `mdbook-bower` to
+/// read a prepared plan, and is deliberately not in EPIC-06.
+pub struct MdBookRenderer {
+    /// mdBook needs the source directory, not the plan. Hence the field.
+    pub book_root: PathBuf,
+}
+
+impl Renderer for MdBookRenderer {
+    fn preflight(&self) -> Result<(), PublishError> {
+        need("mdbook", "cargo install mdbook")?;
+        // `book.toml` declares `[preprocessor.bower]`, so mdBook will fail
+        // without this on PATH — and failing here says why.
+        need(
+            "mdbook-bower",
+            "cargo build -p bower && export PATH=\"$PWD/target/debug:$PATH\"",
+        )
+    }
+
+    fn render(&self, _plan: &RenderPlan, out: &Path) -> Result<Artifact, PublishError> {
+        // mdBook resolves `-d` **relative to the book root**, so a relative
+        // `out` lands inside the book rather than where the caller asked.
+        let dest = std::path::absolute(out).map_err(|source| PublishError::Read {
+            path: out.to_path_buf(),
+            source,
+        })?;
+        let output = std::process::Command::new("mdbook")
+            .arg("build")
+            .arg(&self.book_root)
+            .arg("-d")
+            .arg(&dest)
+            .output()
+            .map_err(|e| PublishError::Failed {
+                what: "mdbook build".to_string(),
+                stderr: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(PublishError::Failed {
+                what: "mdbook build".to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            });
+        }
+        // Reporting 0 bytes for a file that is not there would hide exactly
+        // the bug that `-d` relativity caused.
+        let index = dest.join("index.html");
+        let bytes = std::fs::metadata(&index).map_err(|source| PublishError::Read {
+            path: index.clone(),
+            source,
+        })?;
+        Ok(Artifact {
+            path: index,
+            bytes: bytes.len(),
+        })
+    }
+}
+
+/// A [`Renderer`] that writes nothing and remembers what it was handed.
+///
+/// Public for the same reason `FakeForge` is: an integration test needs it, and
+/// the assertions that matter are about what a renderer was *given*, which only
+/// something that records can answer.
+pub struct FakeRenderer {
+    seen: std::cell::RefCell<Vec<RenderPlan>>,
+}
+
+impl Default for FakeRenderer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FakeRenderer {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            seen: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// Every plan this renderer was asked to render, in order.
+    #[must_use]
+    pub fn seen(&self) -> Vec<RenderPlan> {
+        self.seen.borrow().clone()
+    }
+}
+
+impl Renderer for FakeRenderer {
+    fn preflight(&self) -> Result<(), PublishError> {
+        Ok(())
+    }
+
+    fn render(&self, plan: &RenderPlan, out: &Path) -> Result<Artifact, PublishError> {
+        self.seen.borrow_mut().push(plan.clone());
+        Ok(Artifact {
+            path: out.join("fake"),
+            bytes: 0,
+        })
+    }
+}
+
 #[cfg(test)]
 #[allow(non_snake_case, clippy::unwrap_used)]
 mod publish_tests {
@@ -326,9 +583,70 @@ mod publish_tests {
 
     #[test]
     fn heading__falls_back_to_the_path() {
-        assert_eq!(heading_of("# Real Title\n\nprose"), Some("Real Title".into()));
+        assert_eq!(
+            heading_of("# Real Title\n\nprose"),
+            Some("Real Title".into())
+        );
         // A `##` is a section within the chapter, not the chapter.
         assert_eq!(heading_of("## Subsection\n"), None);
         assert_eq!(heading_of("no heading at all"), None);
+    }
+
+    #[test]
+    fn tool_present__says_no_to_something_nobody_installs() {
+        assert!(!tool_present("bower-no-such-tool-exists"));
+        // pandoc is this repo's documented publishing dependency.
+        assert!(
+            tool_present("pandoc"),
+            "pandoc is needed to publish an epub"
+        );
+    }
+
+    #[test]
+    fn renderer__preflight_names_the_install_command() {
+        // The failure a reader will actually hit.
+        let err = PublishError::MissingTool {
+            tool: "pandoc".into(),
+            install: "brew install pandoc".into(),
+        };
+        let text = err.to_string();
+        assert!(text.contains("pandoc"), "{text}");
+        assert!(text.contains("brew install pandoc"), "{text}");
+    }
+
+    #[test]
+    fn slug__is_filename_safe() {
+        assert_eq!(slug("Hello, Playbook"), "hello-playbook");
+        assert_eq!(slug("Rust for Failers!"), "rust-for-failers");
+        assert_eq!(slug("  spaced  out  "), "spaced-out");
+        // A title of pure punctuation would otherwise name a file `-`.
+        assert_eq!(slug("!!!"), "book");
+    }
+
+    #[test]
+    fn fake__records_the_plan_it_was_given() {
+        let (book, plan) = sample_plan();
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        let rp = render_plan(&book, &plan, meta, Target::Epub, &links());
+
+        let fake = FakeRenderer::new();
+        fake.preflight().unwrap();
+        let artifact = fake.render(&rp, Path::new("/tmp/nowhere")).unwrap();
+
+        assert_eq!(fake.seen().len(), 1);
+        assert_eq!(fake.seen()[0].target, Target::Epub);
+        assert_eq!(fake.seen()[0].chapters.len(), 6);
+        assert_eq!(artifact.bytes, 0, "a fake writes nothing");
+    }
+
+    #[test]
+    fn mdbook_renderer__keeps_the_book_root_because_mdbook_needs_it() {
+        // Recorded as a test because it is the one asymmetry in this design:
+        // mdBook re-runs the preprocessor, so it needs the source directory
+        // rather than the plan.
+        let r = MdBookRenderer {
+            book_root: sample_root(),
+        };
+        assert!(r.book_root.join("book.toml").exists());
     }
 }

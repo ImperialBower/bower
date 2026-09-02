@@ -1,4 +1,4 @@
-.PHONY: default help clean fmt build test lint security-scan docs ayce purity minimal slow book
+.PHONY: default help clean fmt build test lint security-scan docs ayce purity minimal slow book epub
 default: ayce
 
 help:  ## self-documenting: every target has a '## comment' printed here
@@ -53,6 +53,10 @@ slow: ## the #[ignore]d lanes: the 20-step verify sweep and a real mdbook build
 	cargo build -p bower --all-features
 	PATH="$(CURDIR)/target/debug:$$PATH" cargo test -p bower --test preprocessor -- --ignored
 
-book: ## render the sample book with the preprocessor
+book: ## render the sample book as HTML
 	cargo build -p bower --all-features
-	PATH="$(CURDIR)/target/debug:$$PATH" mdbook build books/hello-playbook
+	PATH="$(CURDIR)/target/debug:$$PATH" cargo run -q -p bower -- \
+		--book books/hello-playbook publish --target html -o books/hello-playbook/book
+
+epub: ## render the sample book as an epub (needs pandoc)
+	cargo run -q -p bower -- --book books/hello-playbook publish --target epub -o published

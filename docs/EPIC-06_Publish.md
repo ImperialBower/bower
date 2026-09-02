@@ -47,12 +47,12 @@ dependency-free — a sixth EPIC in a row.
 | `Target` — html and epub | **Complete** |
 | Per-target elision in `body_lines` | **Complete** |
 | `RenderPlan` — the pure fold | **Complete** |
-| `Renderer` trait + `FakeRenderer` | Planned |
+| `Renderer` trait + `FakeRenderer` | **Complete** |
 | Book metadata from `book.toml` | **Complete** |
-| `PandocRenderer` — the epub | Planned |
-| `MdBookRenderer` — the html | Planned |
-| `bower publish --target` CLI | Planned |
-| Goldens against the fake renderer | Planned |
+| `PandocRenderer` — the epub | **Complete** |
+| `MdBookRenderer` — the html | **Complete** |
+| `bower publish --target` CLI | **Complete** |
+| Goldens against the fake renderer | **Complete** |
 
 ---
 
@@ -108,7 +108,7 @@ through the render rather than inferred from the fence.
 | A chapter, rewritten | `render::chapter` `bower/src/render.rs:21` | ✅ takes a `Target` |
 | Which output is wanted | `Target` | ✅ done |
 | The whole book, rendered | `RenderPlan` | ✅ done |
-| A thing that writes artifacts | `Renderer` | ❌ absent |
+| A thing that writes artifacts | `Renderer` | ✅ done |
 | The book's identity | `BookMeta` from `book.toml` | ✅ done |
 
 ---
@@ -292,35 +292,35 @@ visible in tests rather than hidden.
 
 ### Phase 2 — The renderers
 
-- [ ] **2a.** `Renderer`, `Artifact`, and `FakeRenderer` — public, recording
+- [x] **2a.** `Renderer`, `Artifact`, and `FakeRenderer` — public, recording
   every call, for the same reason `FakeForge` is (EPIC-05, corrigendum).
-- [ ] **2b.** `PandocRenderer`: preflight for `pandoc`, write chapters to a
+- [x] **2b.** `PandocRenderer`: preflight for `pandoc`, write chapters to a
   scratch directory in order, invoke pandoc with title, authors, and language.
-- [ ] **2c.** `MdBookRenderer`: preflight for `mdbook` **and** `mdbook-bower`
+- [x] **2c.** `MdBookRenderer`: preflight for `mdbook` **and** `mdbook-bower`
   on `PATH`, then `mdbook build`.
-- [ ] **2d.** Tests: `renderer__preflight_names_the_install_command`,
+- [x] **2d.** Tests: `renderer__preflight_names_the_install_command`,
   `fake__records_the_plan_it_was_given`.
 
 ### Phase 3 — The command
 
-- [ ] **3a.** `bower publish --target html|epub [--repo R] [-o DIR]` in
+- [x] **3a.** `bower publish --target html|epub [--repo R] [-o DIR]` in
   `bower/src/main.rs`, reusing `resolve()`.
-- [ ] **3b.** Empty the output directory first, and report the artifact's path
+- [x] **3b.** Empty the output directory first, and report the artifact's path
   and size.
-- [ ] **3c.** Exit non-zero when the book does not resolve, a renderer is
+- [x] **3c.** Exit non-zero when the book does not resolve, a renderer is
   missing, or the renderer fails.
 
 ### Phase 4 — Goldens and documentation
 
-- [ ] **4a.** `bower/tests/publish.rs`: build a `RenderPlan` for both targets
+- [x] **4a.** `bower/tests/publish.rs`: build a `RenderPlan` for both targets
   over the real sample chapters and assert the epub plan elides chapter 4's Rust
   block while the html plan keeps its hidden lines. **No renderer needed** —
   this is what the pure fold buys.
-- [ ] **4b.** An `#[ignore]`d end-to-end test: `bower publish --target epub`
+- [x] **4b.** An `#[ignore]`d end-to-end test: `bower publish --target epub`
   produces a file `pandoc` accepts, skipped cleanly when pandoc is absent.
-- [ ] **4c.** `make epub` and `make html` targets calling `bower publish`,
+- [x] **4c.** `make epub` and `make html` targets calling `bower publish`,
   replacing the note in `README.md` that says no epub exists.
-- [ ] **4d.** Close the "epub elision rendering is designed but unbuilt" item in
+- [x] **4d.** Close the "epub elision rendering is designed but unbuilt" item in
   `docs/TECHNICAL_DEBT.md`; flip Status rows; append the corrigendum.
 
 ---
@@ -418,3 +418,77 @@ Exit criteria:
 5. A missing `pandoc` fails with its install command named, before anything is
    written.
 6. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 2 September 2026, on `main`.
+
+### 1. `PublishError` was right to be late
+
+The design put it in Phase 0. Nothing raised it until `BookMeta::load` in Phase
+1, and a library's public error type with no caller is the dead-code shape
+EPIC-02 taught this project to avoid. Written in the phase that needed it.
+
+### 2. `book.toml` is the one file where `deny_unknown_fields` would be wrong
+
+Every other wire struct in this crate uses it, so a typo in `bower.toml` fails
+loudly. `book.toml` is *mdBook's* file — `src`, `[output.html]`,
+`[preprocessor.bower]` — and rejecting a key mdBook adds would break every book
+on its next release. Off here, deliberately, with
+`meta__ignores_the_keys_mdbook_owns` pinning the decision.
+
+### 3. `full_file_url` is a truncation, not a substitution
+
+The `blob` template addresses a line range; a reader following an elision wants
+the file. One becomes the other only by dropping the `#L18-L21` fragment, which
+earned a named function rather than being inlined into `subst`.
+
+### 4. Exit criterion 4 was wrong as written
+
+It said the HTML must be unchanged "byte for byte", which work item 0c makes
+false on purpose: the elision comment gains a link, so chapter 6 changes. What
+must not change is the *behaviour* — the toggle, the anchors, the footers — and
+it did not. The criterion now says so.
+
+### 5. `mdbook-bower` could not answer `--version`
+
+`bower publish --target html` reported it "not installed" while it sat on
+`PATH`. The preflight probes with `--version`; the binary had no such flag, so
+it fell through to reading stdin, got nothing, and exited non-zero. A binary
+that cannot answer `--version` looks uninstalled to anything that asks. Fixed in
+the binary rather than by weakening the probe.
+
+### 6. mdBook resolves `-d` relative to the book root
+
+`--target html -o books/hello-playbook/book` wrote to
+`books/hello-playbook/books/hello-playbook/book`. Worse, `MdBookRenderer`
+reported the artifact as **0 bytes** rather than failing, because it read the
+missing file's size with `unwrap_or(0)` — a default that hid the very bug the
+relativity caused. `out` is now made absolute, and a missing `index.html` is an
+error.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (target and elision) | Shipped | items 3, 4 |
+| 1 (the pure fold) | Shipped | items 1, 2 |
+| 2 (the renderers) | Shipped | items 5, 6 |
+| 3 (the command) | Shipped | |
+| 4 (goldens and docs) | Shipped | closed the epub debt item |
+
+### Still open after this EPIC
+
+- **`--target pdf`** — needs a typography decision. Typst is not installed here;
+  `xelatex` is. Its own EPIC.
+- **`--target ipynb`** — needs play cells (spec § 15), which nothing renders.
+- **The HTML path renders twice.** `MdBookRenderer` builds and checks the plan,
+  then mdBook re-runs `mdbook-bower`, which renders again. Unifying that means
+  teaching the preprocessor to read a prepared plan. Flagged in the Design
+  before it was built, and still true.
+- **`PandocRenderer` and `MdBookRenderer` are untested**, the same last inch as
+  `GitHubForge`. The decisions are tested against `FakeRenderer` and the pure
+  parts — `slug`, `tool_present`, `heading_of` — were extracted and are.

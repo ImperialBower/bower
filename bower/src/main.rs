@@ -20,6 +20,9 @@ use clap::{Parser, Subcommand};
 use bower::config::BookConfig;
 use bower::forge::{Forge, GitHubForge};
 use bower::loader::BookLoader;
+use bower::publish::{
+    render_plan, BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target,
+};
 use bower::push::{plan_push, PushPlan};
 use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
 use bower::status::{lock_drift, repo_drift, StatusReport};
@@ -47,6 +50,17 @@ enum Command {
         /// Limit the run to one target repository.
         #[arg(long)]
         repo: Option<String>,
+    },
+    /// Render the book: `--target html` or `--target epub`.
+    Publish {
+        /// Which artifact to produce. Required: silently producing the wrong
+        /// one is worse than asking.
+        #[arg(long)]
+        target: Target,
+
+        /// Where to write it.
+        #[arg(short, long, default_value = "published")]
+        out: PathBuf,
     },
     /// Publish a built repository to its configured remote.
     ///
@@ -124,6 +138,7 @@ fn main() -> ExitCode {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
+        Command::Publish { target, out } => run_publish(&cli.book, &cfg, target, &out),
         Command::Push { repo, out, execute } => {
             run_push(&cli.book, &cfg, repo.as_deref(), &out, execute)
         }
@@ -518,5 +533,62 @@ fn run_push(
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -> ExitCode {
+    let book = match BookLoader::new(book_root).load() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+    let meta = match BookMeta::load(book_root) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let links: std::collections::BTreeMap<_, _> = cfg
+        .repos
+        .iter()
+        .map(|(name, r)| (name.clone(), r.links.clone()))
+        .collect();
+
+    let plan: RenderPlan = render_plan(&book, &resolved, meta, target, &links);
+
+    // Every renderer is checked before anything is written, so a missing
+    // binary costs nothing and says how to fix itself.
+    let renderer: Box<dyn Renderer> = match target {
+        Target::Epub => Box::new(PandocRenderer),
+        Target::Html => Box::new(MdBookRenderer {
+            book_root: book_root.to_path_buf(),
+        }),
+    };
+    if let Err(e) = renderer.preflight() {
+        eprintln!("bower: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    println!(
+        "{} — {} chapters → {target}",
+        plan.meta.title,
+        plan.chapters.len()
+    );
+    match renderer.render(&plan, out) {
+        Ok(a) => {
+            println!("wrote {} ({} bytes)", a.path.display(), a.bytes);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("bower: {e}");
+            ExitCode::FAILURE
+        }
     }
 }

@@ -32,6 +32,14 @@ const SUPPORTED: &[&str] = &["html"];
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    // A binary that cannot answer `--version` looks uninstalled to anything
+    // that probes for it — which is exactly how `bower publish --target html`
+    // reported this one missing while it sat on PATH.
+    if matches!(args.first().map(String::as_str), Some("--version" | "-V")) {
+        println!("mdbook-bower {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
+
     if args.first().map(String::as_str) == Some("supports") {
         let renderer = args.get(1).map(String::as_str).unwrap_or_default();
         return if SUPPORTED.contains(&renderer) {

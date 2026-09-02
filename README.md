@@ -47,6 +47,9 @@ written to flatter it.
 - **The page links to the code, by line** — every rendered block carries a
   footer naming its file and line range at a tag, and those lines are the lines
   the reader just saw (`bower/tests/preprocessor.rs`).
+- **Every target shows the same thing** — html and epub render identically
+  except for how an elided span is shown, which is the one thing that must
+  differ (`bower/tests/publish.rs`).
 
 ## Quick tour
 
@@ -97,6 +100,7 @@ cargo run -p bower -- --book books/hello-playbook build -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook verify
 cargo run -p bower -- --book books/hello-playbook status -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook push   -o /tmp/hello-playbook
+cargo run -p bower -- --book books/hello-playbook publish --target epub -o published
 ```
 
 `verify` writes each step's tree to a scratch directory and runs the repo's
@@ -120,13 +124,20 @@ as such and are **not** drift, so it is safe in CI on a fresh checkout.
 ## Rendering the book
 
 ```
-cargo build -p bower
-PATH="$PWD/target/debug:$PATH" mdbook build books/hello-playbook
+make book      # HTML, via mdBook
+make epub      # epub, via pandoc
 ```
 
-`books/hello-playbook/book.toml` declares `[preprocessor.bower]`, so `mdbook`
-needs `mdbook-bower` on `PATH`. Without it the build **fails** rather than
-quietly rendering a book whose directives were never applied.
+Both go through `bower publish --target …`, which folds the book into one
+*render plan* and hands it to a renderer. The two targets share a single
+display-marker engine and differ in exactly one rule: mdBook HTML keeps Rust's
+expandable hidden lines, and an epub — which has no toggle anywhere — collapses
+each elided span to `// ⋯ 9 lines elided — full file: <url>`.
+
+`books/hello-playbook/book.toml` declares `[preprocessor.bower]`, so the HTML
+path needs `mdbook-bower` on `PATH`. Without it the build **fails** rather than
+quietly rendering a book whose directives were never applied. The epub path
+needs `pandoc`. Both are checked before anything is written.
 
 ## License
 

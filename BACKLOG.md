@@ -61,13 +61,14 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 - **[EPIC-03 — the mdBook preprocessor](docs/EPIC-03_Preprocessor.md)** — 10/10 components. Directives stripped, display markers applied, anchors and line-anchored footers injected.
 - **[EPIC-04 — `bower status`](docs/EPIC-04_Status.md)** — 5/5 components. Book ⇄ lock ⇄ repo drift, named and exit-coded.
 - **[EPIC-05 — `bower push`](docs/EPIC-05_Push.md)** — 6/6 components. Publishing, behind a guard with no override.
+- **[EPIC-06 — `bower publish`](docs/EPIC-06_Publish.md)** — 9/9 components. One render plan, two targets: mdBook HTML and a pandoc epub.
 - **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
 
 ## Health
 
 | Signal | State |
 |---|---|
-| Tests | 212 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 234 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
