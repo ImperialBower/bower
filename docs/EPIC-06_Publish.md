@@ -46,9 +46,9 @@ dependency-free — a sixth EPIC in a row.
 |---|---|
 | `Target` — html and epub | **Complete** |
 | Per-target elision in `body_lines` | **Complete** |
-| `RenderPlan` — the pure fold | Planned |
+| `RenderPlan` — the pure fold | **Complete** |
 | `Renderer` trait + `FakeRenderer` | Planned |
-| Book metadata from `book.toml` | Planned |
+| Book metadata from `book.toml` | **Complete** |
 | `PandocRenderer` — the epub | Planned |
 | `MdBookRenderer` — the html | Planned |
 | `bower publish --target` CLI | Planned |
@@ -107,9 +107,9 @@ through the render rather than inferred from the fence.
 | Where the full file lives | `LineRange` + `footer` `bower/src/render.rs:228` | ✅ done |
 | A chapter, rewritten | `render::chapter` `bower/src/render.rs:21` | ✅ takes a `Target` |
 | Which output is wanted | `Target` | ✅ done |
-| The whole book, rendered | `RenderPlan` | ❌ absent |
+| The whole book, rendered | `RenderPlan` | ✅ done |
 | A thing that writes artifacts | `Renderer` | ❌ absent |
-| The book's identity | `BookMeta` from `book.toml` | ❌ absent |
+| The book's identity | `BookMeta` from `book.toml` | ✅ done |
 
 ---
 
@@ -267,11 +267,28 @@ visible in tests rather than hidden.
 
 ### Phase 1 — The pure fold
 
-- [ ] **1a.** `BookMeta` and a reader for `book.toml`'s `[book]` table.
-- [ ] **1b.** `RenderedChapter`, `RenderPlan`, `render_plan()`.
-- [ ] **1c.** Tests: `render_plan__covers_every_chapter_in_reading_order`,
-  `render_plan__epub_and_html_differ_only_in_elision`,
-  `meta__comes_from_book_toml`, `meta__missing_book_toml_is_an_error`.
+- [x] **1a.** `BookMeta`, `BookMeta::load`, and `PublishError` — which now has
+  a caller, which is why Phase 0 was right not to write it early.
+  **Deviation worth naming:** `WireBookToml` is the only wire struct in this
+  crate **without** `deny_unknown_fields`. `book.toml` is mdBook's file, full of
+  keys this crate does not own — `src`, `[output.html]`,
+  `[preprocessor.bower]` — and rejecting a key mdBook adds would break every
+  book on its next release. The rule that protects `bower.toml` from typos would
+  break `book.toml`, so it is off here, deliberately, with the reason in the
+  code.
+- [x] **1b.** `RenderedChapter`, `RenderPlan`, `render_plan()`, and
+  `heading_of`. **Addition:** a chapter's title comes from its first top-level
+  `#` heading, falling back to its path. Only `# `, never `##` — naming a
+  chapter after its second subsection would be worse than naming it after its
+  file.
+- [x] **1c.** Six tests. **Additions:** `meta__ignores_the_keys_mdbook_owns`
+  pins the `deny_unknown_fields` decision above, and
+  `heading__falls_back_to_the_path` covers the title rule.
+  `render_plan__epub_and_html_differ_only_in_elision` is the one that carries
+  the architectural claim: chapter 1 renders **identically** for both targets,
+  and chapter 4 — the marked one — diverges in exactly the elision, with the
+  epub carrying `full file:` and the html keeping `# mod tests {`. Verified on
+  `main`, 2 September 2026: 225 tests, clippy silent.
 
 ### Phase 2 — The renderers
 
