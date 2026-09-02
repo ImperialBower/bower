@@ -44,8 +44,8 @@ dependency-free — a sixth EPIC in a row.
 
 | Component | Status |
 |---|---|
-| `Target` — html and epub | Planned |
-| Per-target elision in `body_lines` | Planned |
+| `Target` — html and epub | **Complete** |
+| Per-target elision in `body_lines` | **Complete** |
 | `RenderPlan` — the pure fold | Planned |
 | `Renderer` trait + `FakeRenderer` | Planned |
 | Book metadata from `book.toml` | Planned |
@@ -105,8 +105,8 @@ through the render rather than inferred from the fence.
 | Which lines a page shows | `BlockDisplay` `bower-core/src/display.rs:50` | ✅ done |
 | How much was left out | `elided_lines` `bower-core/src/display.rs:55` | ✅ done |
 | Where the full file lives | `LineRange` + `footer` `bower/src/render.rs:228` | ✅ done |
-| A chapter, rewritten | `render::chapter` `bower/src/render.rs:21` | 🟡 mdBook only |
-| Which output is wanted | `Target` | ❌ absent |
+| A chapter, rewritten | `render::chapter` `bower/src/render.rs:21` | ✅ takes a `Target` |
+| Which output is wanted | `Target` | ✅ done |
 | The whole book, rendered | `RenderPlan` | ❌ absent |
 | A thing that writes artifacts | `Renderer` | ❌ absent |
 | The book's identity | `BookMeta` from `book.toml` | ❌ absent |
@@ -244,19 +244,26 @@ visible in tests rather than hidden.
 
 ### Phase 0 — Target, and the elision it changes
 
-- [ ] **0a.** `bower/src/publish.rs`: `Target`, `has_hidden_lines`,
-  `PublishError`.
-- [ ] **0b.** Thread `Target` through `render::body_lines`
-  (`bower/src/render.rs:138`) and `render::chapter` (`bower/src/render.rs:21`).
-  `mdbook_bower.rs` passes `Target::Html`, preserving today's output exactly.
-- [ ] **0c.** Add the `full file:` link to the elision comment when a `blob`
-  template exists.
-- [ ] **0d.** Tests: `target__epub_elides_rust_too`,
-  `target__html_keeps_the_rust_toggle`,
-  `elision__names_the_full_file_when_a_template_exists`,
-  `elision__omits_the_link_without_one`.
-- [ ] **0e.** Confirm the existing preprocessor goldens still pass byte for
-  byte — this phase must not change the HTML.
+- [x] **0a.** `bower/src/publish.rs`: `Target`, `has_hidden_lines`, `Display`,
+  and `FromStr`. **Deviation:** `PublishError` was not written — it has no
+  caller until Phase 2, and a library's public error type with nothing raising
+  it is the dead-code shape EPIC-02 taught this project to avoid. **Addition:**
+  `FromStr` names the built targets in its own error, so `--target pdf` says
+  which two exist rather than only that it is wrong.
+- [x] **0b.** `Target` threaded through `render::body_lines` and
+  `render::chapter`; `mdbook_bower.rs` passes `Target::Html`.
+- [x] **0c.** `full_file_url()` plus the `— full file: <url>` suffix.
+  **Deviation:** this is a new function, not another `subst` call. The `blob`
+  template addresses a *line range*; a reader following an elision wants the
+  file, so the template's `#L{start}-L{end}` fragment is dropped. One turns into
+  the other only by truncation, which deserved a named function and a comment.
+- [x] **0d.** Four tests as designed.
+- [x] **0e.** Verified, with one honest correction. The item said the HTML must
+  be unchanged "byte for byte", which item 0c makes false on purpose: chapter 6's
+  YAML elision now carries the link. What must not change is the *behaviour*, and
+  it did not — chapter 4 still renders 31 `class="boring"` hidden lines and zero
+  elisions, and the book still carries 20 anchors. Ten preprocessor goldens pass.
+  Verified on `main`, 2 September 2026: 219 tests, `make ayce` green.
 
 ### Phase 1 — The pure fold
 
@@ -303,6 +310,8 @@ visible in tests rather than hidden.
 
 ## Test Plan
 
+- `target__only_html_hides_lines`, `target__round_trips_through_its_name`,
+  `target__an_unbuilt_target_says_which_are_built` — the type itself.
 - `target__epub_elides_rust_too` — the one behavioural difference between the
   targets, asserted directly.
 - `target__html_keeps_the_rust_toggle` — its counterweight; the HTML must not
@@ -386,7 +395,9 @@ Exit criteria:
    hidden-line toggle in the HTML — asserted on the `RenderPlan`, with no
    renderer installed.
 3. Every elision comment in the epub names the full file's URL.
-4. The HTML output is unchanged from before this EPIC.
+4. The HTML output's *behaviour* is unchanged from before this EPIC — the
+   toggle, the anchors, the footers. The elision comment itself gains a link, by
+   design (work item 0c).
 5. A missing `pandoc` fails with its install command named, before anything is
    written.
 6. `cargo tree -p bower-core -e normal` still prints one line.

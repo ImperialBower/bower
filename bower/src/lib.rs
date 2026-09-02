@@ -16,6 +16,7 @@ pub mod config;
 pub mod forge;
 pub mod loader;
 pub mod materialize;
+pub mod publish;
 pub mod push;
 pub mod render;
 pub mod replay;

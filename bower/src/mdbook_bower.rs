@@ -19,6 +19,7 @@ use std::process::ExitCode;
 
 use bower::config::BookConfig;
 use bower::mdbook;
+use bower::publish::Target;
 use bower::render;
 use bower_core::prelude::plan;
 
@@ -86,7 +87,7 @@ fn preprocess() -> Result<String, String> {
         .collect();
 
     mdbook::map_chapters(&mut book, |path, text| {
-        render::chapter(text, path, &resolved, &links)
+        render::chapter(text, path, &resolved, &links, Target::Html)
     });
 
     serde_json::to_string(&book).map_err(|e| format!("cannot serialize the book: {e}"))
