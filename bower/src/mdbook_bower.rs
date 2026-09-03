@@ -19,6 +19,7 @@ use std::process::ExitCode;
 
 use bower::config::BookConfig;
 use bower::mdbook;
+use bower::publish::Target;
 use bower::render;
 use bower_core::prelude::plan;
 
@@ -30,6 +31,14 @@ const SUPPORTED: &[&str] = &["html"];
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // A binary that cannot answer `--version` looks uninstalled to anything
+    // that probes for it — which is exactly how `bower publish --target html`
+    // reported this one missing while it sat on PATH.
+    if matches!(args.first().map(String::as_str), Some("--version" | "-V")) {
+        println!("mdbook-bower {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
 
     if args.first().map(String::as_str) == Some("supports") {
         let renderer = args.get(1).map(String::as_str).unwrap_or_default();
@@ -86,7 +95,7 @@ fn preprocess() -> Result<String, String> {
         .collect();
 
     mdbook::map_chapters(&mut book, |path, text| {
-        render::chapter(text, path, &resolved, &links)
+        render::chapter(text, path, &resolved, &links, Target::Html)
     });
 
     serde_json::to_string(&book).map_err(|e| format!("cannot serialize the book: {e}"))

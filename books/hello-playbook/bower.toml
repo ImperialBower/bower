@@ -6,13 +6,18 @@
 # The timestamp base for deterministic commit SHAs. Replay never reads a clock:
 # every commit's time is this epoch plus its step number, in minutes.
 epoch = 2026-09-01T00:00:00Z
-site = "https://imperialbower.github.io/hello-playbook"
+site = "https://abstecker.github.io/hello-playbook"
 
 [identity]
 name = "ImperialBower Bower"
 email = "bower@imperialbower.example"
 
 [repos.hello-playbook]
+# The remote this book publishes to. Without this key `bower push` reports
+# "does not publish it" and never dials out.
+github = "abstecker/hello-playbook"
+# The branch that serves the rendered book.
+site_branch = "gh-pages"
 template = "template"
 keep_region_markers = false
 # Two commands, because the book distinguishes "does not compile" from
@@ -24,6 +29,6 @@ verify = "cargo test"
 # Three templates, three questions a reader might have about a block: which
 # lines, what changed, and what the whole repo looked like. Point them at
 # Codeberg or a self-hosted forge and every link in the book follows.
-blob = "https://github.com/ImperialBower/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"
-tree = "https://github.com/ImperialBower/hello-playbook/tree/{tag}"
-commit = "https://github.com/ImperialBower/hello-playbook/commit/{tag}"
+blob = "https://github.com/abstecker/hello-playbook/blob/{tag}/{path}#L{start}-L{end}"
+tree = "https://github.com/abstecker/hello-playbook/tree/{tag}"
+commit = "https://github.com/abstecker/hello-playbook/commit/{tag}"

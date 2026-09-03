@@ -15,6 +15,7 @@ use bower_core::prelude::{
 };
 
 use crate::config::LinkTemplates;
+use crate::publish::Target;
 
 /// Rewrite one chapter's markdown.
 #[must_use]
@@ -23,6 +24,7 @@ pub fn chapter(
     chapter_path: &str,
     plan: &BookPlan,
     forge: &BTreeMap<String, LinkTemplates>,
+    target: Target,
 ) -> String {
     let anchors = anchors_by_line(plan, chapter_path);
     let blocks = blocks_by_line(plan, chapter_path);
@@ -94,7 +96,22 @@ pub fn chapter(
             body.push(lines[k].to_string());
             k += 1;
         }
-        out.extend(body_lines(&info, &body));
+        let block = blocks.get(&directive_line);
+        // The link spec § 3.4 wants beside an elision: the whole file, not the
+        // span. Built here because only `chapter` knows the block's step and
+        // its repo's templates.
+        let full_file = block.and_then(|(repo, step, display)| {
+            let template = forge.get(repo)?.blob.as_deref()?;
+            let file = display.file.as_deref()?;
+            Some(full_file_url(template, &step.tag(), file))
+        });
+        out.extend(body_lines(
+            &info,
+            &body,
+            block.map(|(_, _, d)| *d),
+            target,
+            full_file.as_deref(),
+        ));
         if k < lines.len() {
             out.push(lines[k].to_string());
         }
@@ -131,12 +148,29 @@ pub fn chapter(
 /// how much was left out. Emitting `# ` into a Makefile would not hide
 /// anything; it would corrupt it.
 #[must_use]
-pub fn body_lines(info: &str, raw: &[String]) -> Vec<String> {
+pub fn body_lines(
+    info: &str,
+    raw: &[String],
+    display: Option<&BlockDisplay>,
+    target: Target,
+    full_file: Option<&str>,
+) -> Vec<String> {
     if !raw.iter().any(|l| show_marker(l).is_some()) {
         return raw.to_vec();
     }
 
-    let rustish = info.split([',', ' ']).next() == Some("rust");
+    // Which spans actually render is the kernel's answer, not ours: a `show=`
+    // key on the directive narrows a block to named spans
+    // (`bower-core`'s `display::filter_by_show`). Re-deriving that from the
+    // markers alone renders every marked span, so the page would show what the
+    // footer does not link.
+    let kept: Option<Vec<Option<String>>> =
+        display.map(|d| d.spans.iter().map(|s| s.name.clone()).collect());
+
+    // mdBook's hidden-line toggle is a Rust feature of one renderer. In an
+    // epub there is no toggle at all, so a `# `-prefixed line would simply
+    // vanish with nothing telling the reader it had been there.
+    let rustish = target.has_hidden_lines() && info.split([',', ' ']).next() == Some("rust");
     let comment = comment_token(info);
 
     let mut out = Vec::with_capacity(raw.len());
@@ -146,16 +180,18 @@ pub fn body_lines(info: &str, raw: &[String]) -> Vec<String> {
     let flush = |out: &mut Vec<String>, elided: &mut usize| {
         if *elided > 0 && !rustish {
             let plural = if *elided == 1 { "line" } else { "lines" };
-            out.push(format!("{comment} ⋯ {elided} {plural} elided"));
+            let link = full_file.map_or_else(String::new, |u| format!(" — full file: {u}"));
+            out.push(format!("{comment} ... {elided} {plural} elided{link}"));
         }
         *elided = 0;
     };
 
     for line in raw {
         match show_marker(line) {
-            Some(ShowMark::Begin(_)) => {
+            Some(ShowMark::Begin(name)) => {
                 flush(&mut out, &mut elided);
-                showing = true;
+                // A span the kernel dropped is elided like any unmarked code.
+                showing = kept.as_ref().is_none_or(|k| k.contains(&name));
             }
             Some(ShowMark::End) => {
                 showing = false;
@@ -174,6 +210,16 @@ pub fn body_lines(info: &str, raw: &[String]) -> Vec<String> {
     }
     flush(&mut out, &mut elided);
     out
+}
+
+/// The whole file at a step, for the comment that replaces an elided span.
+///
+/// The `blob` template addresses a *line range*; a reader following an elision
+/// wants the file. Dropping the template's fragment is what turns one into the
+/// other, and is why this is a function rather than another `subst` call.
+fn full_file_url(template: &str, tag: &str, file: &str) -> String {
+    let url = template.replace("{tag}", tag).replace("{path}", file);
+    url.split('#').next().unwrap_or(&url).to_string()
 }
 
 /// mdBook's hidden-line form: `# ` before the content, indentation preserved.
@@ -327,7 +373,7 @@ mod render_tests {
     #[test]
     fn render__unmarked_block_is_untouched() {
         let body = lines("fn main() {}\nlet x = 1;");
-        assert_eq!(body_lines("rust", &body), body);
+        assert_eq!(body_lines("rust", &body, None, Target::Html, None), body);
     }
 
     #[test]
@@ -336,7 +382,7 @@ mod render_tests {
             "mod tests {\n    // bower:show\n    fn new() {}\n    // bower:show end\n    fn old() {}\n}",
         );
         assert_eq!(
-            body_lines("rust", &body),
+            body_lines("rust", &body, None, Target::Html, None),
             vec![
                 "# mod tests {",
                 "    fn new() {}",
@@ -353,11 +399,11 @@ mod render_tests {
         let body =
             lines("jobs:\n  # bower:show\n  - run: make ayce\n  # bower:show end\n  extra: 1");
         assert_eq!(
-            body_lines("yaml", &body),
+            body_lines("yaml", &body, None, Target::Html, None),
             vec![
-                "# ⋯ 1 line elided",
+                "# ... 1 line elided",
                 "  - run: make ayce",
-                "# ⋯ 1 line elided"
+                "# ... 1 line elided"
             ]
         );
     }
@@ -387,13 +433,13 @@ mod render_tests {
 
     #[test]
     fn render__directive_comments_do_not_survive() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
         assert!(!out.contains("<!-- bower"), "{out}");
     }
 
     #[test]
     fn render__anchor_precedes_the_block() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
         let anchor = out
             .find("<a id=\"step-first\"></a>")
             .expect("anchor missing");
@@ -403,11 +449,116 @@ mod render_tests {
 
     #[test]
     fn render__applies_display_markers_and_keeps_prose() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
         assert!(out.contains("pub fn shown() {}"), "{out}");
         assert!(out.contains("# fn hidden() {}"), "{out}");
         assert!(!out.contains("bower:show"), "{out}");
         assert!(out.contains("Prose after."), "{out}");
+    }
+
+    const SHOW_KEY_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"first\" file=\"src/lib.rs\" show=\"second\" -->\n\n",
+        "```rust\n",
+        "// bower:show begin first\n",
+        "pub fn one() {}\n",
+        "// bower:show end\n",
+        "// bower:show begin second\n",
+        "pub fn two() {}\n",
+        "// bower:show end\n",
+        "```\n",
+    );
+
+    #[test]
+    fn target__html_keeps_the_rust_toggle() {
+        let body =
+            lines("mod tests {\n    // bower:show\n    fn new() {}\n    // bower:show end\n}");
+        let out = body_lines("rust", &body, None, Target::Html, None);
+        assert!(
+            out.iter()
+                .any(|l| l.trim_start().starts_with("# mod tests")),
+            "html must keep mdBook's hidden lines: {out:?}"
+        );
+        assert!(!out.iter().any(|l| l.contains("elided")), "{out:?}");
+    }
+
+    #[test]
+    fn target__epub_elides_rust_too() {
+        // An epub has no toggle anywhere, so hidden lines would simply vanish
+        // with nothing telling the reader they existed.
+        let body =
+            lines("mod tests {\n    // bower:show\n    fn new() {}\n    // bower:show end\n}");
+        let out = body_lines("rust", &body, None, Target::Epub, None);
+        assert!(
+            out.iter().any(|l| l.contains("1 line elided")),
+            "epub must say what it left out: {out:?}"
+        );
+        assert!(
+            !out.iter()
+                .any(|l| l.trim_start().starts_with("# mod tests")),
+            "an epub hidden line is just a comment nobody can expand: {out:?}"
+        );
+    }
+
+    #[test]
+    fn elision__names_the_full_file_when_a_template_exists() {
+        // Spec § 3.4 asks for the link; there was no target that needed one.
+        let body = lines("a\n// bower:show\nb\n// bower:show end");
+        let out = body_lines(
+            "rust",
+            &body,
+            None,
+            Target::Epub,
+            Some("https://x.invalid/blob/step-001-a/src/lib.rs"),
+        );
+        assert!(
+            out.iter()
+                .any(|l| l.contains("full file: https://x.invalid/blob/step-001-a/src/lib.rs")),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn elision__is_ascii_so_every_font_can_render_it() {
+        // The elision lands inside a code block, where the font is a monospace
+        // one the renderer picked. `⋯` (U+22EF) is absent from Latin Modern
+        // Mono, so xelatex dropped it silently and the PDF read
+        // `# 9 lines elided` with no ellipsis at all. ASCII is what a code
+        // comment should be anyway.
+        let body = lines("a\n// bower:show\nb\n// bower:show end");
+        let out = body_lines("rust", &body, None, Target::Epub, None);
+        let elision = out.iter().find(|l| l.contains("elided")).unwrap();
+        assert!(
+            elision.is_ascii(),
+            "a glyph a mono font may lack: {elision:?}"
+        );
+    }
+
+    #[test]
+    fn elision__omits_the_link_without_one() {
+        // The rule `Book-Url` and `footer` already follow: no link beats a
+        // plausible broken one.
+        let body = lines("a\n// bower:show\nb\n// bower:show end");
+        let out = body_lines("rust", &body, None, Target::Epub, None);
+        assert!(out.iter().any(|l| l.contains("elided")), "{out:?}");
+        assert!(!out.iter().any(|l| l.contains("full file")), "{out:?}");
+    }
+
+    #[test]
+    fn render__honours_the_show_key() {
+        // The kernel filters spans by `show=` (`display::filter_by_show`).
+        // Walking the raw markers instead renders every marked span, so the
+        // page shows two and the footer links one.
+        let plan = tiny_plan(SHOW_KEY_CH);
+        let out = chapter(SHOW_KEY_CH, "src/ch01.md", &plan, &no_links(), Target::Html);
+        assert!(
+            out.contains("pub fn two() {}"),
+            "the named span must show: {out}"
+        );
+        assert!(
+            out.contains("# pub fn one() {}"),
+            "the span `show=` did not name must be hidden: {out}"
+        );
     }
 
     #[test]
@@ -420,7 +571,13 @@ mod render_tests {
             "<!-- bower repo=\"r\" file=\"src/lib.rs\" -->\n",
             "````\n",
         );
-        let out = chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links());
+        let out = chapter(
+            text,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &no_links(),
+            Target::Html,
+        );
         assert!(out.contains("<!-- bower repo="), "{out}");
     }
 
@@ -428,14 +585,26 @@ mod render_tests {
     fn render__a_chapter_with_no_directives_is_unchanged() {
         let text = "# Plain\n\nJust prose.\n";
         assert_eq!(
-            chapter(text, "src/ch01.md", &tiny_plan(CH), &no_links()),
+            chapter(
+                text,
+                "src/ch01.md",
+                &tiny_plan(CH),
+                &no_links(),
+                Target::Html
+            ),
             text
         );
     }
 
     #[test]
     fn footer__names_the_file_and_line_range() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &github_links());
+        let out = chapter(
+            CH,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &github_links(),
+            Target::Html,
+        );
         assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
         assert!(out.contains("step 001 of r"), "{out}");
         assert!(
@@ -455,7 +624,7 @@ mod render_tests {
     #[test]
     fn footer__omits_links_without_templates() {
         // A plausible-looking broken link is worse than plain text.
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links());
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
         assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
         assert!(out.contains("L1–L1"), "{out}");
         assert!(!out.contains("]("), "no links may be invented: {out}");
@@ -464,7 +633,13 @@ mod render_tests {
 
     #[test]
     fn footer__comes_after_the_closing_fence() {
-        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &github_links());
+        let out = chapter(
+            CH,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &github_links(),
+            Target::Html,
+        );
         let fence_end = out.rfind("```").expect("closing fence");
         let footer = out.find("<sub>").expect("footer");
         assert!(
@@ -489,7 +664,13 @@ mod render_tests {
             )]);
             bower_core::prelude::plan(&book, &RepoCatalog::from_names(&["r"])).unwrap()
         };
-        let out = chapter(PROSE_CH, "src/ch01.md", &plan, &github_links());
+        let out = chapter(
+            PROSE_CH,
+            "src/ch01.md",
+            &plan,
+            &github_links(),
+            Target::Html,
+        );
         assert!(!out.contains("<sub>"), "{out}");
         assert!(out.contains("<a id=\"step-note\"></a>"), "{out}");
         assert!(out.contains("Just narrative"), "{out}");

@@ -20,9 +20,13 @@ use clap::{Parser, Subcommand};
 use bower::config::BookConfig;
 use bower::forge::{Forge, GitHubForge};
 use bower::loader::BookLoader;
+use bower::publish::{
+    render_plan, BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target,
+    TypstRenderer,
+};
 use bower::push::{plan_push, PushPlan};
-use bower::replay::{book_name, final_blobs, Replayer};
-use bower::status::{lock_drift, repo_drift, StatusReport};
+use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
+use bower::status::{lock_drift, repo_drift, site_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
 #[derive(Debug, Parser)]
@@ -48,6 +52,17 @@ enum Command {
         #[arg(long)]
         repo: Option<String>,
     },
+    /// Render the book: `--target html` or `--target epub`.
+    Publish {
+        /// Which artifact to produce. Required: silently producing the wrong
+        /// one is worse than asking.
+        #[arg(long)]
+        target: Target,
+
+        /// Where to write it.
+        #[arg(short, long, default_value = "published")]
+        out: PathBuf,
+    },
     /// Publish a built repository to its configured remote.
     ///
     /// Reports what it would do and changes nothing unless `--execute` is
@@ -61,6 +76,11 @@ enum Command {
         /// The built repository to publish.
         #[arg(short, long, default_value = "out")]
         out: PathBuf,
+
+        /// The rendered book to publish to the site branch. Defaults to
+        /// mdBook's own output directory inside the book.
+        #[arg(long)]
+        site: Option<PathBuf>,
 
         /// Actually push. Without this the command only reports.
         #[arg(long)]
@@ -76,6 +96,11 @@ enum Command {
         /// which is reported rather than treated as an error.
         #[arg(short, long, default_value = "out")]
         out: PathBuf,
+
+        /// The rendered book to check. Defaults to mdBook's own output
+        /// directory inside the book.
+        #[arg(long)]
+        site: Option<PathBuf>,
     },
     /// Check every step's declared `expect` against a real compiler.
     Verify {
@@ -123,9 +148,21 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
-        Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
-        Command::Push { repo, out, execute } => {
-            run_push(&cli.book, &cfg, repo.as_deref(), &out, execute)
+        Command::Status { repo, out, site } => {
+            let site = site.unwrap_or_else(|| cli.book.join("book"));
+            run_status(&cli.book, &cfg, repo.as_deref(), &out, &site)
+        }
+        Command::Publish { target, out } => run_publish(&cli.book, &cfg, target, &out),
+        Command::Push {
+            repo,
+            out,
+            site,
+            execute,
+        } => {
+            // mdBook's own output directory, so `make book` and `bower push`
+            // agree about where the rendered book lives without being told.
+            let site = site.unwrap_or_else(|| cli.book.join("book"));
+            run_push(&cli.book, &cfg, repo.as_deref(), &out, &site, execute)
         }
         Command::Verify {
             repo,
@@ -167,10 +204,20 @@ fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode 
         return ExitCode::FAILURE;
     };
 
-    for repo in &resolved.repos {
-        if only.is_some_and(|want| want != repo.repo.0) {
-            continue;
-        }
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only.is_none_or(|want| want == r.repo.0))
+        .collect();
+
+    // `build`, `status`, and `push` all refuse an unmatched `--repo`. Printing
+    // nothing and exiting 0 reads as success, which is worse than an error.
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+
+    for repo in selected {
         println!("{} — {} steps", repo.repo, repo.steps.len());
         for step in &repo.steps {
             println!(
@@ -250,12 +297,32 @@ fn run_verify(
         return ExitCode::FAILURE;
     };
 
-    let mut broken_total = 0_usize;
+    let selected: Vec<_> = resolved
+        .repos
+        .iter()
+        .filter(|r| only_repo.is_none_or(|want| want == r.repo.0))
+        .collect();
 
-    for repo in &resolved.repos {
-        if only_repo.is_some_and(|want| want != repo.repo.0) {
-            continue;
+    if selected.is_empty() {
+        eprintln!("bower: no repo matched");
+        return ExitCode::FAILURE;
+    }
+
+    let named_step = step.or(from);
+    let mut broken_total = 0_usize;
+    let mut ran_any = false;
+
+    for repo in selected {
+        // A step id belongs to one repo. Judging `--step` against every repo's
+        // plan makes a valid request fail on whichever repo happens to sort
+        // first — so skip the repos that do not hold it, and let the check
+        // below catch a name that no repo holds at all.
+        if let Some(id) = named_step {
+            if !repo.steps.iter().any(|s| s.id.0 == id) {
+                continue;
+            }
         }
+        ran_any = true;
         let verifier = Verifier {
             config: cfg,
             book_root,
@@ -301,6 +368,13 @@ fn run_verify(
         }
     }
 
+    // Skipping repos that lack the step must not turn a typo into a silent
+    // success.
+    if let (false, Some(id)) = (ran_any, named_step) {
+        eprintln!("bower: no step named `{id}` in any repo");
+        return ExitCode::FAILURE;
+    }
+
     if broken_total == 0 {
         println!("\nevery claim holds");
         ExitCode::SUCCESS
@@ -310,8 +384,19 @@ fn run_verify(
     }
 }
 
-fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path) -> ExitCode {
+fn run_status(
+    book_root: &Path,
+    cfg: &BookConfig,
+    only: Option<&str>,
+    out: &Path,
+    site_dir: &Path,
+) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+    // The site's fingerprint covers the chapters' prose, not only the plan.
+    let Ok(book_for_site) = BookLoader::new(book_root).load() else {
+        eprintln!("bower: cannot read the book");
         return ExitCode::FAILURE;
     };
 
@@ -343,7 +428,14 @@ fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path
             out.join(&repo.repo.0)
         };
         let name = book_name(book_root, &repo.repo.0);
-        let expected = final_blobs(repo, &name, cfg.site.as_deref());
+        let scaffold = match scaffolding(cfg, book_root, &repo.repo.0) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("bower: cannot read the template: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
+        let expected = final_blobs(repo, &name, cfg.site.as_deref(), &scaffold);
 
         let repo_state = match repo_drift(&dir, repo, &expected) {
             Ok(r) => r,
@@ -356,6 +448,14 @@ fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path
         let report = StatusReport {
             repo: repo.repo.0.clone(),
             steps: repo.steps.len(),
+            site: site_drift(
+                site_dir,
+                &name,
+                &bower::publish::site_fingerprint(&book_for_site, &lock_text(&resolved)),
+                cfg.repos
+                    .get(&repo.repo.0)
+                    .is_some_and(|r| r.site_branch.is_some()),
+            ),
             // The lock covers the whole book, so every repo reports the same
             // verdict for it. Repeating it beats hiding it above the repo it
             // applies to.
@@ -379,6 +479,7 @@ fn run_push(
     cfg: &BookConfig,
     only: Option<&str>,
     out: &Path,
+    site_dir: &Path,
     execute: bool,
 ) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
@@ -392,6 +493,13 @@ fn run_push(
             return ExitCode::FAILURE;
         }
     };
+
+    // The site's fingerprint covers the chapters' prose, not only the plan.
+    let Ok(book) = BookLoader::new(book_root).load() else {
+        eprintln!("bower: cannot read the book");
+        return ExitCode::FAILURE;
+    };
+    let fingerprint = bower::publish::site_fingerprint(&book, &lock_text(&resolved));
 
     let selected: Vec<_> = resolved
         .repos
@@ -413,7 +521,7 @@ fn run_push(
             out.join(&repo.repo.0)
         };
 
-        let plan = match plan_push(&forge, cfg, repo, &dir, book_root) {
+        let plan = match plan_push(&forge, cfg, &fingerprint, repo, &dir, site_dir, book_root) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("bower: {e}");
@@ -421,51 +529,8 @@ fn run_push(
             }
         };
 
-        match plan {
-            PushPlan::NotConfigured { repo } => {
-                println!("{repo}: no `github` key — this book does not publish it");
-            }
-            PushPlan::Blocked { repo, reason } => {
-                blocked = true;
-                println!("{repo}: REFUSED");
-                println!("  {reason}");
-            }
-            PushPlan::Ready {
-                repo,
-                remote,
-                branch,
-                tags,
-                create,
-            } => {
-                println!("{repo} → {remote}");
-                println!("  branch    {branch}");
-                println!("  tags      {tags}");
-                if create {
-                    println!("  create    the remote does not exist yet");
-                }
-                if !execute {
-                    println!("  dry run   nothing was sent; pass --execute to publish");
-                    continue;
-                }
-                if create {
-                    let desc =
-                        format!("Generated from the book `{repo}`. Do not open pull requests.");
-                    if let Err(e) = forge.create(&remote, &desc) {
-                        eprintln!("bower: {e}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-                match forge.push(&dir, &remote, &branch) {
-                    Ok(outcome) => println!(
-                        "  pushed    {} commits, {} tags",
-                        outcome.commits, outcome.tags
-                    ),
-                    Err(e) => {
-                        eprintln!("bower: {e}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            }
+        if !report_push(&forge, plan, &dir, execute, &mut blocked) {
+            return ExitCode::FAILURE;
         }
     }
 
@@ -475,4 +540,158 @@ fn run_push(
     } else {
         ExitCode::SUCCESS
     }
+}
+
+fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -> ExitCode {
+    let book = match BookLoader::new(book_root).load() {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+    let meta = match BookMeta::load(book_root) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+
+    let links: std::collections::BTreeMap<_, _> = cfg
+        .repos
+        .iter()
+        .map(|(name, r)| (name.clone(), r.links.clone()))
+        .collect();
+
+    let plan: RenderPlan = render_plan(&book, &resolved, meta, target, &links);
+
+    // Every renderer is checked before anything is written, so a missing
+    // binary costs nothing and says how to fix itself.
+    let renderer: Box<dyn Renderer> = match target {
+        Target::Epub => Box::new(PandocRenderer),
+        Target::Html => Box::new(MdBookRenderer {
+            book_root: book_root.to_path_buf(),
+            // Only a book that ships a site needs the marker beside its HTML.
+            site_marker: cfg
+                .repos
+                .values()
+                .any(|r| r.site_branch.is_some())
+                .then(|| {
+                    let name = book_name(book_root, "book");
+                    // The fingerprint, not the lock: prose changes the render
+                    // without changing the plan.
+                    let fp = bower::publish::site_fingerprint(&book, &lock_text(&resolved));
+                    bower::publish::site_marker(&name, &fp)
+                }),
+        }),
+        Target::Pdf => Box::new(TypstRenderer {
+            // One epoch, every artifact: the value that already pins commit
+            // times pins the PDF's too.
+            epoch: cfg.epoch.unix_timestamp(),
+            template: {
+                let t = book_root.join("template.typ");
+                t.exists().then_some(t)
+            },
+        }),
+    };
+    if let Err(e) = renderer.preflight() {
+        eprintln!("bower: {e}");
+        return ExitCode::FAILURE;
+    }
+
+    println!(
+        "{} — {} chapters → {target}",
+        plan.meta.title,
+        plan.chapters.len()
+    );
+    match renderer.render(&plan, out) {
+        Ok(a) => {
+            println!("wrote {} ({} bytes)", a.path.display(), a.bytes);
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("bower: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Print one repo's push plan and, with `--execute`, carry it out.
+///
+/// Split out of `run_push` because the two halves — deciding what to say, and
+/// deciding whether to act — read better apart, and together they ran past the
+/// line limit.
+fn report_push(
+    forge: &dyn Forge,
+    plan: PushPlan,
+    dir: &Path,
+    execute: bool,
+    blocked: &mut bool,
+) -> bool {
+    match plan {
+        PushPlan::NotConfigured { repo } => {
+            println!("{repo}: no `github` key — this book does not publish it");
+        }
+        PushPlan::Blocked { repo, reason } => {
+            *blocked = true;
+            println!("{repo}: REFUSED");
+            println!("  {reason}");
+        }
+        PushPlan::Ready {
+            repo,
+            remote,
+            branch,
+            tags,
+            create,
+            site,
+        } => {
+            println!("{repo} → {remote}");
+            println!("  branch    {branch}");
+            println!("  tags      {tags}");
+            if create {
+                println!("  create    the remote does not exist yet");
+            }
+            match &site {
+                Some(s) => println!(
+                    "  site      {} — {} files{}",
+                    s.branch,
+                    s.files,
+                    if s.create { " (branch is new)" } else { "" }
+                ),
+                None => println!("  site      no `site_branch` — skipped"),
+            }
+            if !execute {
+                println!("  dry run   nothing was sent; pass --execute to publish");
+                return true;
+            }
+            if create {
+                let desc = format!("Generated from the book `{repo}`. Do not open pull requests.");
+                if let Err(e) = forge.create(&remote, &desc) {
+                    eprintln!("bower: {e}");
+                    return false;
+                }
+            }
+            match forge.push(dir, &remote, &branch) {
+                Ok(o) => println!("  pushed    {} commits, {} tags", o.commits, o.tags),
+                Err(e) => {
+                    eprintln!("bower: {e}");
+                    return false;
+                }
+            }
+            if let Some(s) = site {
+                match forge.push_tree(&s.dir, &remote, &s.branch) {
+                    Ok(o) => println!("  site      pushed {} files to {}", o.tags, s.branch),
+                    Err(e) => {
+                        eprintln!("bower: {e}");
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
 }

@@ -78,6 +78,39 @@ pub trait Forge {
     /// If creation fails or is not permitted.
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError>;
 
+    /// Whether `branch` exists on `owner/name`, and whether it holds anything.
+    ///
+    /// Distinct from [`Forge::probe`], which answers about the repository. A
+    /// site branch can be absent on a repository full of code, and *absent* is
+    /// safe to create while *present without a marker* must be refused —
+    /// collapsing the two is how a guard stops guarding.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be reached. Never assume absence from silence.
+    fn probe_branch(&self, repo: &str, branch: &str) -> Result<RemoteState, ForgeError>;
+
+    /// The `.bower-site` marker on `branch`, if it has one.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be read. `Ok(None)` means the file is genuinely
+    /// absent, which the gate treats very differently from a failure to look.
+    fn read_site_marker(&self, repo: &str, branch: &str) -> Result<Option<String>, ForgeError>;
+
+    /// Publish `dir`'s files as the entire content of `branch`.
+    ///
+    /// The rendered book is a plain folder, not a git repository, and has no
+    /// history worth keeping — each publish replaces it wholesale, exactly as a
+    /// replayed repo replaces its own. Implemented as a single orphan commit,
+    /// so the site branch never accumulates a thousand commits of regenerated
+    /// HTML that cost clone time and tell nobody anything.
+    ///
+    /// # Errors
+    ///
+    /// If the directory cannot be staged or the push is rejected.
+    fn push_tree(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError>;
+
     /// Force-push-with-lease `dir`'s `branch` and every tag to `owner/name`.
     ///
     /// # Errors
@@ -96,6 +129,10 @@ pub trait Forge {
 pub struct FakeForge {
     pub state: RemoteState,
     pub steps_md: Option<String>,
+    /// The site branch's state, independent of the repository's.
+    pub site_state: RemoteState,
+    /// The site branch's `.bower-site`, if it has one.
+    pub site_marker: Option<String>,
     /// When set, `probe` and `read_steps_md` fail with this reason. An
     /// unreachable remote must never be mistaken for an empty one.
     pub unreachable: Option<String>,
@@ -108,9 +145,19 @@ impl FakeForge {
         Self {
             state,
             steps_md,
+            site_state: RemoteState::Absent,
+            site_marker: None,
             unreachable: None,
             calls: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// The same fake, with a site branch in the given state.
+    #[must_use]
+    pub fn with_site(mut self, site_state: RemoteState, site_marker: Option<String>) -> Self {
+        self.site_state = site_state;
+        self.site_marker = site_marker;
+        self
     }
 
     #[must_use]
@@ -118,6 +165,8 @@ impl FakeForge {
         Self {
             state: RemoteState::HasContent,
             steps_md: None,
+            site_state: RemoteState::HasContent,
+            site_marker: None,
             unreachable: Some(reason.to_string()),
             calls: std::cell::RefCell::new(Vec::new()),
         }
@@ -165,9 +214,34 @@ impl Forge for FakeForge {
         Ok(self.steps_md.clone())
     }
 
+    fn probe_branch(&self, repo: &str, _branch: &str) -> Result<RemoteState, ForgeError> {
+        self.record("probe_branch");
+        self.reachable(repo)?;
+        Ok(self.site_state)
+    }
+
+    fn read_site_marker(&self, repo: &str, _branch: &str) -> Result<Option<String>, ForgeError> {
+        self.record("read_site_marker");
+        self.reachable(repo)?;
+        Ok(self.site_marker.clone())
+    }
+
     fn create(&self, _repo: &str, _description: &str) -> Result<(), ForgeError> {
         self.record("create");
         Ok(())
+    }
+
+    fn push_tree(
+        &self,
+        _dir: &Path,
+        _repo: &str,
+        _branch: &str,
+    ) -> Result<PushOutcome, ForgeError> {
+        self.record("push_tree");
+        Ok(PushOutcome {
+            commits: 1,
+            tags: 0,
+        })
     }
 
     fn push(&self, _dir: &Path, _repo: &str, _branch: &str) -> Result<PushOutcome, ForgeError> {
@@ -311,6 +385,46 @@ impl Forge for GitHubForge {
         })
     }
 
+    fn probe_branch(&self, repo: &str, branch: &str) -> Result<RemoteState, ForgeError> {
+        let (found, _, stderr) = gh(&[
+            "api",
+            &format!("repos/{repo}/branches/{branch}"),
+            "--silent",
+        ])?;
+        if !found && !is_not_found(&stderr) {
+            return Err(ForgeError::Unreachable {
+                repo: format!("{repo}#{branch}"),
+                reason: stderr.trim().to_string(),
+            });
+        }
+        // A branch that exists always points at a commit, so there is no
+        // "empty branch" to distinguish here.
+        Ok(if found {
+            RemoteState::HasContent
+        } else {
+            RemoteState::Absent
+        })
+    }
+
+    fn read_site_marker(&self, repo: &str, branch: &str) -> Result<Option<String>, ForgeError> {
+        let (ok, body, stderr) = gh(&[
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            &format!("repos/{repo}/contents/.bower-site?ref={branch}"),
+        ])?;
+        if ok {
+            return Ok(Some(body));
+        }
+        if is_not_found(&stderr) {
+            return Ok(None);
+        }
+        Err(ForgeError::Unreachable {
+            repo: format!("{repo}#{branch}"),
+            reason: stderr.trim().to_string(),
+        })
+    }
+
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError> {
         let (ok, _, stderr) = gh(&["repo", "create", repo, "--public", "-d", description])?;
         if ok {
@@ -321,6 +435,70 @@ impl Forge for GitHubForge {
                 stderr: stderr.trim().to_string(),
             })
         }
+    }
+
+    fn push_tree(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError> {
+        let fail = |what: &str, stderr: String| ForgeError::Failed {
+            what: what.to_string(),
+            stderr,
+        };
+
+        // Staged in a scratch copy so no `.git` is ever left inside the book's
+        // own rendered output.
+        let staging = std::env::temp_dir().join(format!("bower-site-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&staging);
+        copy_tree(dir, &staging).map_err(|e| fail("staging the site", e.to_string()))?;
+
+        let git = |args: &[&str]| -> Result<(bool, String), ForgeError> {
+            let out = std::process::Command::new("git")
+                .arg("-C")
+                .arg(&staging)
+                .args(args)
+                .output()
+                .map_err(|e| fail(&format!("git {}", args.join(" ")), e.to_string()))?;
+            Ok((
+                out.status.success(),
+                String::from_utf8_lossy(&out.stderr).into_owned(),
+            ))
+        };
+
+        for args in [vec!["init", "-q", "-b", branch], vec!["add", "-A"]] {
+            let (ok, stderr) = git(&args)?;
+            if !ok {
+                return Err(fail(&format!("git {}", args.join(" ")), stderr));
+            }
+        }
+
+        // The same fixed identity every generated commit uses, so a site
+        // commit is not stamped with whoever happened to run the command.
+        let (ok, stderr) = git(&[
+            "-c",
+            "user.name=bower",
+            "-c",
+            "user.email=bower@invalid",
+            "commit",
+            "-q",
+            "-m",
+            "docs: rendered book",
+        ])?;
+        if !ok {
+            return Err(fail("git commit", stderr));
+        }
+
+        // Force, without a lease: an orphan commit shares no history with what
+        // is there, so a lease could only ever say no. The gate has already
+        // established that this branch is ours.
+        let (ok, stderr) = git(&["push", "--force", &remote_url(repo), branch])?;
+        if !ok {
+            return Err(fail("git push --force (site)", stderr));
+        }
+
+        let files = count_files(&staging);
+        let _ = std::fs::remove_dir_all(&staging);
+        Ok(PushOutcome {
+            commits: 1,
+            tags: files,
+        })
     }
 
     fn push(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError> {
@@ -372,6 +550,49 @@ impl Forge for GitHubForge {
             tags: count(dir, &["tag", "--list"]),
         })
     }
+}
+
+/// Recursively copy `from` into `to`, skipping any `.git` already present.
+fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let path = entry?.path();
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        if name == ".git" {
+            continue;
+        }
+        let target = to.join(name);
+        if path.is_dir() {
+            copy_tree(&path, &target)?;
+        } else {
+            std::fs::copy(&path, &target)?;
+        }
+    }
+    Ok(())
+}
+
+fn count_files(dir: &Path) -> usize {
+    let mut n = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.file_name().is_some_and(|f| f == ".git") {
+                continue;
+            }
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                n += 1;
+            }
+        }
+    }
+    n
 }
 
 /// Best-effort count for the report. A wrong count is cosmetic; refusing to

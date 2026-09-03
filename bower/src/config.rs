@@ -41,6 +41,9 @@ pub struct Identity {
 pub struct RepoConfig {
     /// `owner/name`; enables push. Absent means local-only.
     pub github: Option<String>,
+    /// The branch that serves the rendered book — `gh-pages`, typically.
+    /// Absent means this book ships no site, which is a normal book.
+    pub site_branch: Option<String>,
     /// Book-relative directory applied as step 0 scaffolding.
     pub template: Option<PathBuf>,
     /// Command that must *compile* a step's tree. Distinguishing "fails to
@@ -154,6 +157,7 @@ impl BookConfig {
                         name,
                         RepoConfig {
                             github: r.github,
+                            site_branch: r.site_branch,
                             template: r.template,
                             check: r.check,
                             verify: r.verify,
@@ -219,6 +223,7 @@ struct WireIdentity {
 #[serde(deny_unknown_fields)]
 struct WireRepo {
     github: Option<String>,
+    site_branch: Option<String>,
     template: Option<PathBuf>,
     check: Option<String>,
     verify: Option<String>,
@@ -255,7 +260,7 @@ mod config_tests {
         assert_eq!(cfg.epoch.to_string(), "2026-09-01 0:00:00.0 +00:00:00");
         assert_eq!(
             cfg.site.as_deref(),
-            Some("https://imperialbower.github.io/hello-playbook")
+            Some("https://abstecker.github.io/hello-playbook")
         );
         assert_eq!(cfg.identity.name, "ImperialBower Bower");
         assert_eq!(cfg.identity.email, "bower@imperialbower.example");
@@ -263,8 +268,13 @@ mod config_tests {
         let repo = cfg.repos.get("hello-playbook").unwrap();
         assert_eq!(repo.template, Some(PathBuf::from("template")));
         assert!(!repo.keep_region_markers);
-        assert!(repo.github.is_none());
+        // The sample book publishes to a real remote as of 2 September 2026.
+        assert_eq!(repo.github.as_deref(), Some("abstecker/hello-playbook"));
         assert_eq!(repo.check.as_deref(), Some("cargo check"));
+        // Assert the value, not its absence: a test that pins what a live
+        // fixture does *not* declare breaks the day someone declares it. This
+        // one broke twice in one evening before the lesson stuck.
+        assert_eq!(repo.site_branch.as_deref(), Some("gh-pages"));
         assert_eq!(repo.verify.as_deref(), Some("cargo test"));
         assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
         assert!(repo.links.tree.as_ref().unwrap().contains("{tag}"));
@@ -310,8 +320,8 @@ mod config_tests {
         assert!(catalog.contains("hello-playbook"));
         assert_eq!(catalog.0.len(), 1);
         // `RepoSpec` has exactly one field, so this equality is the proof that
-        // nothing else — github, template, check, verify, links — crossed the
-        // boundary.
+        // nothing else — github, site_branch, template, check, verify, links —
+        // crossed the boundary.
         assert_eq!(
             catalog.spec(&RepoName::new("hello-playbook")),
             RepoSpec {

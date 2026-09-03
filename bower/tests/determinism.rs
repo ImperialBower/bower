@@ -140,7 +140,7 @@ fn tags_match_the_planned_tags() {
 }
 
 #[test]
-fn final_worktree_is_the_kernels_tree_plus_steps_md() {
+fn final_worktree_is_the_kernels_tree_plus_scaffolding_and_steps_md() {
     let dir = scratch("worktree");
     build(&dir);
 
@@ -148,8 +148,22 @@ fn final_worktree_is_the_kernels_tree_plus_steps_md() {
         .iter()
         .map(|s| (*s).to_string())
         .collect();
-    // The one file the repository has and the kernel's tree does not.
+    // Two things the repository has that the kernel's tree does not: the
+    // generated index back into the book, and the scaffolding the template
+    // contributes at step 0 and every step thereafter.
     expected.insert("STEPS.md".to_string());
+    for scaffold in [
+        ".gitignore",
+        "CODE_OF_CONDUCT.md",
+        "CONTRIBUTING.md",
+        "LICENSE-APACHE",
+        "LICENSE-GPLv3",
+        "LICENSE-MIT",
+        "README.md",
+        "SECURITY.md",
+    ] {
+        expected.insert(scaffold.to_string());
+    }
 
     assert_eq!(worktree_files(&dir), expected);
 }
@@ -165,4 +179,31 @@ fn steps_md_indexes_every_step_back_into_the_book() {
     }
     assert!(steps_md.contains("#step-test-that-fails"));
     assert!(steps_md.contains("test_fail"));
+}
+
+#[test]
+fn the_scaffolding_survives_every_step() {
+    // The template is applied as step 0 and must persist. Each step's tree
+    // *replaces* the tree, so a step built from the kernel's paths alone
+    // silently deletes the licences, the README, and the .gitignore that the
+    // scaffolding commit had just added.
+    let dir = scratch("scaffolding");
+    build(&dir);
+
+    let files = worktree_files(&dir);
+    for expected in [
+        "LICENSE-MIT",
+        "LICENSE-APACHE",
+        "LICENSE-GPLv3",
+        "README.md",
+        ".gitignore",
+        "CODE_OF_CONDUCT.md",
+        "CONTRIBUTING.md",
+        "SECURITY.md",
+    ] {
+        assert!(
+            files.contains(expected),
+            "the scaffolding lost `{expected}` — a generated repo with no licence"
+        );
+    }
 }

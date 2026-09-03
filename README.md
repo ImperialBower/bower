@@ -47,6 +47,14 @@ written to flatter it.
 - **The page links to the code, by line** — every rendered block carries a
   footer naming its file and line range at a tag, and those lines are the lines
   the reader just saw (`bower/tests/preprocessor.rs`).
+- **Every target shows the same thing** — html, epub, and PDF render identically
+  except for how an elided span is shown, which is the one thing that must
+  differ (`bower/tests/publish.rs`).
+- **The PDF is reproducible** — two runs of an unchanged book produce identical
+  bytes (`pdf_is_byte_identical_across_runs`).
+- **A stale site is visible** — edit one paragraph and `bower status` says the
+  rendered book no longer matches, even though the plan, the lock, and the repo
+  are all unchanged (`bower/tests/site.rs`).
 
 ## Quick tour
 
@@ -97,14 +105,17 @@ cargo run -p bower -- --book books/hello-playbook build -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook verify
 cargo run -p bower -- --book books/hello-playbook status -o /tmp/hello-playbook
 cargo run -p bower -- --book books/hello-playbook push   -o /tmp/hello-playbook
+cargo run -p bower -- --book books/hello-playbook publish --target epub -o published
 ```
 
 `verify` writes each step's tree to a scratch directory and runs the repo's
 `check` and `verify` commands against it, comparing what happens to what the
 book claimed. It never touches git, so it works before `build` has ever run.
 
-`push` publishes a built repository to the `github` remote its `bower.toml`
-declares. It **reports and changes nothing** unless given `--execute`, and it
+`push` publishes a built repository — **and its rendered site** — to the
+`github` remote its `bower.toml` declares. A book that names a `site_branch`
+ships its HTML there in the same command, so the code and the pages a reader
+sees can never drift apart silently. It **reports and changes nothing** unless given `--execute`, and it
 refuses to force-push over any repository that does not carry Bower's own
 `STEPS.md` marker naming this book. **There is no override** — no flag, no
 environment variable, no config key. To adopt an existing repository, push a
@@ -120,13 +131,28 @@ as such and are **not** drift, so it is safe in CI on a fresh checkout.
 ## Rendering the book
 
 ```
-cargo build -p bower
-PATH="$PWD/target/debug:$PATH" mdbook build books/hello-playbook
+make book      # HTML, via mdBook
+make epub      # epub, via pandoc
+make pdf       # PDF, via pandoc + typst
 ```
 
-`books/hello-playbook/book.toml` declares `[preprocessor.bower]`, so `mdbook`
-needs `mdbook-bower` on `PATH`. Without it the build **fails** rather than
-quietly rendering a book whose directives were never applied.
+Both go through `bower publish --target …`, which folds the book into one
+*render plan* and hands it to a renderer. The two targets share a single
+display-marker engine and differ in exactly one rule: mdBook HTML keeps Rust's
+expandable hidden lines, and an epub — which has no toggle anywhere — collapses
+each elided span to `// ⋯ 9 lines elided — full file: <url>`.
+
+Three targets, one engine. `html` needs `mdbook-bower` on `PATH` — the book's
+`book.toml` declares `[preprocessor.bower]`, so without it the build **fails**
+rather than quietly rendering a book whose directives were never applied.
+`epub` needs `pandoc`; `pdf` needs `pandoc` and `typst`. Every tool is checked,
+by name and with its install command, before anything is written.
+
+The PDF is **byte-identical across runs**, because its timestamp is pinned from
+the same `bower.toml` epoch that already makes commit SHAs reproducible.
+`books/hello-playbook/template.typ` sets its typography, and any font it names
+is checked against `typst fonts` first — a silently substituted font is how a
+missing glyph reaches a reader.
 
 ## License
 

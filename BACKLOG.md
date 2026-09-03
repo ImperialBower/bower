@@ -1,7 +1,10 @@
 # Backlog
 
-> Refreshed by the `/backlog` skill on 1 September 2026. `bower status`
-> shipped after the first pass; EPIC-04 is done.
+> Refreshed 2 September 2026. Eight EPICs closed: replay, verification, the
+> mdBook preprocessor, status, push, publish (html + epub), PDF via Typst, and
+> the site branch. `hello-playbook` is live at
+> <https://github.com/abstecker/hello-playbook> with its book served from
+> `gh-pages`.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
@@ -15,7 +18,9 @@ _Nothing. EPIC-03 shipped._
 | Work | Source | Note |
 |---|---|---|
 | **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failers* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
-| **Publishing maturity** | spec § 11 Phase 6+, § 13, § 14 | epub/PDF targets, notebook target, Obsidian and Scrivener bridges. Explicitly scoped only after Phase 5. |
+| **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
+| **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. |
+| **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 
 ## Known gaps
 
@@ -23,7 +28,6 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
-- [ ] Multi-repo books are untested; the code loops over repos but no book exercises it
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
@@ -31,7 +35,8 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 ## Open questions — decisions, not code
 
-From `bower-spec.md` § 12. Three are closed; these six are not.
+From `bower-spec.md` § 12. Three are closed (gix, failure-only snapshots, crate
+names); these six are not.
 
 | # | Question |
 |---|---|
@@ -45,6 +50,11 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 
 ## Recently fixed
 
+- **[DEFECT: three review findings](docs/DEFECT_Review_Findings.md)** — the
+  scaffolding was deleted at step 1 (every generated repo shipped with no
+  licence), `verify --step` failed on multi-repo books, and the `show=` key was
+  ignored at render time.
+
 - **[DEFECT: path traversal](docs/DEFECT_Path_Traversal.md)** — book-controlled
   `file="…"` and `SUMMARY.md` links reached `Path::join` unvalidated. Found in
   review, reproduced against the real binary, fixed at the I/O boundary, and
@@ -57,13 +67,16 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 - **[EPIC-03 — the mdBook preprocessor](docs/EPIC-03_Preprocessor.md)** — 10/10 components. Directives stripped, display markers applied, anchors and line-anchored footers injected.
 - **[EPIC-04 — `bower status`](docs/EPIC-04_Status.md)** — 5/5 components. Book ⇄ lock ⇄ repo drift, named and exit-coded.
 - **[EPIC-05 — `bower push`](docs/EPIC-05_Push.md)** — 6/6 components. Publishing, behind a guard with no override.
+- **[EPIC-06 — `bower publish`](docs/EPIC-06_Publish.md)** — 9/9 components. One render plan, two targets: mdBook HTML and a pandoc epub.
+- **[EPIC-07 — `--target pdf`](docs/EPIC-07_Pdf.md)** — 6/6 components. Typst, chosen by measurement; the PDF is byte-identical across runs.
+- **[EPIC-08 — the site branch](docs/EPIC-08_Site.md)** — 6/6 components. `bower push` ships the rendered book, gated like the code branch, and `status` catches a stale site.
 - **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
 
 ## Health
 
 | Signal | State |
 |---|---|
-| Tests | 206 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 270 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |

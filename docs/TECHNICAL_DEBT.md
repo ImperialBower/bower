@@ -24,12 +24,30 @@
   shape: a list of verify commands per step range, or a `verify_from = "<step>"`
   key.
 
-- [ ] **Multi-repo books are untested.**
-  `bower/src/main.rs` loops over `plan.repos` and gives each its own output
-  directory, and `bower/src/replay.rs` takes a `&RepoPlan` precisely so repos
-  replay independently. No book targets two repos, so this is untested rather
-  than proven (EPIC-01, still-open list). A second tiny repo in
-  `books/hello-playbook` would close it cheaply.
+- [x] ~~**Multi-repo books are untested.**~~ Closed 2 September 2026 by
+  `bower/tests/multi_repo.rs`. The gap was hiding a real bug — see
+  `docs/DEFECT_Review_Findings.md` item 2.
+
+- [ ] **The push gate identifies a book by its directory basename.**
+  `replay::book_name` is `book_root.file_name()`, so two books in different
+  directories that happen to share a basename would each pass the other's
+  `STEPS.md` marker check in `bower push`. Narrow, but the gate is the one place
+  in this project where a wrong answer costs somebody else's repository. A
+  stronger identity — a `book_id` in `bower.toml`, or the `github` remote itself
+  — would close it. Flagged by review, not yet verified.
+
+- [ ] **`bower push` does not consider lock drift.**
+  `plan_push` refuses an unbuilt or stale *repository*, but ignores a stale
+  `bower.lock`. What gets pushed is still correct, because `repo_drift` compares
+  against the current plan — so this is a warning worth printing rather than a
+  bug. Flagged by review, not yet verified.
+
+- [ ] **The preprocessor has never seen a `README.md` chapter.**
+  mdBook treats `README.md` specially, rendering it as `index.html`.
+  `mdbook::chapter_path` prefixes whatever `path` the JSON carries with `src/`,
+  and `trailers::html_name` maps `.md` to `.html` — neither knows about that
+  rename, so a book with a `README.md` chapter may produce a `Book-Url` that
+  404s. No current book has one. Flagged by review, not yet verified.
 
 - [ ] **Verification is sequential.**
   Spec § 6 calls verification embarrassingly parallel. It is not parallel
@@ -58,10 +76,9 @@
   — but nothing asserts its contents. A licence file deleted by accident would
   be noticed by nobody.
 
-- [ ] **The epub elision rendering is designed but unbuilt.**
-  Spec § 3.4 describes elided spans collapsing to a linked comment for
-  pandoc/epub. `bower/src/render.rs` implements the mdBook HTML form and a
-  comment form for non-Rust fences, but there is no epub build to render into.
+- [x] ~~**The epub elision rendering is designed but unbuilt.**~~ Closed
+  2 September 2026 by EPIC-06: `bower publish --target epub` renders it, and the
+  comment now carries the `full file:` link spec § 3.4 asked for.
 
 - [ ] **One copyleft crate in the dependency tree.**
   `uluru` (MPL-2.0) arrives through `gix-pack` → `gix`, and is the only
@@ -94,6 +111,14 @@
   On a case-insensitive filesystem, `SRC/lib.rs` and `src/lib.rs` are one file
   but two `TreeState` keys. Not an escape; a way for two steps to collide
   without anyone noticing.
+
+- [ ] **The site's fingerprint is coarser than the render.**
+  `publish::site_fingerprint` hashes the lock plus every chapter's *source*, so
+  a change that renders identically — a trailing space, a reworded HTML comment
+  — reports the site stale. Deliberate: a false "stale" costs one re-render, a
+  false "in sync" serves the wrong book at HTTP 200. Digesting the *rendered*
+  markdown instead would be exact, but `status` would have to render, and
+  `status` is the one command that touches nothing outside the machine.
 
 ## 🤖 Automated review findings
 

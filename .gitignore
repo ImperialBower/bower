@@ -23,6 +23,9 @@ target
 # mdBook render output
 books/*/book/
 
+# `bower publish` artifacts — build output, regenerated from the book
+published/
+
 # A bare `bin` line is common in global gitignores (it means compiled output),
 # and it hides this repo's `bin/security-scan` — which the Makefile contract
 # fixes at that exact path, so the script cannot simply move. Git cannot
