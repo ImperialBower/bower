@@ -501,4 +501,70 @@ mod plan_tests {
         assert!(err.to_string().contains("401"), "{err}");
         assert!(!forge.mutated(), "{:?}", forge.calls());
     }
+
+    #[test]
+    fn site_gate__absent_branch_is_safe() {
+        // No `gh-pages` yet: nothing to destroy, create it.
+        assert_eq!(
+            marker_verdict(REMOTE, RemoteState::Absent, None, BOOK_DIR),
+            MarkerVerdict::SafeNew
+        );
+    }
+
+    #[test]
+    fn site_gate__our_own_book_is_safe() {
+        // The gate is `marker_verdict`, unchanged. Only the file it reads
+        // differs: `.bower-site` here, `STEPS.md` on the code branch.
+        let marker = crate::publish::site_marker(BOOK_DIR, "001 a expect=pass\n");
+        assert_eq!(
+            marker_verdict(REMOTE, RemoteState::HasContent, Some(&marker), BOOK_DIR),
+            MarkerVerdict::SafeOurs
+        );
+    }
+
+    #[test]
+    fn site_gate__content_without_a_marker_is_refused() {
+        // Somebody's hand-built `gh-pages`. Overwriting it would be the worst
+        // thing this tool could do.
+        let v = marker_verdict(REMOTE, RemoteState::HasContent, None, BOOK_DIR);
+        assert!(!v.is_safe(), "{v:?}");
+    }
+
+    #[test]
+    fn site_gate__a_different_books_site_is_refused() {
+        let theirs = crate::publish::site_marker("some-other-book", "lock\n");
+        let v = marker_verdict(REMOTE, RemoteState::HasContent, Some(&theirs), BOOK_DIR);
+        assert!(!v.is_safe(), "{v:?}");
+    }
+
+    #[test]
+    fn site_probe__absent_and_unmarked_are_different_answers() {
+        // The distinction the whole gate rests on. A fake with no site branch
+        // reports `Absent`; one with content and no marker reports
+        // `HasContent`, and only the first is safe.
+        use crate::forge::Forge;
+        let none = FakeForge::new(RemoteState::HasContent, None);
+        assert_eq!(
+            none.probe_branch(REMOTE, "gh-pages").unwrap(),
+            RemoteState::Absent
+        );
+
+        let theirs =
+            FakeForge::new(RemoteState::HasContent, None).with_site(RemoteState::HasContent, None);
+        assert_eq!(
+            theirs.probe_branch(REMOTE, "gh-pages").unwrap(),
+            RemoteState::HasContent
+        );
+        assert_eq!(theirs.read_site_marker(REMOTE, "gh-pages").unwrap(), None);
+    }
+
+    #[test]
+    fn site_probe__an_unreachable_remote_errors_rather_than_reporting_absent() {
+        // "Could not look" must never become "nothing there" — absent is the
+        // safe verdict, so silence would open the gate.
+        use crate::forge::Forge;
+        let f = FakeForge::unreachable("401 Unauthorized");
+        assert!(f.probe_branch(REMOTE, "gh-pages").is_err());
+        assert!(f.read_site_marker(REMOTE, "gh-pages").is_err());
+    }
 }

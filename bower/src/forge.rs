@@ -78,6 +78,26 @@ pub trait Forge {
     /// If creation fails or is not permitted.
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError>;
 
+    /// Whether `branch` exists on `owner/name`, and whether it holds anything.
+    ///
+    /// Distinct from [`Forge::probe`], which answers about the repository. A
+    /// site branch can be absent on a repository full of code, and *absent* is
+    /// safe to create while *present without a marker* must be refused —
+    /// collapsing the two is how a guard stops guarding.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be reached. Never assume absence from silence.
+    fn probe_branch(&self, repo: &str, branch: &str) -> Result<RemoteState, ForgeError>;
+
+    /// The `.bower-site` marker on `branch`, if it has one.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be read. `Ok(None)` means the file is genuinely
+    /// absent, which the gate treats very differently from a failure to look.
+    fn read_site_marker(&self, repo: &str, branch: &str) -> Result<Option<String>, ForgeError>;
+
     /// Force-push-with-lease `dir`'s `branch` and every tag to `owner/name`.
     ///
     /// # Errors
@@ -96,6 +116,10 @@ pub trait Forge {
 pub struct FakeForge {
     pub state: RemoteState,
     pub steps_md: Option<String>,
+    /// The site branch's state, independent of the repository's.
+    pub site_state: RemoteState,
+    /// The site branch's `.bower-site`, if it has one.
+    pub site_marker: Option<String>,
     /// When set, `probe` and `read_steps_md` fail with this reason. An
     /// unreachable remote must never be mistaken for an empty one.
     pub unreachable: Option<String>,
@@ -108,9 +132,19 @@ impl FakeForge {
         Self {
             state,
             steps_md,
+            site_state: RemoteState::Absent,
+            site_marker: None,
             unreachable: None,
             calls: std::cell::RefCell::new(Vec::new()),
         }
+    }
+
+    /// The same fake, with a site branch in the given state.
+    #[must_use]
+    pub fn with_site(mut self, site_state: RemoteState, site_marker: Option<String>) -> Self {
+        self.site_state = site_state;
+        self.site_marker = site_marker;
+        self
     }
 
     #[must_use]
@@ -118,6 +152,8 @@ impl FakeForge {
         Self {
             state: RemoteState::HasContent,
             steps_md: None,
+            site_state: RemoteState::HasContent,
+            site_marker: None,
             unreachable: Some(reason.to_string()),
             calls: std::cell::RefCell::new(Vec::new()),
         }
@@ -163,6 +199,18 @@ impl Forge for FakeForge {
         self.record("read_steps_md");
         self.reachable(repo)?;
         Ok(self.steps_md.clone())
+    }
+
+    fn probe_branch(&self, repo: &str, _branch: &str) -> Result<RemoteState, ForgeError> {
+        self.record("probe_branch");
+        self.reachable(repo)?;
+        Ok(self.site_state)
+    }
+
+    fn read_site_marker(&self, repo: &str, _branch: &str) -> Result<Option<String>, ForgeError> {
+        self.record("read_site_marker");
+        self.reachable(repo)?;
+        Ok(self.site_marker.clone())
     }
 
     fn create(&self, _repo: &str, _description: &str) -> Result<(), ForgeError> {
@@ -307,6 +355,46 @@ impl Forge for GitHubForge {
         }
         Err(ForgeError::Unreachable {
             repo: repo.to_string(),
+            reason: stderr.trim().to_string(),
+        })
+    }
+
+    fn probe_branch(&self, repo: &str, branch: &str) -> Result<RemoteState, ForgeError> {
+        let (found, _, stderr) = gh(&[
+            "api",
+            &format!("repos/{repo}/branches/{branch}"),
+            "--silent",
+        ])?;
+        if !found && !is_not_found(&stderr) {
+            return Err(ForgeError::Unreachable {
+                repo: format!("{repo}#{branch}"),
+                reason: stderr.trim().to_string(),
+            });
+        }
+        // A branch that exists always points at a commit, so there is no
+        // "empty branch" to distinguish here.
+        Ok(if found {
+            RemoteState::HasContent
+        } else {
+            RemoteState::Absent
+        })
+    }
+
+    fn read_site_marker(&self, repo: &str, branch: &str) -> Result<Option<String>, ForgeError> {
+        let (ok, body, stderr) = gh(&[
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw",
+            &format!("repos/{repo}/contents/.bower-site?ref={branch}"),
+        ])?;
+        if ok {
+            return Ok(Some(body));
+        }
+        if is_not_found(&stderr) {
+            return Ok(None);
+        }
+        Err(ForgeError::Unreachable {
+            repo: format!("{repo}#{branch}"),
             reason: stderr.trim().to_string(),
         })
     }

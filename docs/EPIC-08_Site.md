@@ -38,7 +38,7 @@ which stays pure and dependency-free — an eighth EPIC running.
 |---|---|
 | `site_branch` in `bower.toml` | **Complete** |
 | `.bower-site` marker + `.nojekyll` | **Complete** |
-| The site gate | Planned |
+| The site gate | **Complete** |
 | `bower push` ships the site | Planned |
 | `bower status` reports site drift | Planned |
 | Goldens | Planned |
@@ -111,7 +111,7 @@ convention:
 | The remote's name | `RepoConfig::github` `bower/src/config.rs:43` | ✅ done |
 | Which branch serves the site | `RepoConfig::site_branch` | ✅ done |
 | The rendered book | `MdBookRenderer` `bower/src/publish.rs:393` | ✅ done |
-| Is this branch ours? | `marker_verdict` `bower/src/push.rs:60` | ✅ reusable as-is |
+| Is this branch ours? | `marker_verdict` `bower/src/push.rs:60` | ✅ reused, unchanged |
 | What the site was built from | `.bower-site` digest | ✅ done |
 | Pushing a branch | `Forge::push` `bower/src/forge.rs:86` | 🟡 takes one branch |
 | Is the site current? | `SiteDrift` | ❌ absent |
@@ -210,14 +210,26 @@ counterweight. Verified on branch `review2`, 2 September 2026: 248 tests,
 
 ### Phase 1 — The gate
 
-- [ ] **1a.** Reuse `marker_verdict` (`bower/src/push.rs:60`) for the site
-  branch, reading `.bower-site` where the code branch reads `STEPS.md`.
-- [ ] **1b.** `Forge::read_site_marker(repo, branch)`, and `FakeForge` support.
-- [ ] **1c.** Tests: `site_gate__absent_branch_is_safe`,
-  `site_gate__our_own_book_is_safe`,
-  `site_gate__content_without_a_marker_is_refused`,
-  `site_push__is_not_called_when_the_gate_refuses` — the negative that matters,
-  as in EPIC-05.
+- [x] **1a.** `marker_verdict` reused **with no change at all** — only the file
+  it reads differs. That is the claim EPIC-05 made about the gate's shape, and
+  `site_gate__our_own_book_is_safe` is the proof.
+- [x] **1b.** **Two** `Forge` methods, not one. The design listed
+  `read_site_marker`; `probe_branch` had to join it, because *absent branch* and
+  *branch with content and no marker* are different verdicts — the first is safe
+  to create, the second must be refused. One method returning `Option` would
+  have collapsed them, which is the same mistake `is_not_found` exists to
+  prevent on the code branch. `FakeForge::with_site` configures both.
+- [x] **1c.** Six tests. **Additions:**
+  `site_gate__a_different_books_site_is_refused` (two books, one `gh-pages`),
+  `site_probe__absent_and_unmarked_are_different_answers` (the distinction the
+  gate rests on), and
+  `site_probe__an_unreachable_remote_errors_rather_than_reporting_absent` —
+  because *absent* is the **safe** verdict here, so a swallowed error would open
+  the gate rather than close it. Verified on branch `review2`, 2 September 2026:
+  254 tests, `make ayce` green.
+
+  `site_push__is_not_called_when_the_gate_refuses` belongs to Phase 2, where
+  there is a site push to not call.
 
 ### Phase 2 — Pushing the site
 
