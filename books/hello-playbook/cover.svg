@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The top band of this book's cover.
+
+  `bower publish` finds it by convention beside `book.toml`, exactly as it
+  finds `template.typ`. If `cover.png` (or `.jpg`) sits next to it, that
+  artwork is stacked underneath this band; if not, this band fills the page.
+  Either way the epub and the PDF get the same composed image, so the two
+  formats cannot show different covers.
+
+  Sized 1600x800 — the top third of the composed 1600x2400 cover.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800" viewBox="0 0 1600 800">
+  <rect width="1600" height="800" fill="#15304a"/>
+  <rect x="0" y="788" width="1600" height="12" fill="#c8552b"/>
+  <g font-family="Libertinus Serif, Georgia, serif" text-anchor="middle" fill="#ffffff">
+    <text x="800" y="300" font-size="132">Hello, Playbook</text>
+    <text x="800" y="420" font-size="52" fill="#9fc0dc">A repository, taught as a book</text>
+    <text x="800" y="660" font-size="46" fill="#9fc0dc" letter-spacing="6">IMPERIALBOWER</text>
+  </g>
+</svg>

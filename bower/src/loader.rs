@@ -181,6 +181,7 @@ mod loader_tests {
                 "src/ch04-tests-and-failing-on-purpose.md",
                 "src/ch05-supply-chain.md",
                 "src/ch06-ci.md",
+                "src/appendix-credits.md",
             ]
         );
     }

@@ -111,6 +111,9 @@ pub struct BookMeta {
     pub title: String,
     pub authors: Vec<String>,
     pub language: String,
+    /// The composed cover, when the book ships one. `None` is a normal book:
+    /// every book that existed before covers did publishes unchanged.
+    pub cover: Option<Cover>,
 }
 
 impl BookMeta {
@@ -136,8 +139,293 @@ impl BookMeta {
             title: wire.book.title,
             authors: wire.book.authors,
             language: wire.book.language,
+            cover: load_cover(book_root)?,
         })
     }
+}
+
+/// A book's cover, composed into one SVG document.
+///
+/// A newtype rather than a bare `String` because a cover with artwork is
+/// megabytes of base64, and a derived `Debug` on [`BookMeta`] that dumped it
+/// would make every failing assertion in this crate unreadable.
+#[derive(Clone, Eq, PartialEq)]
+pub struct Cover(String);
+
+impl Cover {
+    /// The SVG source.
+    #[must_use]
+    pub fn text(&self) -> &str {
+        &self.0
+    }
+
+    /// Write it where a renderer can point an external tool at it.
+    ///
+    /// # Errors
+    ///
+    /// [`PublishError::Read`] if the file cannot be written.
+    pub fn write(&self, path: &Path) -> Result<(), PublishError> {
+        std::fs::write(path, &self.0).map_err(|source| PublishError::Read {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+}
+
+impl fmt::Debug for Cover {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Cover({} bytes)", self.0.len())
+    }
+}
+
+/// The composed cover of the book at `book_root`, if it ships one.
+///
+/// Found by convention beside `book.toml`, exactly as `template.typ` is
+/// (`bower/src/main.rs`): `cover.svg` is the title band, and `cover.png` /
+/// `cover.jpg` is optional artwork stacked below it. A book with the svg and
+/// no artwork gets a cover that is all title, which is what lets an author add
+/// the picture later without a second code path.
+///
+/// # Errors
+///
+/// [`PublishError::Read`] if a file that exists cannot be read.
+pub fn load_cover(book_root: &Path) -> Result<Option<Cover>, PublishError> {
+    let title = book_root.join("cover.svg");
+    if !title.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&title).map_err(|source| PublishError::Read {
+        path: title.clone(),
+        source,
+    })?;
+
+    // First match wins, in a fixed order: two artwork files would otherwise
+    // make the cover depend on directory iteration order, and this project
+    // does not have artifacts that depend on that.
+    for name in ["cover.png", "cover.jpg", "cover.jpeg"] {
+        let art = book_root.join(name);
+        if let Some(mime) = art_mime(&art).filter(|_| art.exists()) {
+            let bytes = std::fs::read(&art).map_err(|source| PublishError::Read {
+                path: art.clone(),
+                source,
+            })?;
+            return Ok(Some(Cover(compose_cover(&text, Some((&bytes, mime))))));
+        }
+    }
+    Ok(Some(Cover(compose_cover(&text, None))))
+}
+
+/// The MIME type of an artwork file, by extension.
+///
+/// A closed list, because the value is written into a `data:` URI: guessing
+/// wrong there produces a cover that renders in one reader and not the next.
+fn art_mime(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        _ => None,
+    }
+}
+
+/// The cover page: a title band on top, artwork below it.
+///
+/// Pure, and the reason this is one function rather than two renderer methods:
+/// epub and PDF both need exactly **one** image file, so the stacking has to
+/// happen before either renderer sees it. Compose once, hand the same bytes to
+/// pandoc and to Typst, and the two formats cannot drift apart.
+///
+/// Artwork is embedded as a `data:` URI rather than linked, so the composed
+/// file is self-contained — a linked path would resolve differently in
+/// pandoc's working directory than in Typst's.
+#[must_use]
+pub fn compose_cover(title_svg: &str, art: Option<(&[u8], &str)>) -> String {
+    // A 2:3 page, the ordinary book-cover proportion. Fixed rather than
+    // configurable: this is a coordinate system, not a design decision — both
+    // renderers scale the result to whatever page they have.
+    const W: u32 = 1600;
+    const H: u32 = 2400;
+    const BAND: u32 = 800;
+
+    let band = if art.is_some() { BAND } else { H };
+    // Built in one `format!` rather than appended to: an SVG document has no
+    // meaning until it is whole, and a half-written one is not a thing this
+    // function should be able to hold.
+    let title = nest_svg(title_svg, 0, 0, W, band);
+    let artwork = art.map_or_else(String::new, |(bytes, mime)| {
+        // `slice` rather than `meet`: artwork fills its band and is cropped,
+        // because a letterboxed photo on a cover reads as a mistake.
+        format!(
+            "<image x=\"0\" y=\"{BAND}\" width=\"{W}\" height=\"{}\" \
+preserveAspectRatio=\"xMidYMid slice\" xlink:href=\"data:{mime};base64,{}\"/>",
+            H - BAND,
+            base64(bytes)
+        )
+    });
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" \
+version=\"1.1\" width=\"{W}\" height=\"{H}\" viewBox=\"0 0 {W} {H}\">\
+<rect width=\"{W}\" height=\"{H}\" fill=\"#ffffff\"/>{title}{artwork}</svg>"
+    )
+}
+
+/// Place one SVG document inside another as a viewport at `(at_x, at_y)`.
+///
+/// The surgery is on the root start tag only: the prologue is dropped (an
+/// `<?xml?>` declaration is legal at the top of a file and illegal in the
+/// middle of one), and the sizing attributes are replaced with ours so the
+/// author's drawing scales into the band instead of overflowing it. Its
+/// `viewBox` is kept — that is what says how the drawing maps onto its own
+/// coordinates — and synthesized from `width`/`height` when it has none.
+fn nest_svg(svg: &str, at_x: u32, at_y: u32, width: u32, height: u32) -> String {
+    let body = strip_prologue(svg);
+    let Some(open) = body.find("<svg") else {
+        return String::new();
+    };
+    let rest = &body[open + "<svg".len()..];
+    let Some(close) = tag_end(rest) else {
+        return String::new();
+    };
+    let (mut inner, tail) = (&rest[..close], &rest[close + 1..]);
+
+    let self_closing = inner.trim_end().ends_with('/');
+    if self_closing {
+        inner = &inner[..inner.trim_end().len() - 1];
+    }
+    let attrs = attrs_of(inner);
+    let value = |name: &str| {
+        attrs
+            .iter()
+            .find(|(found, _)| found == name)
+            .map(|(_, v)| v.as_str())
+    };
+    let number =
+        |name: &str| value(name).and_then(|v| v.trim().trim_end_matches("px").parse::<f64>().ok());
+    let view_box = value("viewBox").map_or_else(
+        || match (number("width"), number("height")) {
+            (Some(wide), Some(high)) => format!("0 0 {wide} {high}"),
+            _ => format!("0 0 {width} {height}"),
+        },
+        ToString::to_string,
+    );
+    let kept = attrs
+        .iter()
+        .filter(|(name, _)| {
+            !matches!(
+                name.as_str(),
+                "x" | "y" | "width" | "height" | "viewBox" | "preserveAspectRatio"
+            )
+        })
+        .fold(String::new(), |mut acc, (name, v)| {
+            acc.push(' ');
+            acc.push_str(name);
+            acc.push_str("=\"");
+            acc.push_str(v);
+            acc.push('"');
+            acc
+        });
+
+    let head = format!(
+        "<svg{kept} x=\"{at_x}\" y=\"{at_y}\" width=\"{width}\" height=\"{height}\" \
+viewBox=\"{view_box}\" preserveAspectRatio=\"xMidYMid meet\""
+    );
+    if self_closing {
+        format!("{head}/>")
+    } else {
+        format!("{head}>{tail}")
+    }
+}
+
+/// Everything before an SVG's root element: declaration, doctype, comments.
+fn strip_prologue(svg: &str) -> &str {
+    svg.find("<svg").map_or(svg, |i| &svg[i..])
+}
+
+/// The offset of the `>` that closes a start tag, ignoring quoted `>`.
+fn tag_end(rest: &str) -> Option<usize> {
+    let mut quote = None;
+    for (i, c) in rest.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None, '>') => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The `name="value"` pairs inside a start tag.
+///
+/// A scanner rather than an XML parser: this crate parses its own directives by
+/// hand for the same reason, and the input here is one start tag.
+fn attrs_of(inner: &str) -> Vec<(String, String)> {
+    let chars: Vec<char> = inner.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        while chars.get(i).is_some_and(|c| c.is_whitespace()) {
+            i += 1;
+        }
+        let start = i;
+        while chars
+            .get(i)
+            .is_some_and(|c| !c.is_whitespace() && *c != '=')
+        {
+            i += 1;
+        }
+        if i == start {
+            break;
+        }
+        let name: String = chars[start..i].iter().collect();
+        while chars.get(i).is_some_and(|c| c.is_whitespace()) {
+            i += 1;
+        }
+        if chars.get(i) != Some(&'=') {
+            out.push((name, String::new()));
+            continue;
+        }
+        i += 1;
+        while chars.get(i).is_some_and(|c| c.is_whitespace()) {
+            i += 1;
+        }
+        let quote = chars.get(i).copied().filter(|c| *c == '"' || *c == '\'');
+        if quote.is_some() {
+            i += 1;
+        }
+        let vstart = i;
+        while chars
+            .get(i)
+            .is_some_and(|c| quote.map_or(!c.is_whitespace(), |q| *c != q))
+        {
+            i += 1;
+        }
+        let value: String = chars[vstart..i].iter().collect();
+        if i < chars.len() {
+            i += 1;
+        }
+        out.push((name, value));
+    }
+    out
+}
+
+/// Standard base64, written out rather than pulled in.
+///
+/// Same call as the FNV-1a digest below: a dependency for forty lines of table
+/// lookup is a dependency this project has declined before.
+fn base64(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let at = |i: usize| char::from(ALPHABET[i & 63]);
+
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let byte = |i: usize| usize::from(chunk.get(i).copied().unwrap_or(0));
+        let n = (byte(0) << 16) | (byte(1) << 8) | byte(2);
+        out.push(at(n >> 18));
+        out.push(at(n >> 12));
+        out.push(if chunk.len() > 1 { at(n >> 6) } else { '=' });
+        out.push(if chunk.len() > 2 { at(n) } else { '=' });
+    }
+    out
 }
 
 /// `book.toml` is mdBook's file, full of keys this crate does not own —
@@ -360,6 +648,13 @@ impl Renderer for PandocRenderer {
             .arg(format!("lang={}", plan.meta.language));
         for author in &plan.meta.authors {
             cmd.arg("--metadata").arg(format!("author={author}"));
+        }
+        // Written beside the chapters rather than passed inline: pandoc takes a
+        // path, and the composed cover is the same bytes the PDF gets.
+        if let Some(cover) = &plan.meta.cover {
+            let path = out.join(".cover.svg");
+            cover.write(&path)?;
+            cmd.arg("--epub-cover-image").arg(&path);
         }
         cmd.arg("-o").arg(&artifact).args(&inputs);
 
@@ -617,6 +912,21 @@ impl Renderer for TypstRenderer {
         if let Some(template) = &self.template {
             text.push_str(&std::fs::read_to_string(template).map_err(io(template))?);
             text.push('\n');
+        }
+        // Between the template and the body, because the template's `#set`
+        // rules must already be in force and the cover must precede chapter
+        // one. `#page` with a body opens a page of its own, so the override of
+        // margin and numbering ends when the cover does.
+        if let Some(cover) = &plan.meta.cover {
+            cover.write(&work.join("cover.svg"))?;
+            text.push_str(
+                "#page(margin: 0pt, numbering: none)[\n  \
+                 #image(\"cover.svg\", width: 100%, height: 100%, fit: \"contain\")\n]\n\
+                 // The cover is not page 1. Without this reset the first page a\n\
+                 // reader sees prints \"2\", because Typst counts the cover even\n\
+                 // though it prints no number on it.\n\
+                 #counter(page).update(1)\n",
+            );
         }
         text.push_str(&std::fs::read_to_string(&body).map_err(io(&body))?);
         std::fs::write(&source, text).map_err(io(&source))?;
@@ -939,7 +1249,7 @@ mod publish_tests {
 
         assert_eq!(fake.seen().len(), 1);
         assert_eq!(fake.seen()[0].target, Target::Epub);
-        assert_eq!(fake.seen()[0].chapters.len(), 6);
+        assert_eq!(fake.seen()[0].chapters.len(), 7);
         assert_eq!(artifact.bytes, 0, "a fake writes nothing");
     }
 
@@ -953,6 +1263,136 @@ mod publish_tests {
             site_marker: None,
         };
         assert!(r.book_root.join("book.toml").exists());
+    }
+
+    #[test]
+    fn base64__matches_the_rfc_4648_vectors() {
+        // The canonical vectors, because a base64 bug shows up as a cover that
+        // renders in one reader and not another — the worst kind to chase.
+        for (input, want) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(base64(input.as_bytes()), want, "{input:?}");
+        }
+    }
+
+    #[test]
+    fn art_mime__knows_the_formats_a_reader_can_show() {
+        assert_eq!(art_mime(Path::new("cover.png")), Some("image/png"));
+        assert_eq!(art_mime(Path::new("cover.JPG")), Some("image/jpeg"));
+        assert_eq!(art_mime(Path::new("cover.jpeg")), Some("image/jpeg"));
+        assert_eq!(art_mime(Path::new("cover.tiff")), None);
+    }
+
+    #[test]
+    fn compose_cover__stacks_the_art_below_the_title() {
+        let title =
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="800"><rect/></svg>"#;
+        let svg = compose_cover(title, Some((b"abc", "image/png")));
+
+        assert!(
+            svg.starts_with("<svg "),
+            "the result must be one svg document"
+        );
+        assert!(svg.contains("viewBox=\"0 0 1600 2400\""), "{svg}");
+        // The title band occupies the top; the art is placed under it.
+        assert!(
+            svg.contains("<rect/>"),
+            "the title svg is nested, not dropped"
+        );
+        assert!(
+            svg.contains(r#"<image x="0" y="800""#),
+            "art starts where the title band ends: {svg}"
+        );
+        assert!(
+            svg.contains("data:image/png;base64,YWJj"),
+            "art is embedded, not linked: {svg}"
+        );
+    }
+
+    #[test]
+    fn compose_cover__without_art_is_still_a_cover() {
+        // Option B: the book ships a title svg and no artwork yet. That must
+        // publish, not fail — otherwise adding a cover is all-or-nothing.
+        let title =
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="2400"><rect/></svg>"#;
+        let svg = compose_cover(title, None);
+
+        assert!(!svg.contains("<image"), "no art means no image element");
+        assert!(svg.contains("<rect/>"), "the title still fills the page");
+        assert!(
+            svg.contains(r#"height="2400""#),
+            "the title band grows to the full page: {svg}"
+        );
+    }
+
+    #[test]
+    fn compose_cover__strips_the_xml_prologue_it_cannot_nest() {
+        // An `<?xml?>` declaration is legal at the top of a file and illegal in
+        // the middle of one. Editors emit it; nesting it produces a cover that
+        // silently fails to draw.
+        let title = concat!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+            "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" \"x.dtd\">\n",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"1\" height=\"1\"><rect/></svg>",
+        );
+        let svg = compose_cover(title, None);
+
+        assert!(!svg.contains("<?xml"), "prologue must not be nested: {svg}");
+        assert!(
+            !svg.contains("<!DOCTYPE"),
+            "doctype must not be nested: {svg}"
+        );
+        assert!(svg.contains("<rect/>"), "the drawing survives: {svg}");
+    }
+
+    #[test]
+    fn compose_cover__is_byte_identical_across_calls() {
+        // The PDF promises identical bytes across runs. A cover that hashed a
+        // map or read a clock would break that promise from inside.
+        let title = r#"<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>"#;
+        let art: &[u8] = b"\x89PNG\r\n\x1a\n0123456789";
+        assert_eq!(
+            compose_cover(title, Some((art, "image/png"))),
+            compose_cover(title, Some((art, "image/png")))
+        );
+    }
+
+    #[test]
+    fn load_cover__composes_the_sample_books_cover() {
+        // The sample book ships `cover.svg`; `cover.png` is the author's to add.
+        let cover = load_cover(&sample_root()).unwrap().unwrap();
+        assert!(
+            cover.text().contains("Hello, Playbook"),
+            "the title is drawn"
+        );
+        assert_eq!(
+            cover.text().contains("<image"),
+            sample_root().join("cover.png").exists(),
+            "art appears exactly when the file does"
+        );
+    }
+
+    #[test]
+    fn load_cover__a_book_without_one_publishes_anyway() {
+        // Every book that existed before this feature has no `cover.svg`, and
+        // must keep publishing unchanged.
+        let dir = std::env::temp_dir().join("bower-cover-none");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(load_cover(&dir).unwrap().is_none());
+    }
+
+    #[test]
+    fn book_meta__carries_the_sample_books_cover() {
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        assert!(meta.cover.is_some(), "the sample book has a cover to carry");
     }
 
     #[test]
@@ -1018,13 +1458,14 @@ mod publish_tests {
         let dir = std::env::temp_dir().join("bower-write-chapters");
         let files = write_chapters(&dir, &rp).unwrap();
 
-        assert_eq!(files.len(), 6);
+        assert_eq!(files.len(), 7);
         let names: Vec<String> = files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names[0], "001-ch01-a-repo-that-builds.md");
         assert_eq!(names[5], "006-ch06-ci.md");
+        assert_eq!(names[6], "007-appendix-credits.md", "the appendix is last");
     }
 
     #[test]

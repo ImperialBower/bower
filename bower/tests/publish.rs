@@ -90,10 +90,15 @@ fn both_targets_carry_every_chapter_and_its_metadata() {
         assert_eq!(p.meta.title, "Hello, Playbook");
         assert_eq!(
             p.chapters.len(),
-            6,
+            7,
             "a dropped chapter is one nobody misses"
         );
         assert_eq!(p.chapters[0].title, "A repo that builds");
+        assert_eq!(p.chapters[6].title, "Appendix: credits");
+        assert!(
+            p.meta.cover.is_some(),
+            "the sample book ships a cover, and every target carries it"
+        );
     }
 }
 
@@ -142,6 +147,54 @@ fn publish_epub_produces_a_readable_book() {
         "the mimetype entry is missing or not first"
     );
     assert!(bytes.len() > 10_000, "suspiciously small: {}", bytes.len());
+
+    // A zip stores its entry names in the clear, so the cover can be found
+    // without unpacking. Both must be there: pandoc writes `cover.xhtml` only
+    // when it was handed a cover image, and the image itself is what the
+    // reader actually sees.
+    let names = String::from_utf8_lossy(&bytes);
+    assert!(names.contains("cover.xhtml"), "the epub has no cover page");
+    assert!(
+        names.contains("media/file0.svg"),
+        "the composed cover image is not in the epub"
+    );
+}
+
+/// The cover reaches the PDF, and reaches it as the first page.
+///
+/// Ignored: needs pandoc and typst. See the module docs for the command.
+#[test]
+#[ignore = "needs pandoc and typst installed"]
+fn pdf_opens_on_the_cover() {
+    let out = scratch("pdf-cover");
+    let result = Command::new(env!("CARGO_BIN_EXE_bower"))
+        .arg("--book")
+        .arg(book_root())
+        .args(["publish", "--target", "pdf", "-o"])
+        .arg(&out)
+        .output()
+        .expect("the bower binary must run");
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+
+    let work = out.join(".typst");
+    let cover = std::fs::read_to_string(work.join("cover.svg")).expect("no cover was written");
+    assert!(
+        cover.contains("Hello, Playbook"),
+        "the composed cover lost its title band"
+    );
+
+    let source = std::fs::read_to_string(work.join("book.typ")).unwrap();
+    let page = source.find("#page(margin: 0pt").expect("no cover page");
+    let body = source.find("= A repo that builds").expect("no chapter one");
+    assert!(page < body, "the cover must precede chapter one");
+    assert!(
+        source.contains("#counter(page).update(1)"),
+        "chapter one must print page 1, not page 2"
+    );
 }
 
 /// The promise this project keeps everywhere else, kept here too.

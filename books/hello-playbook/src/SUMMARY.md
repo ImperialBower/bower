@@ -6,3 +6,4 @@
 - [Tests, and failing on purpose](ch04-tests-and-failing-on-purpose.md)
 - [Supply chain](ch05-supply-chain.md)
 - [CI](ch06-ci.md)
+- [Appendix: credits](appendix-credits.md)

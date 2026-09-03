@@ -154,6 +154,23 @@ the same `bower.toml` epoch that already makes commit SHAs reproducible.
 is checked against `typst fonts` first — a silently substituted font is how a
 missing glyph reaches a reader.
 
+### Covers
+
+A book's cover is two files beside its `book.toml`, found by convention exactly
+as `template.typ` is:
+
+| File | What it is |
+|---|---|
+| `cover.svg` | The title band. Required — no `cover.svg`, no cover, and the book publishes as it always did. |
+| `cover.png` / `.jpg` | Artwork, stacked below the band. Optional; without it the band fills the page. |
+
+`publish::compose_cover` stacks them into **one** 1600×2400 SVG, with the
+artwork embedded as a `data:` URI so the result is self-contained. Both
+renderers get those same bytes — pandoc as `--epub-cover-image`, Typst as a
+full-bleed first page — which is what stops the epub and the PDF from showing
+different covers. The composition is a pure function, so it is tested with no
+renderer installed, and it is deterministic, so the PDF stays byte-identical.
+
 ## License
 
 MIT OR Apache-2.0.

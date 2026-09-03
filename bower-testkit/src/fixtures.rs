@@ -77,7 +77,9 @@ fn hello_playbook_catalog() -> RepoCatalog {
 }
 
 /// The sample book: a dev-playbook-shaped Rust hello world, taught in six
-/// chapters that build the repository they describe.
+/// chapters that build the repository they describe, plus an appendix that
+/// credits the cover artwork and carries no directives at all — which is what
+/// makes it the fixture's one prose-only chapter.
 ///
 /// The chapters live on disk under `books/hello-playbook/src/` and are pulled
 /// in with `include_str!`, which resolves at compile time — the kernel still
@@ -110,6 +112,10 @@ pub fn hello_playbook() -> Fixture {
             chapter(
                 "src/ch06-ci.md",
                 include_str!("../../books/hello-playbook/src/ch06-ci.md"),
+            ),
+            chapter(
+                "src/appendix-credits.md",
+                include_str!("../../books/hello-playbook/src/appendix-credits.md"),
             ),
         ]),
         hello_playbook_catalog(),
