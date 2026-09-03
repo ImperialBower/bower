@@ -52,6 +52,9 @@ written to flatter it.
   differ (`bower/tests/publish.rs`).
 - **The PDF is reproducible** — two runs of an unchanged book produce identical
   bytes (`pdf_is_byte_identical_across_runs`).
+- **A stale site is visible** — edit one paragraph and `bower status` says the
+  rendered book no longer matches, even though the plan, the lock, and the repo
+  are all unchanged (`bower/tests/site.rs`).
 
 ## Quick tour
 
@@ -109,8 +112,10 @@ cargo run -p bower -- --book books/hello-playbook publish --target epub -o publi
 `check` and `verify` commands against it, comparing what happens to what the
 book claimed. It never touches git, so it works before `build` has ever run.
 
-`push` publishes a built repository to the `github` remote its `bower.toml`
-declares. It **reports and changes nothing** unless given `--execute`, and it
+`push` publishes a built repository — **and its rendered site** — to the
+`github` remote its `bower.toml` declares. A book that names a `site_branch`
+ships its HTML there in the same command, so the code and the pages a reader
+sees can never drift apart silently. It **reports and changes nothing** unless given `--execute`, and it
 refuses to force-push over any repository that does not carry Bower's own
 `STEPS.md` marker naming this book. **There is no override** — no flag, no
 environment variable, no config key. To adopt an existing repository, push a

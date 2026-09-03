@@ -41,7 +41,7 @@ which stays pure and dependency-free — an eighth EPIC running.
 | The site gate | **Complete** |
 | `bower push` ships the site | **Complete** |
 | `bower status` reports site drift | **Complete** |
-| Goldens | Planned |
+| Goldens | **Complete** |
 
 ---
 
@@ -260,11 +260,11 @@ counterweight. Verified on branch `review2`, 2 September 2026: 248 tests,
 
 ### Phase 4 — Goldens and documentation
 
-- [ ] **4a.** `bower/tests/site.rs`: against `FakeForge`, a configured book
+- [x] **4a.** `bower/tests/site.rs`: against `FakeForge`, a configured book
   plans a site push; an unconfigured one does not; a refused gate sends nothing.
-- [ ] **4b.** `README.md`, `BACKLOG.md`, and `docs/TECHNICAL_DEBT.md` — the
+- [x] **4b.** `README.md`, `BACKLOG.md`, and `docs/TECHNICAL_DEBT.md` — the
   "site goes stale silently" gap this closes.
-- [ ] **4c.** Flip Status rows; append the corrigendum.
+- [x] **4c.** Flip Status rows; append the corrigendum.
 
 ---
 
@@ -352,3 +352,92 @@ Exit criteria:
 5. A book with no `site_branch` publishes code and tags exactly as today, and
    says the site was skipped.
 6. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 2 September 2026, branch `review2`. This EPIC was written *because* a
+site was published by hand and would have gone stale unnoticed; it then found
+three of its own faults the same way.
+
+### 1. The digest was wrong, and only a live run showed it
+
+The design said the fingerprint is "the `bower.lock` text, hashed", reasoning
+that a site is stale exactly when the lock would be. **It is not.** `lock_text`
+records step ids, expectations, anchors, and files — not commit subjects, and
+not a word of prose. Changing one `msg=` drifted the repo while `status`
+reported the site in sync; a reworded paragraph would have done the same.
+
+`site_fingerprint` now hashes the lock **plus every chapter's source**. That is
+coarser than the render — a trailing space marks the site stale even though the
+HTML is identical — and that is the right way to be wrong. A false "stale" costs
+one re-render. A false "in sync" serves last week's book to every reader, at
+HTTP 200, with nothing anywhere to signal it.
+
+Found by editing one `msg=` and watching the output, not by a test. The test
+came after: `a_prose_edit_alone_makes_the_site_stale`.
+
+### 2. Reusing `marker_verdict` reused its message
+
+The site gate refused correctly and said "no Bower marker in `STEPS.md`" while
+reading `.bower-site` — a filename hardcoded inside a function reused for a
+different file. `marker_verdict` now takes the file's name. Reuse was right;
+reusing a *message* was not.
+
+### 3. The design listed one `Forge` method and needed two
+
+`read_site_marker` alone cannot distinguish an **absent** branch from one with
+content and no marker. On this branch *absent is the safe verdict*, so
+collapsing them would have opened the gate rather than closed it — the inverse
+of the risk on the code branch, and worth the extra method.
+`probe_branch` joins it.
+
+### 4. Five tests broke on one pattern, twice over
+
+`config__loads_the_sample_book`, a `publish` golden,
+`a_book_without_a_github_key_…`, `our_own_remote_is_ready_…`, and two `status`
+goldens — each asserted what the **live sample book does not declare**, and each
+broke the moment it declared it. The lesson was written into EPIC-08's own Phase
+0 notes and then repeated within the hour.
+
+The rule, now applied: **assert a value, or own your fixture.** Tests that need
+a book without a `github` key build one; tests about lock and repo drift pass
+`--site /nonexistent` rather than inheriting whatever this machine has rendered.
+
+Worth noting how they were found: the suite was **never run** between repointing
+the book at `abstecker` and pushing to GitHub. The build, the push, and three
+published artifacts all succeeded on a red suite.
+
+### 5. Clippy caught a design smell before I did
+
+`plan_push` hit 101 lines against a 100 limit, and `run_push` 108. Both were
+extractions waiting to happen — `plan_site` and `report_push` — because the site
+half is its own question with its own gate. The lint was right about the
+structure, not just the length.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (config and marker) | Shipped | item 4 begins |
+| 1 (the gate) | Shipped | items 2, 3 |
+| 2 (pushing the site) | Shipped | item 5 |
+| 3 (status sees the site) | Shipped | item 1 — the important one |
+| 4 (goldens and docs) | Shipped | seven goldens, no network |
+
+### Still open after this EPIC
+
+- **The fingerprint is coarser than the render** (item 1). Recorded in
+  `docs/TECHNICAL_DEBT.md`.
+- **`push_tree` is untested**, the same last inch as `GitHubForge` and the
+  renderers. The decisions are covered against `FakeForge`; the orphan-commit
+  shelling-out is not.
+- **`status` does not check the *remote* site.** It compares the local render
+  against the book. A site pushed and then deleted from GitHub would still
+  report in sync. `push` catches it; `status` deliberately makes no network
+  call.
+- **Nothing re-renders automatically.** `push` refuses a stale render and names
+  the fix, but will not run `publish` for you. That is the right default, and it
+  is a decision rather than an omission.

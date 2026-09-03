@@ -112,6 +112,14 @@
   but two `TreeState` keys. Not an escape; a way for two steps to collide
   without anyone noticing.
 
+- [ ] **The site's fingerprint is coarser than the render.**
+  `publish::site_fingerprint` hashes the lock plus every chapter's *source*, so
+  a change that renders identically — a trailing space, a reworded HTML comment
+  — reports the site stale. Deliberate: a false "stale" costs one re-render, a
+  false "in sync" serves the wrong book at HTTP 200. Digesting the *rendered*
+  markdown instead would be exact, but `status` would have to render, and
+  `status` is the one command that touches nothing outside the machine.
+
 ## 🤖 Automated review findings
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->
