@@ -32,7 +32,19 @@ fn bower(book: &Path, args: &[&str]) -> Output {
 }
 
 fn status(book: &Path, out: &Path) -> (bool, String) {
-    let o = bower(book, &["status", "-o", out.to_str().unwrap()]);
+    // These tests are about the lock and the repo. Point `--site` at nothing,
+    // so the site reports "never published" — which is absence, not drift —
+    // rather than inheriting whatever happens to be rendered on this machine.
+    let o = bower(
+        book,
+        &[
+            "status",
+            "-o",
+            out.to_str().unwrap(),
+            "--site",
+            "/nonexistent-site",
+        ],
+    );
     (
         o.status.success(),
         String::from_utf8_lossy(&o.stdout).into_owned(),

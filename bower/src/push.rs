@@ -20,13 +20,12 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use bower_core::prelude::{lock_text, BookPlan, RepoPlan};
+use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
 use crate::forge::{Forge, ForgeError, RemoteState};
-use crate::publish::{digest, site_plan_digest};
 use crate::replay::{book_name, expected_tags, final_blobs, scaffolding, BRANCH};
-use crate::status::{repo_drift, RepoDrift, StatusError};
+use crate::status::{repo_drift, site_drift, RepoDrift, SiteDrift, StatusError};
 use crate::trailers::book_named_in;
 
 /// Whether it is safe to force-push over a remote.
@@ -150,7 +149,7 @@ impl std::error::Error for PushError {}
 pub fn plan_push(
     forge: &dyn Forge,
     cfg: &BookConfig,
-    book_plan: &BookPlan,
+    fingerprint: &str,
     plan: &RepoPlan,
     dir: &Path,
     site_dir: &Path,
@@ -220,7 +219,7 @@ pub fn plan_push(
     // The site half, decided separately: it is its own question, with its own
     // gate, and inlining it pushed this function past the line limit — which
     // was the compiler noticing before I did.
-    let site = match plan_site(forge, cfg, &repo, &book, book_plan, site_dir, &remote)? {
+    let site = match plan_site(forge, cfg, &repo, &book, fingerprint, site_dir, &remote)? {
         SiteDecision::None => None,
         SiteDecision::Blocked(why) => return blocked(why),
         SiteDecision::Push(s) => Some(s),
@@ -254,7 +253,7 @@ fn plan_site(
     cfg: &BookConfig,
     repo: &str,
     book: &str,
-    book_plan: &BookPlan,
+    fingerprint: &str,
     site_dir: &Path,
     remote: &str,
 ) -> Result<SiteDecision, PushError> {
@@ -262,22 +261,23 @@ fn plan_site(
         return Ok(SiteDecision::None);
     };
 
-    let files = match local_site(site_dir, book, &lock_text(book_plan)) {
-        LocalSite::Missing => {
+    // One definition of "is this render current", shared with `bower status`.
+    let files = match site_drift(site_dir, book, fingerprint, true) {
+        SiteDrift::NotConfigured | SiteDrift::NeverPublished => {
             return Ok(SiteDecision::Blocked(format!(
                 "{} holds no rendered book; run `bower publish --target html -o {}`",
                 site_dir.display(),
                 site_dir.display()
             )))
         }
-        LocalSite::Stale => {
+        SiteDrift::Stale { .. } => {
             return Ok(SiteDecision::Blocked(format!(
                 "the rendered book in {} was built from a different plan; \
                  re-run `bower publish --target html`",
                 site_dir.display()
             )))
         }
-        LocalSite::Current { files } => files,
+        SiteDrift::InSync { files } => files,
     };
 
     let state = forge
@@ -301,54 +301,6 @@ fn plan_site(
         files,
         create: state == RemoteState::Absent,
     }))
-}
-
-/// The state of the rendered book on disk.
-enum LocalSite {
-    /// No rendered book, or one with no `.bower-site` — either way, nothing
-    /// this tool is willing to publish.
-    Missing,
-    /// Rendered from a different plan. Publishing it would ship yesterday's
-    /// book beside today's code, which is the failure this EPIC exists to stop.
-    Stale,
-    Current {
-        files: usize,
-    },
-}
-
-fn local_site(dir: &Path, book: &str, lock: &str) -> LocalSite {
-    let marker = dir.join(".bower-site");
-    let Ok(text) = std::fs::read_to_string(&marker) else {
-        return LocalSite::Missing;
-    };
-    if crate::trailers::book_named_in(&text) != Some(book) {
-        return LocalSite::Missing;
-    }
-    if site_plan_digest(&text) != Some(digest(lock).as_str()) {
-        return LocalSite::Stale;
-    }
-    LocalSite::Current {
-        files: count_files(dir),
-    }
-}
-
-fn count_files(dir: &Path) -> usize {
-    let mut n = 0;
-    let mut stack = vec![dir.to_path_buf()];
-    while let Some(d) = stack.pop() {
-        let Ok(entries) = std::fs::read_dir(&d) else {
-            continue;
-        };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                stack.push(p);
-            } else {
-                n += 1;
-            }
-        }
-    }
-    n
 }
 
 #[cfg(test)]
@@ -480,13 +432,10 @@ mod plan_tests {
         dir
     }
 
-    /// `plan_push` needs the whole `BookPlan` to digest the lock; these tests
-    /// hold one repo's plan, so wrap it back up.
-    fn book_plan_of(p: &RepoPlan) -> BookPlan {
-        BookPlan {
-            repos: vec![p.clone()],
-        }
-    }
+    /// A fingerprint standing in for a real book's, so a test can say "this
+    /// render matches" or "this one does not" without building a `BookSource`.
+    const FP: &str = "0123456789abcdef";
+    const OTHER_FP: &str = "fedcba9876543210";
 
     fn one_step_plan() -> RepoPlan {
         let text = concat!(
@@ -545,16 +494,7 @@ mod plan_tests {
         let cfg = config(None);
         let dir = built("nogh-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         assert!(matches!(got, PushPlan::NotConfigured { .. }), "{got:?}");
         assert!(
             forge.calls().is_empty(),
@@ -571,7 +511,7 @@ mod plan_tests {
         let got = plan_push(
             &forge,
             &cfg,
-            &book_plan_of(&one_step_plan()),
+            FP,
             &one_step_plan(),
             Path::new("/nonexistent-repo"),
             Path::new("/no-site"),
@@ -598,16 +538,7 @@ mod plan_tests {
         let dir = built("stale-repo", &p, &root, &cfg);
         std::fs::remove_file(dir.join("src/lib.rs")).unwrap();
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
         assert!(forge.calls().is_empty(), "{:?}", forge.calls());
     }
@@ -620,16 +551,7 @@ mod plan_tests {
         let cfg = config(Some(REMOTE));
         let dir = built("fresh-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         let PushPlan::Ready {
             remote,
             branch,
@@ -656,16 +578,7 @@ mod plan_tests {
         let cfg = config(Some(REMOTE));
         let dir = built("ours-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         assert!(
             matches!(got, PushPlan::Ready { create: false, .. }),
             "{got:?}"
@@ -682,16 +595,7 @@ mod plan_tests {
         let cfg = config(Some(REMOTE));
         let dir = built("refuse-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
         assert!(
             !forge.mutated(),
@@ -710,16 +614,7 @@ mod plan_tests {
         let cfg = config(Some(REMOTE));
         let dir = built("unreadable-repo", &p, &root, &cfg);
 
-        let err = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap_err();
+        let err = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap_err();
         assert!(err.to_string().contains("401"), "{err}");
         assert!(!forge.mutated(), "{:?}", forge.calls());
     }
@@ -809,11 +704,12 @@ mod plan_tests {
     }
 
     /// A rendered book on disk, marked as built from `lock`.
-    fn rendered(case: &str, book: &str, lock: &str) -> PathBuf {
+    fn rendered(case: &str, book: &str, fingerprint: &str) -> PathBuf {
         let dir = scratch(case).join("site");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("index.html"), "<html/>").unwrap();
-        crate::publish::write_site_files(&dir, &crate::publish::site_marker(book, lock)).unwrap();
+        crate::publish::write_site_files(&dir, &crate::publish::site_marker(book, fingerprint))
+            .unwrap();
         dir
     }
 
@@ -831,16 +727,7 @@ mod plan_tests {
         let cfg = config(Some(REMOTE));
         let dir = built("nosite-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         assert!(matches!(got, PushPlan::Ready { site: None, .. }), "{got:?}");
         assert!(
             !forge.calls().iter().any(|c| c == "probe_branch"),
@@ -858,16 +745,7 @@ mod plan_tests {
         with_site_branch(&mut cfg, "gh-pages");
         let dir = built("norender-repo", &p, &root, &cfg);
 
-        let got = plan_push(
-            &forge,
-            &cfg,
-            &book_plan_of(&p),
-            &p,
-            &dir,
-            Path::new("/no-site"),
-            &root,
-        )
-        .unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
         let PushPlan::Blocked { reason, .. } = got else {
             panic!("expected Blocked, got {got:?}");
         };
@@ -884,9 +762,9 @@ mod plan_tests {
         let mut cfg = config(Some(REMOTE));
         with_site_branch(&mut cfg, "gh-pages");
         let dir = built("stale-site-repo", &p, &root, &cfg);
-        let site = rendered("stale-site-render", "hello-playbook", "a different lock\n");
+        let site = rendered("stale-site-render", "hello-playbook", OTHER_FP);
 
-        let got = plan_push(&forge, &cfg, &book_plan_of(&p), &p, &dir, &site, &root).unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
         let PushPlan::Blocked { reason, .. } = got else {
             panic!("expected Blocked, got {got:?}");
         };
@@ -901,10 +779,9 @@ mod plan_tests {
         let mut cfg = config(Some(REMOTE));
         with_site_branch(&mut cfg, "gh-pages");
         let dir = built("cur-repo", &p, &root, &cfg);
-        let bp = book_plan_of(&p);
-        let site = rendered("cur-render", "hello-playbook", &lock_text(&bp));
+        let site = rendered("cur-render", "hello-playbook", FP);
 
-        let got = plan_push(&forge, &cfg, &bp, &p, &dir, &site, &root).unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
         let PushPlan::Ready { site: Some(s), .. } = got else {
             panic!("expected Ready with a site, got {got:?}");
         };
@@ -929,10 +806,9 @@ mod plan_tests {
         let mut cfg = config(Some(REMOTE));
         with_site_branch(&mut cfg, "gh-pages");
         let dir = built("refuse-site-repo", &p, &root, &cfg);
-        let bp = book_plan_of(&p);
-        let site = rendered("refuse-site-render", "hello-playbook", &lock_text(&bp));
+        let site = rendered("refuse-site-render", "hello-playbook", FP);
 
-        let got = plan_push(&forge, &cfg, &bp, &p, &dir, &site, &root).unwrap();
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
         assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
         assert!(
             !forge.mutated(),

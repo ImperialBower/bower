@@ -26,7 +26,7 @@ use bower::publish::{
 };
 use bower::push::{plan_push, PushPlan};
 use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
-use bower::status::{lock_drift, repo_drift, StatusReport};
+use bower::status::{lock_drift, repo_drift, site_drift, StatusReport};
 use bower::verify::{Verdict, Verifier};
 
 #[derive(Debug, Parser)]
@@ -96,6 +96,11 @@ enum Command {
         /// which is reported rather than treated as an error.
         #[arg(short, long, default_value = "out")]
         out: PathBuf,
+
+        /// The rendered book to check. Defaults to mdBook's own output
+        /// directory inside the book.
+        #[arg(long)]
+        site: Option<PathBuf>,
     },
     /// Check every step's declared `expect` against a real compiler.
     Verify {
@@ -143,7 +148,10 @@ fn main() -> ExitCode {
     match cli.command {
         Command::Plan { repo } => run_plan(&cli.book, &cfg, repo.as_deref()),
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
-        Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
+        Command::Status { repo, out, site } => {
+            let site = site.unwrap_or_else(|| cli.book.join("book"));
+            run_status(&cli.book, &cfg, repo.as_deref(), &out, &site)
+        }
         Command::Publish { target, out } => run_publish(&cli.book, &cfg, target, &out),
         Command::Push {
             repo,
@@ -376,8 +384,19 @@ fn run_verify(
     }
 }
 
-fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path) -> ExitCode {
+fn run_status(
+    book_root: &Path,
+    cfg: &BookConfig,
+    only: Option<&str>,
+    out: &Path,
+    site_dir: &Path,
+) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
+        return ExitCode::FAILURE;
+    };
+    // The site's fingerprint covers the chapters' prose, not only the plan.
+    let Ok(book_for_site) = BookLoader::new(book_root).load() else {
+        eprintln!("bower: cannot read the book");
         return ExitCode::FAILURE;
     };
 
@@ -429,6 +448,14 @@ fn run_status(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path
         let report = StatusReport {
             repo: repo.repo.0.clone(),
             steps: repo.steps.len(),
+            site: site_drift(
+                site_dir,
+                &name,
+                &bower::publish::site_fingerprint(&book_for_site, &lock_text(&resolved)),
+                cfg.repos
+                    .get(&repo.repo.0)
+                    .is_some_and(|r| r.site_branch.is_some()),
+            ),
             // The lock covers the whole book, so every repo reports the same
             // verdict for it. Repeating it beats hiding it above the repo it
             // applies to.
@@ -467,6 +494,13 @@ fn run_push(
         }
     };
 
+    // The site's fingerprint covers the chapters' prose, not only the plan.
+    let Ok(book) = BookLoader::new(book_root).load() else {
+        eprintln!("bower: cannot read the book");
+        return ExitCode::FAILURE;
+    };
+    let fingerprint = bower::publish::site_fingerprint(&book, &lock_text(&resolved));
+
     let selected: Vec<_> = resolved
         .repos
         .iter()
@@ -487,7 +521,7 @@ fn run_push(
             out.join(&repo.repo.0)
         };
 
-        let plan = match plan_push(&forge, cfg, &resolved, repo, &dir, site_dir, book_root) {
+        let plan = match plan_push(&forge, cfg, &fingerprint, repo, &dir, site_dir, book_root) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("bower: {e}");
@@ -548,7 +582,10 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
                 .any(|r| r.site_branch.is_some())
                 .then(|| {
                     let name = book_name(book_root, "book");
-                    bower::publish::site_marker(&name, &lock_text(&resolved))
+                    // The fingerprint, not the lock: prose changes the render
+                    // without changing the plan.
+                    let fp = bower::publish::site_fingerprint(&book, &lock_text(&resolved));
+                    bower::publish::site_marker(&name, &fp)
                 }),
         }),
         Target::Pdf => Box::new(TypstRenderer {

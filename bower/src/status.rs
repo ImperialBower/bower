@@ -229,6 +229,74 @@ fn loose_tags(dir: &Path) -> std::io::Result<Vec<String>> {
     Ok(out)
 }
 
+/// The rendered book on disk, against the plan the book produces now.
+///
+/// Deliberately about the **local** render, not the remote. Reading the
+/// remote's marker needs a network call, and `status` is the one command in
+/// this project that touches nothing outside the machine. `push` does the
+/// remote check, because `push` is already talking to a forge.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SiteDrift {
+    /// The book declares no `site_branch`. A book that ships no site is normal.
+    NotConfigured,
+    /// Configured, but nothing rendered — or rendered without a marker, which
+    /// is the same thing as far as publishing is concerned.
+    NeverPublished,
+    InSync {
+        files: usize,
+    },
+    /// Rendered from a different plan. Publishing it would serve yesterday's
+    /// book beside today's code, and every link would still answer 200.
+    Stale {
+        rendered_from: String,
+        current: String,
+    },
+}
+
+/// Compare the rendered book at `site_dir` against `lock`.
+#[must_use]
+pub fn site_drift(site_dir: &Path, book: &str, fingerprint: &str, configured: bool) -> SiteDrift {
+    if !configured {
+        return SiteDrift::NotConfigured;
+    }
+    let Ok(text) = std::fs::read_to_string(site_dir.join(".bower-site")) else {
+        return SiteDrift::NeverPublished;
+    };
+    if crate::trailers::book_named_in(&text) != Some(book) {
+        return SiteDrift::NeverPublished;
+    }
+    let current = fingerprint.to_string();
+    match crate::publish::site_plan_digest(&text) {
+        Some(d) if d == current => SiteDrift::InSync {
+            files: count_files(site_dir),
+        },
+        Some(d) => SiteDrift::Stale {
+            rendered_from: d.to_string(),
+            current,
+        },
+        None => SiteDrift::NeverPublished,
+    }
+}
+
+fn count_files(dir: &Path) -> usize {
+    let mut n = 0;
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&d) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
 /// One repository's verdict.
 #[derive(Clone, Debug)]
 pub struct StatusReport {
@@ -236,6 +304,7 @@ pub struct StatusReport {
     pub steps: usize,
     pub lock: LockDrift,
     pub repo_state: RepoDrift,
+    pub site: SiteDrift,
 }
 
 impl StatusReport {
@@ -250,6 +319,9 @@ impl StatusReport {
     pub fn has_drift(&self) -> bool {
         matches!(self.lock, LockDrift::Stale { .. })
             || matches!(self.repo_state, RepoDrift::Stale { .. })
+            // `NeverPublished` is absence, not drift — the rule EPIC-04
+            // settled, and the reason this is usable in CI.
+            || matches!(self.site, SiteDrift::Stale { .. })
     }
 }
 
@@ -301,6 +373,29 @@ impl fmt::Display for StatusReport {
                 list(f, "differs", differing_files)?;
                 list(f, "missing", missing_files)?;
                 list(f, "extra", unexpected_files)?;
+            }
+        }
+
+        match &self.site {
+            SiteDrift::NotConfigured => {}
+            SiteDrift::NeverPublished => {
+                writeln!(
+                    f,
+                    "  site      never published — run `bower publish --target html`"
+                )?;
+            }
+            SiteDrift::InSync { files } => {
+                writeln!(f, "  site      in sync — {files} files")?;
+            }
+            SiteDrift::Stale {
+                rendered_from,
+                current,
+            } => {
+                writeln!(
+                    f,
+                    "  site      STALE — rendered from {rendered_from}, book is now {current}"
+                )?;
+                writeln!(f, "              run `bower publish --target html`")?;
             }
         }
         Ok(())
@@ -584,6 +679,7 @@ mod report_tests {
             steps: 1,
             lock,
             repo_state,
+            site: SiteDrift::NotConfigured,
         }
     }
 
@@ -659,5 +755,69 @@ mod report_tests {
         assert!(text.contains("file4.rs"), "{text}");
         assert!(!text.contains("file5.rs"), "{text}");
         assert!(text.contains("and 7 more"), "{text}");
+    }
+
+    #[test]
+    fn site__not_configured_is_not_drift() {
+        // A book that ships no site must not turn CI red, and must not print a
+        // row about something it does not have.
+        let r = report(LockDrift::InSync, RepoDrift::InSync);
+        assert!(!r.has_drift());
+        assert!(!r.to_string().contains("site"), "{r}");
+    }
+
+    #[test]
+    fn site__never_published_is_not_drift_either() {
+        // Absence is an honest state, the rule EPIC-04 settled.
+        let mut r = report(LockDrift::InSync, RepoDrift::InSync);
+        r.site = SiteDrift::NeverPublished;
+        assert!(!r.has_drift());
+        assert!(r.to_string().contains("never published"), "{r}");
+    }
+
+    #[test]
+    fn site__a_stale_render_is_drift_and_names_the_fix() {
+        // The failure this EPIC exists to catch: every link still answers 200
+        // while serving last week's chapters.
+        let mut r = report(LockDrift::InSync, RepoDrift::InSync);
+        r.site = SiteDrift::Stale {
+            rendered_from: "aaaa1111".to_string(),
+            current: "bbbb2222".to_string(),
+        };
+        assert!(r.has_drift());
+        let text = r.to_string();
+        assert!(text.contains("site      STALE"), "{text}");
+        assert!(text.contains("aaaa1111"), "the old digest: {text}");
+        assert!(text.contains("bbbb2222"), "the new one: {text}");
+        assert!(
+            text.contains("publish --target html"),
+            "a report that cannot be acted on gets ignored: {text}"
+        );
+    }
+
+    #[test]
+    fn site_drift__reads_what_the_renderer_wrote() {
+        let dir = std::env::temp_dir().join("bower-sitedrift");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // The marker records a fingerprint; `site_drift` is handed the one the
+        // book would produce now, and compares.
+        let fp = "0123456789abcdef";
+        crate::publish::write_site_files(&dir, &crate::publish::site_marker("b", fp)).unwrap();
+
+        assert!(matches!(
+            site_drift(&dir, "b", fp, true),
+            SiteDrift::InSync { .. }
+        ));
+        // A different fingerprint is stale; a different book is not ours at all.
+        assert!(matches!(
+            site_drift(&dir, "b", "fedcba9876543210", true),
+            SiteDrift::Stale { .. }
+        ));
+        assert_eq!(
+            site_drift(&dir, "other-book", fp, true),
+            SiteDrift::NeverPublished
+        );
+        assert_eq!(site_drift(&dir, "b", fp, false), SiteDrift::NotConfigured);
     }
 }

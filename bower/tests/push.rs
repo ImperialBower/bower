@@ -17,7 +17,7 @@ use bower::materialize::write_files;
 use bower::push::{plan_push, PushPlan};
 use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
 use bower::trailers::marker_line;
-use bower_core::prelude::{plan, BookPlan, RepoPlan};
+use bower_core::prelude::{plan, RepoPlan};
 
 fn book_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -41,11 +41,9 @@ fn bower(args: &[&str]) -> Output {
         .expect("the bower binary must run")
 }
 
-fn book_plan_of(p: &RepoPlan) -> BookPlan {
-    BookPlan {
-        repos: vec![p.clone()],
-    }
-}
+/// A fingerprint standing in for a real book's. These tests are about the
+/// gate, not about what makes a render stale.
+const FP: &str = "0123456789abcdef";
 
 fn sample_plan() -> (BookConfig, RepoPlan) {
     let cfg = BookConfig::load(&book_root()).unwrap();
@@ -163,7 +161,7 @@ fn a_remote_that_is_not_ours_is_refused_and_nothing_is_sent() {
     let got = plan_push(
         &forge,
         &cfg,
-        &book_plan_of(&p),
+        FP,
         &p,
         &dir,
         Path::new("/no-site"),
@@ -194,7 +192,7 @@ fn our_own_remote_is_ready_and_the_dry_run_still_sends_nothing() {
     let got = plan_push(
         &forge,
         &cfg,
-        &book_plan_of(&p),
+        FP,
         &p,
         &dir,
         Path::new("/no-site"),

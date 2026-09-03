@@ -397,6 +397,30 @@ pub fn digest(text: &str) -> String {
     format!("{h:016x}")
 }
 
+/// What the rendered book depends on, as one string to digest.
+///
+/// **Not just the lock.** `lock_text` records step ids, expectations, anchors,
+/// and files — but not commit subjects, and not a word of prose. Digesting it
+/// alone means an edited paragraph, or a changed `msg=`, leaves the site
+/// reporting "in sync" while serving different text. That was found live on
+/// 2 September 2026, by changing one `msg=` and watching the repo drift while
+/// the site did not.
+///
+/// So: the lock, plus every chapter's source. Some changes this catches would
+/// render identically — a trailing space, say — and that is the right way to be
+/// wrong. A false "stale" costs one re-render; a false "in sync" serves the
+/// wrong book.
+#[must_use]
+pub fn site_fingerprint(book: &BookSource, lock: &str) -> String {
+    let mut all = String::from(lock);
+    for chapter in &book.chapters {
+        all.push_str(&chapter.path);
+        all.push('\n');
+        all.push_str(&chapter.text);
+    }
+    digest(&all)
+}
+
 /// The contents of `.bower-site`.
 ///
 /// One file, two jobs. `marker_line` makes it readable by
@@ -404,11 +428,11 @@ pub fn digest(text: &str) -> String {
 /// unchanged — a branch with content and no marker is refused. The digest lets
 /// `bower status` answer "is this site current?" without fetching a page.
 #[must_use]
-pub fn site_marker(book_name: &str, lock: &str) -> String {
+pub fn site_marker(book_name: &str, fingerprint: &str) -> String {
     format!(
         "{}\n\nplan-digest: {}\n",
         crate::trailers::marker_line(book_name),
-        digest(lock)
+        fingerprint
     )
 }
 
@@ -1022,7 +1046,7 @@ mod publish_tests {
         // this project has needed that assertion, and the reason `marker_line`
         // and `book_named_in` are one definition.
         use crate::trailers::book_named_in;
-        let m = site_marker("hello-playbook", "001 a expect=pass\n");
+        let m = site_marker("hello-playbook", "0123456789abcdef");
         assert_eq!(book_named_in(&m), Some("hello-playbook"));
         assert!(m.contains("plan-digest: "), "{m}");
     }
@@ -1030,9 +1054,9 @@ mod publish_tests {
     #[test]
     fn site_marker__changes_when_the_plan_does() {
         // Staleness is answerable without fetching a page.
-        let a = site_marker("b", "001 a expect=pass\n");
-        let b = site_marker("b", "001 a expect=test_fail\n");
-        assert_ne!(a, b);
+        let a = site_marker("b", &site_fingerprint(&sample_plan().0, "lock-a"));
+        let b = site_marker("b", &site_fingerprint(&sample_plan().0, "lock-b"));
+        assert_ne!(a, b, "a changed plan must change the marker");
     }
 
     #[test]
@@ -1043,7 +1067,7 @@ mod publish_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
 
-        let marker = site_marker("hello-playbook", "lock\n");
+        let marker = site_marker("hello-playbook", "0123456789abcdef");
         write_site_files(&dir, &marker).unwrap();
 
         assert!(

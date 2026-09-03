@@ -39,8 +39,8 @@ which stays pure and dependency-free — an eighth EPIC running.
 | `site_branch` in `bower.toml` | **Complete** |
 | `.bower-site` marker + `.nojekyll` | **Complete** |
 | The site gate | **Complete** |
-| `bower push` ships the site | Planned |
-| `bower status` reports site drift | Planned |
+| `bower push` ships the site | **Complete** |
+| `bower status` reports site drift | **Complete** |
 | Goldens | Planned |
 
 ---
@@ -113,8 +113,8 @@ convention:
 | The rendered book | `MdBookRenderer` `bower/src/publish.rs:393` | ✅ done |
 | Is this branch ours? | `marker_verdict` `bower/src/push.rs:60` | ✅ reused, unchanged |
 | What the site was built from | `.bower-site` digest | ✅ done |
-| Pushing a branch | `Forge::push` `bower/src/forge.rs:86` | 🟡 takes one branch |
-| Is the site current? | `SiteDrift` | ❌ absent |
+| Pushing a branch | `Forge::push` + `push_tree` | ✅ done |
+| Is the site current? | `SiteDrift` | ✅ done |
 
 ---
 
@@ -166,7 +166,13 @@ check, because `push` is already talking to the forge.
 
 ### The digest
 
-The `bower.lock` text, hashed. `lock_text` (`bower-core/src/plan.rs:216`) is
+**Corrected during Phase 3 — see the corrigendum.** The `bower.lock` text alone
+is not enough: it records step ids, expectations, anchors, and files, but not
+commit subjects and not a word of prose. The fingerprint is the lock **plus
+every chapter's source**.
+
+The original reasoning, kept because it was wrong in an instructive way: the
+`bower.lock` text, hashed. `lock_text` (`bower-core/src/plan.rs:216`) is
 already the canonical serialization of a plan, and `status` already compares
 against it — so the site's fingerprint is the same value the lock check uses,
 and a site is stale exactly when the lock would be.
@@ -233,23 +239,23 @@ counterweight. Verified on branch `review2`, 2 September 2026: 248 tests,
 
 ### Phase 2 — Pushing the site
 
-- [ ] **2a.** `Forge::push_tree`, implemented in `GitHubForge` as an orphan
+- [x] **2a.** `Forge::push_tree`, implemented in `GitHubForge` as an orphan
   commit in a temporary clone, and recorded by `FakeForge`.
-- [ ] **2b.** `plan_push` (`bower/src/push.rs:135`) gains a site half:
+- [x] **2b.** `plan_push` (`bower/src/push.rs:135`) gains a site half:
   `PushPlan::Ready` carries what the site push would do, and a stale or missing
   rendered book blocks with `bower publish --target html` named as the fix.
-- [ ] **2c.** The dry run reports the site branch, its file count, and the
+- [x] **2c.** The dry run reports the site branch, its file count, and the
   gate's verdict.
-- [ ] **2d.** Tests: `plan__site_not_configured_is_not_an_error`,
+- [x] **2d.** Tests: `plan__site_not_configured_is_not_an_error`,
   `plan__a_stale_rendered_book_blocks`.
 
 ### Phase 3 — `bower status` sees the site
 
-- [ ] **3a.** `SiteDrift` and its computation from the local rendered book.
-- [ ] **3b.** A `site` row in `StatusReport` (`bower/src/status.rs:234`), and
+- [x] **3a.** `SiteDrift` and its computation from the local rendered book.
+- [x] **3b.** A `site` row in `StatusReport` (`bower/src/status.rs:234`), and
   `has_drift` counting `Stale` but **not** `NeverPublished` or
   `NotConfigured` — absent is not drift, the rule EPIC-04 settled.
-- [ ] **3c.** Tests: `site__not_configured_is_not_drift`,
+- [x] **3c.** Tests: `site__not_configured_is_not_drift`,
   `site__a_stale_render_is_drift_and_names_the_fix`.
 
 ### Phase 4 — Goldens and documentation
