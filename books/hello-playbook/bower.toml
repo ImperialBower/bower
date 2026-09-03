@@ -16,6 +16,8 @@ email = "bower@imperialbower.example"
 # The remote this book publishes to. Without this key `bower push` reports
 # "does not publish it" and never dials out.
 github = "abstecker/hello-playbook"
+# The branch that serves the rendered book.
+site_branch = "gh-pages"
 template = "template"
 keep_region_markers = false
 # Two commands, because the book distinguishes "does not compile" from

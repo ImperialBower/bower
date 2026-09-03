@@ -17,7 +17,7 @@ use bower::materialize::write_files;
 use bower::push::{plan_push, PushPlan};
 use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
 use bower::trailers::marker_line;
-use bower_core::prelude::{plan, RepoPlan};
+use bower_core::prelude::{plan, BookPlan, RepoPlan};
 
 fn book_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -39,6 +39,12 @@ fn bower(args: &[&str]) -> Output {
         .args(args)
         .output()
         .expect("the bower binary must run")
+}
+
+fn book_plan_of(p: &RepoPlan) -> BookPlan {
+    BookPlan {
+        repos: vec![p.clone()],
+    }
 }
 
 fn sample_plan() -> (BookConfig, RepoPlan) {
@@ -154,7 +160,16 @@ fn a_remote_that_is_not_ours_is_refused_and_nothing_is_sent() {
     let dir = built("not-ours", &p, &cfg);
 
     let forge = FakeForge::new(RemoteState::HasContent, None);
-    let got = plan_push(&forge, &cfg, &p, &dir, &book_root()).unwrap();
+    let got = plan_push(
+        &forge,
+        &cfg,
+        &book_plan_of(&p),
+        &p,
+        &dir,
+        Path::new("/no-site"),
+        &book_root(),
+    )
+    .unwrap();
 
     let PushPlan::Blocked { reason, .. } = got else {
         panic!("expected Blocked, got {got:?}");
@@ -169,11 +184,23 @@ fn our_own_remote_is_ready_and_the_dry_run_still_sends_nothing() {
     let mut cfg = cfg;
     cfg.repos.get_mut("hello-playbook").unwrap().github =
         Some("ImperialBower/hello-playbook".to_string());
+    // This test is about the code branch. Say so, rather than inheriting
+    // whatever the live sample book happens to declare today.
+    cfg.repos.get_mut("hello-playbook").unwrap().site_branch = None;
     let dir = built("ours", &p, &cfg);
 
     let steps = format!("# Steps\n\n{}\n", marker_line("hello-playbook"));
     let forge = FakeForge::new(RemoteState::HasContent, Some(steps));
-    let got = plan_push(&forge, &cfg, &p, &dir, &book_root()).unwrap();
+    let got = plan_push(
+        &forge,
+        &cfg,
+        &book_plan_of(&p),
+        &p,
+        &dir,
+        Path::new("/no-site"),
+        &book_root(),
+    )
+    .unwrap();
 
     let PushPlan::Ready { tags, create, .. } = got else {
         panic!("expected Ready, got {got:?}");

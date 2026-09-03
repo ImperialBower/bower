@@ -77,6 +77,11 @@ enum Command {
         #[arg(short, long, default_value = "out")]
         out: PathBuf,
 
+        /// The rendered book to publish to the site branch. Defaults to
+        /// mdBook's own output directory inside the book.
+        #[arg(long)]
+        site: Option<PathBuf>,
+
         /// Actually push. Without this the command only reports.
         #[arg(long)]
         execute: bool,
@@ -140,8 +145,16 @@ fn main() -> ExitCode {
         Command::Build { repo, out } => run_build(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Status { repo, out } => run_status(&cli.book, &cfg, repo.as_deref(), &out),
         Command::Publish { target, out } => run_publish(&cli.book, &cfg, target, &out),
-        Command::Push { repo, out, execute } => {
-            run_push(&cli.book, &cfg, repo.as_deref(), &out, execute)
+        Command::Push {
+            repo,
+            out,
+            site,
+            execute,
+        } => {
+            // mdBook's own output directory, so `make book` and `bower push`
+            // agree about where the rendered book lives without being told.
+            let site = site.unwrap_or_else(|| cli.book.join("book"));
+            run_push(&cli.book, &cfg, repo.as_deref(), &out, &site, execute)
         }
         Command::Verify {
             repo,
@@ -439,6 +452,7 @@ fn run_push(
     cfg: &BookConfig,
     only: Option<&str>,
     out: &Path,
+    site_dir: &Path,
     execute: bool,
 ) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
@@ -473,7 +487,7 @@ fn run_push(
             out.join(&repo.repo.0)
         };
 
-        let plan = match plan_push(&forge, cfg, repo, &dir, book_root) {
+        let plan = match plan_push(&forge, cfg, &resolved, repo, &dir, site_dir, book_root) {
             Ok(p) => p,
             Err(e) => {
                 eprintln!("bower: {e}");
@@ -481,51 +495,8 @@ fn run_push(
             }
         };
 
-        match plan {
-            PushPlan::NotConfigured { repo } => {
-                println!("{repo}: no `github` key — this book does not publish it");
-            }
-            PushPlan::Blocked { repo, reason } => {
-                blocked = true;
-                println!("{repo}: REFUSED");
-                println!("  {reason}");
-            }
-            PushPlan::Ready {
-                repo,
-                remote,
-                branch,
-                tags,
-                create,
-            } => {
-                println!("{repo} → {remote}");
-                println!("  branch    {branch}");
-                println!("  tags      {tags}");
-                if create {
-                    println!("  create    the remote does not exist yet");
-                }
-                if !execute {
-                    println!("  dry run   nothing was sent; pass --execute to publish");
-                    continue;
-                }
-                if create {
-                    let desc =
-                        format!("Generated from the book `{repo}`. Do not open pull requests.");
-                    if let Err(e) = forge.create(&remote, &desc) {
-                        eprintln!("bower: {e}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-                match forge.push(&dir, &remote, &branch) {
-                    Ok(outcome) => println!(
-                        "  pushed    {} commits, {} tags",
-                        outcome.commits, outcome.tags
-                    ),
-                    Err(e) => {
-                        eprintln!("bower: {e}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            }
+        if !report_push(&forge, plan, &dir, execute, &mut blocked) {
+            return ExitCode::FAILURE;
         }
     }
 
@@ -610,4 +581,80 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
             ExitCode::FAILURE
         }
     }
+}
+
+/// Print one repo's push plan and, with `--execute`, carry it out.
+///
+/// Split out of `run_push` because the two halves — deciding what to say, and
+/// deciding whether to act — read better apart, and together they ran past the
+/// line limit.
+fn report_push(
+    forge: &dyn Forge,
+    plan: PushPlan,
+    dir: &Path,
+    execute: bool,
+    blocked: &mut bool,
+) -> bool {
+    match plan {
+        PushPlan::NotConfigured { repo } => {
+            println!("{repo}: no `github` key — this book does not publish it");
+        }
+        PushPlan::Blocked { repo, reason } => {
+            *blocked = true;
+            println!("{repo}: REFUSED");
+            println!("  {reason}");
+        }
+        PushPlan::Ready {
+            repo,
+            remote,
+            branch,
+            tags,
+            create,
+            site,
+        } => {
+            println!("{repo} → {remote}");
+            println!("  branch    {branch}");
+            println!("  tags      {tags}");
+            if create {
+                println!("  create    the remote does not exist yet");
+            }
+            match &site {
+                Some(s) => println!(
+                    "  site      {} — {} files{}",
+                    s.branch,
+                    s.files,
+                    if s.create { " (branch is new)" } else { "" }
+                ),
+                None => println!("  site      no `site_branch` — skipped"),
+            }
+            if !execute {
+                println!("  dry run   nothing was sent; pass --execute to publish");
+                return true;
+            }
+            if create {
+                let desc = format!("Generated from the book `{repo}`. Do not open pull requests.");
+                if let Err(e) = forge.create(&remote, &desc) {
+                    eprintln!("bower: {e}");
+                    return false;
+                }
+            }
+            match forge.push(dir, &remote, &branch) {
+                Ok(o) => println!("  pushed    {} commits, {} tags", o.commits, o.tags),
+                Err(e) => {
+                    eprintln!("bower: {e}");
+                    return false;
+                }
+            }
+            if let Some(s) = site {
+                match forge.push_tree(&s.dir, &remote, &s.branch) {
+                    Ok(o) => println!("  site      pushed {} files to {}", o.tags, s.branch),
+                    Err(e) => {
+                        eprintln!("bower: {e}");
+                        return false;
+                    }
+                }
+            }
+        }
+    }
+    true
 }

@@ -412,6 +412,20 @@ pub fn site_marker(book_name: &str, lock: &str) -> String {
     )
 }
 
+/// The plan digest a `.bower-site` records, if it carries one.
+///
+/// The inverse of the `plan-digest:` line [`site_marker`] writes. Together they
+/// answer "was this site rendered from the plan the book produces now?" without
+/// fetching a single page.
+#[must_use]
+pub fn site_plan_digest(marker: &str) -> Option<&str> {
+    marker
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("plan-digest:"))
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+}
+
 /// Write the two files a static host needs beside the rendered book.
 ///
 /// `.nojekyll` matters more than it looks: without it GitHub Pages runs Jekyll,

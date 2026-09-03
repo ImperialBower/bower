@@ -271,8 +271,10 @@ mod config_tests {
         // The sample book publishes to a real remote as of 2 September 2026.
         assert_eq!(repo.github.as_deref(), Some("abstecker/hello-playbook"));
         assert_eq!(repo.check.as_deref(), Some("cargo check"));
-        // Optional, and absent in the sample book until EPIC-08 Phase 2.
-        assert!(repo.site_branch.is_none());
+        // Assert the value, not its absence: a test that pins what a live
+        // fixture does *not* declare breaks the day someone declares it. This
+        // one broke twice in one evening before the lesson stuck.
+        assert_eq!(repo.site_branch.as_deref(), Some("gh-pages"));
         assert_eq!(repo.verify.as_deref(), Some("cargo test"));
         assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
         assert!(repo.links.tree.as_ref().unwrap().contains("{tag}"));
