@@ -22,6 +22,7 @@ use bower::forge::{Forge, GitHubForge};
 use bower::loader::BookLoader;
 use bower::publish::{
     render_plan, BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target,
+    TypstRenderer,
 };
 use bower::push::{plan_push, PushPlan};
 use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
@@ -569,6 +570,15 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
         Target::Epub => Box::new(PandocRenderer),
         Target::Html => Box::new(MdBookRenderer {
             book_root: book_root.to_path_buf(),
+        }),
+        Target::Pdf => Box::new(TypstRenderer {
+            // One epoch, every artifact: the value that already pins commit
+            // times pins the PDF's too.
+            epoch: cfg.epoch.unix_timestamp(),
+            template: {
+                let t = book_root.join("template.typ");
+                t.exists().then_some(t)
+            },
         }),
     };
     if let Err(e) = renderer.preflight() {

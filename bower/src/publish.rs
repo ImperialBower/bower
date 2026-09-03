@@ -31,6 +31,9 @@ pub enum Target {
     /// pandoc epub. No toggle exists anywhere in an epub, so every elision —
     /// Rust included — collapses to a comment naming what was left out.
     Epub,
+    /// Typst PDF. Elides exactly as an epub does, for the same reason: paper
+    /// has no toggle either. Unlike an epub, its typography is ours to choose.
+    Pdf,
 }
 
 impl Target {
@@ -49,6 +52,7 @@ impl fmt::Display for Target {
         f.write_str(match self {
             Self::Html => "html",
             Self::Epub => "epub",
+            Self::Pdf => "pdf",
         })
     }
 }
@@ -60,9 +64,10 @@ impl std::str::FromStr for Target {
         match s {
             "html" => Ok(Self::Html),
             "epub" => Ok(Self::Epub),
+            "pdf" => Ok(Self::Pdf),
             other => Err(format!(
-                "unknown target `{other}` — this build knows html and epub \
-                 (pdf and ipynb are spec § 13's next rungs, not built yet)"
+                "unknown target `{other}` — this build knows html, epub, and pdf \
+                 (ipynb is spec § 15's, and needs play cells)"
             )),
         }
     }
@@ -288,6 +293,43 @@ pub fn slug(title: &str) -> String {
     }
 }
 
+/// Write a plan's chapters to `dir` as numbered markdown files, in reading
+/// order, and return them in that order.
+///
+/// Shared by every renderer that hands files to an external tool. Two copies of
+/// this loop would be two chances to order a book differently, and a reader
+/// would only find out at chapter 3.
+///
+/// # Errors
+///
+/// Any filesystem failure while clearing, creating, or writing.
+pub fn write_chapters(dir: &Path, plan: &RenderPlan) -> Result<Vec<PathBuf>, PublishError> {
+    let io = |path: &Path| {
+        let path = path.to_path_buf();
+        move |source| PublishError::Read { path, source }
+    };
+
+    if dir.exists() {
+        std::fs::remove_dir_all(dir).map_err(io(dir))?;
+    }
+    std::fs::create_dir_all(dir).map_err(io(dir))?;
+
+    let mut out = Vec::with_capacity(plan.chapters.len());
+    for (i, chapter) in plan.chapters.iter().enumerate() {
+        let stem = chapter
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&chapter.path)
+            .trim_end_matches(".md");
+        // Numbered so the order an external tool receives is visible on disk.
+        let file = dir.join(format!("{:03}-{stem}.md", i + 1));
+        std::fs::write(&file, &chapter.markdown).map_err(io(&file))?;
+        out.push(file);
+    }
+    Ok(out)
+}
+
 /// The epub, via pandoc.
 pub struct PandocRenderer;
 
@@ -303,27 +345,7 @@ impl Renderer for PandocRenderer {
         };
 
         std::fs::create_dir_all(out).map_err(io(out))?;
-        // Chapters go to a scratch directory as numbered files: pandoc reads
-        // them in the order it is given, and a numeric prefix makes that order
-        // visible if anyone looks.
-        let src = out.join(".chapters");
-        if src.exists() {
-            std::fs::remove_dir_all(&src).map_err(io(&src))?;
-        }
-        std::fs::create_dir_all(&src).map_err(io(&src))?;
-
-        let mut inputs = Vec::with_capacity(plan.chapters.len());
-        for (i, chapter) in plan.chapters.iter().enumerate() {
-            let stem = chapter
-                .path
-                .rsplit('/')
-                .next()
-                .unwrap_or(&chapter.path)
-                .trim_end_matches(".md");
-            let file = src.join(format!("{:03}-{stem}.md", i + 1));
-            std::fs::write(&file, &chapter.markdown).map_err(io(&file))?;
-            inputs.push(file);
-        }
+        let inputs = write_chapters(&out.join(".chapters"), plan)?;
 
         let artifact = out.join(format!("{}.epub", slug(&plan.meta.title)));
         let mut cmd = std::process::Command::new("pandoc");
@@ -421,6 +443,172 @@ impl Renderer for MdBookRenderer {
     }
 }
 
+/// The PDF, via `pandoc --to typst` and `typst compile`.
+///
+/// Two steps rather than `pandoc --to pdf`, because that route reaches for
+/// LaTeX. EPIC-07 Phase 0 measured both: a LaTeX PDF is **not** reproducible
+/// even with `SOURCE_DATE_EPOCH` and `FORCE_SOURCE_DATE` pinned, while a Typst
+/// one is byte-identical with `SOURCE_DATE_EPOCH` alone. This project promises
+/// byte-identical output everywhere else; a target that cannot is a hole in the
+/// argument.
+pub struct TypstRenderer {
+    /// Seconds since the Unix epoch, pinned so two runs agree. Comes from
+    /// `bower.toml`'s `epoch` — the same value that already makes commit SHAs
+    /// reproducible. One epoch, every artifact.
+    pub epoch: i64,
+    /// A `.typ` preamble setting page size, fonts, and code styling. `None`
+    /// uses Typst's defaults, which are legible but not tuned for code.
+    pub template: Option<PathBuf>,
+}
+
+impl Renderer for TypstRenderer {
+    fn preflight(&self) -> Result<(), PublishError> {
+        need("pandoc", "brew install pandoc")?;
+        need("typst", "brew install typst")?;
+        if let Some(template) = &self.template {
+            let text = std::fs::read_to_string(template).map_err(|source| PublishError::Read {
+                path: template.clone(),
+                source,
+            })?;
+            check_fonts(&text)?;
+        }
+        Ok(())
+    }
+
+    fn render(&self, plan: &RenderPlan, out: &Path) -> Result<Artifact, PublishError> {
+        let io = |path: &Path| {
+            let path = path.to_path_buf();
+            move |source| PublishError::Read { path, source }
+        };
+
+        std::fs::create_dir_all(out).map_err(io(out))?;
+        let work = out.join(".typst");
+        let inputs = write_chapters(&work.join("chapters"), plan)?;
+
+        // One `.typ` for the whole book: pandoc resolves cross-chapter links
+        // and builds one document, which is what a PDF is.
+        let body = work.join("body.typ");
+        let mut cmd = std::process::Command::new("pandoc");
+        cmd.arg("--from")
+            .arg("markdown")
+            .arg("--to")
+            .arg("typst")
+            .arg("--metadata")
+            .arg(format!("title={}", plan.meta.title))
+            .arg("--metadata")
+            .arg(format!("lang={}", plan.meta.language));
+        for author in &plan.meta.authors {
+            cmd.arg("--metadata").arg(format!("author={author}"));
+        }
+        let output = cmd
+            .arg("-o")
+            .arg(&body)
+            .args(&inputs)
+            .output()
+            .map_err(|e| PublishError::Failed {
+                what: "pandoc --to typst".to_string(),
+                stderr: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(PublishError::Failed {
+                what: "pandoc --to typst".to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            });
+        }
+
+        // The template goes in front of pandoc's output rather than around it:
+        // Typst's `#set` rules apply to everything that follows, so a preamble
+        // is all a template needs to be.
+        let source = work.join("book.typ");
+        let mut text = String::new();
+        if let Some(template) = &self.template {
+            text.push_str(&std::fs::read_to_string(template).map_err(io(template))?);
+            text.push('\n');
+        }
+        text.push_str(&std::fs::read_to_string(&body).map_err(io(&body))?);
+        std::fs::write(&source, text).map_err(io(&source))?;
+
+        let artifact = out.join(format!("{}.pdf", slug(&plan.meta.title)));
+        let output = std::process::Command::new("typst")
+            .arg("compile")
+            // Phase 0 measured this: without it, two runs differ; with it, they
+            // are byte-identical.
+            .env("SOURCE_DATE_EPOCH", self.epoch.to_string())
+            .arg(&source)
+            .arg(&artifact)
+            .output()
+            .map_err(|e| PublishError::Failed {
+                what: "typst compile".to_string(),
+                stderr: e.to_string(),
+            })?;
+        if !output.status.success() {
+            return Err(PublishError::Failed {
+                what: "typst compile".to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).trim().to_string(),
+            });
+        }
+
+        let bytes = std::fs::metadata(&artifact).map_err(io(&artifact))?.len();
+        Ok(Artifact {
+            path: artifact,
+            bytes,
+        })
+    }
+}
+
+/// Refuse a template naming a font Typst cannot see.
+///
+/// Typst substitutes silently for a missing font, which is precisely how the
+/// `⋯` glyph bug reached a spike unnoticed (EPIC-06, corrigendum item 7). A
+/// template that asks for a face nobody has should say so, not quietly render
+/// in something else.
+///
+/// # Errors
+///
+/// [`PublishError::MissingTool`] naming the font and how to see the list.
+pub fn check_fonts(template: &str) -> Result<(), PublishError> {
+    let available = std::process::Command::new("typst")
+        .arg("fonts")
+        .output()
+        .map_err(|e| PublishError::Failed {
+            what: "typst fonts".to_string(),
+            stderr: e.to_string(),
+        })?;
+    let have = String::from_utf8_lossy(&available.stdout);
+
+    for name in fonts_named_in(template) {
+        if !have.lines().any(|f| f.trim() == name) {
+            return Err(PublishError::MissingTool {
+                tool: format!("font `{name}`"),
+                install: "install it, or run `typst fonts` to see what is available".to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Every `font: "…"` a Typst template names.
+///
+/// Deliberately a scan rather than a parser: this is a guard, and a guard that
+/// needs a language front end to work is a guard that stops working.
+#[must_use]
+pub fn fonts_named_in(template: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = template;
+    while let Some(i) = rest.find("font:") {
+        rest = &rest[i + 5..];
+        let Some(open) = rest.find('"') else { break };
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('"') else { break };
+        let name = after[..close].to_string();
+        if !name.is_empty() && !out.contains(&name) {
+            out.push(name);
+        }
+        rest = &after[close + 1..];
+    }
+    out
+}
+
 /// A [`Renderer`] that writes nothing and remembers what it was handed.
 ///
 /// Public for the same reason `FakeForge` is: an integration test needs it, and
@@ -477,16 +665,23 @@ mod publish_tests {
     }
 
     #[test]
+    fn target__pdf_has_no_toggle() {
+        // A PDF has no toggle, exactly like an epub. That is the whole render
+        // rule this target adds.
+        assert!(!Target::Pdf.has_hidden_lines());
+    }
+
+    #[test]
     fn target__round_trips_through_its_name() {
-        for t in [Target::Html, Target::Epub] {
+        for t in [Target::Html, Target::Epub, Target::Pdf] {
             assert_eq!(t.to_string().parse::<Target>().unwrap(), t);
         }
     }
 
     #[test]
     fn target__an_unbuilt_target_says_which_are_built() {
-        let err = "pdf".parse::<Target>().unwrap_err();
-        assert!(err.contains("html and epub"), "{err}");
+        let err = "ipynb".parse::<Target>().unwrap_err();
+        assert!(err.contains("html, epub, and pdf"), "{err}");
     }
 
     use crate::loader::BookLoader;
@@ -555,6 +750,22 @@ mod publish_tests {
         assert_eq!(paths[0], "src/ch01-a-repo-that-builds.md");
         assert_eq!(paths[5], "src/ch06-ci.md");
         assert_eq!(rp.chapters[3].title, "Tests, and failing on purpose");
+    }
+
+    #[test]
+    fn render_plan__pdf_matches_epub_markdown() {
+        // pdf and epub share an elision rule, so their markdown must be
+        // byte-identical. If this ever fails, two targets have quietly grown
+        // two engines — which is the thing EPIC-06's architecture exists to
+        // prevent.
+        let (book, plan) = sample_plan();
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        let epub = render_plan(&book, &plan, meta.clone(), Target::Epub, &links());
+        let pdf = render_plan(&book, &plan, meta, Target::Pdf, &links());
+
+        for (e, p) in epub.chapters.iter().zip(pdf.chapters.iter()) {
+            assert_eq!(e.markdown, p.markdown, "{} differs between targets", e.path);
+        }
     }
 
     #[test]
@@ -648,5 +859,77 @@ mod publish_tests {
             book_root: sample_root(),
         };
         assert!(r.book_root.join("book.toml").exists());
+    }
+
+    #[test]
+    fn typst__preflight_names_both_tools() {
+        // The failure a reader hits first: one of the two binaries missing.
+        let r = TypstRenderer {
+            epoch: 0,
+            template: None,
+        };
+        // Both are installed here, so this passes; the shape of the failure is
+        // covered by `renderer__preflight_names_the_install_command`.
+        assert!(r.preflight().is_ok(), "pandoc and typst are both required");
+    }
+
+    #[test]
+    fn fonts_named_in__finds_every_face_a_template_asks_for() {
+        let template = concat!(
+            "#set text(font: \"Libertinus Serif\", size: 10.5pt)\n",
+            "#show raw: set text(font: \"DejaVu Sans Mono\")\n",
+            "#show raw: set text(font: \"DejaVu Sans Mono\")\n",
+        );
+        // Deduplicated, in order.
+        assert_eq!(
+            fonts_named_in(template),
+            vec![
+                "Libertinus Serif".to_string(),
+                "DejaVu Sans Mono".to_string()
+            ]
+        );
+        assert!(fonts_named_in("#set page(paper: \"a4\")").is_empty());
+    }
+
+    #[test]
+    fn check_fonts__refuses_a_face_nobody_has() {
+        // Typst substitutes silently, which is how a missing glyph reaches a
+        // reader. A template asking for a font nobody has must fail loudly.
+        let err = check_fonts("#set text(font: \"No Such Font Exists 9000\")").unwrap_err();
+        let text = err.to_string();
+        assert!(text.contains("No Such Font Exists 9000"), "{text}");
+        assert!(
+            text.contains("typst fonts"),
+            "the way to look must be named: {text}"
+        );
+    }
+
+    #[test]
+    fn check_fonts__accepts_the_sample_books_template() {
+        let template = sample_root().join("template.typ");
+        let text = std::fs::read_to_string(&template).unwrap();
+        assert!(
+            check_fonts(&text).is_ok(),
+            "the shipped template must compile"
+        );
+    }
+
+    #[test]
+    fn write_chapters__numbers_them_in_reading_order() {
+        // Shared by pandoc and typst, so a bug here would misorder an epub too.
+        let (book, plan) = sample_plan();
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        let rp = render_plan(&book, &plan, meta, Target::Pdf, &links());
+
+        let dir = std::env::temp_dir().join("bower-write-chapters");
+        let files = write_chapters(&dir, &rp).unwrap();
+
+        assert_eq!(files.len(), 6);
+        let names: Vec<String> = files
+            .iter()
+            .map(|f| f.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names[0], "001-ch01-a-repo-that-builds.md");
+        assert_eq!(names[5], "006-ch06-ci.md");
     }
 }

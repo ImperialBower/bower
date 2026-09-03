@@ -10,12 +10,6 @@
 _Nothing. EPIC-03 shipped._
 
 
-## Next up
-
-**[EPIC-07 — `--target pdf`](docs/EPIC-07_Pdf.md)** — written, not started.
-Typst, chosen on evidence: a LaTeX spike produced non-reproducible PDFs and
-needs 7.5 GB of TeX. Phase 0 is a spike that can still overturn the choice.
-
 ## Next up — unwritten EPICs
 
 | Work | Source | Note |
@@ -68,13 +62,14 @@ From `bower-spec.md` § 12. Three are closed; these six are not.
 - **[EPIC-04 — `bower status`](docs/EPIC-04_Status.md)** — 5/5 components. Book ⇄ lock ⇄ repo drift, named and exit-coded.
 - **[EPIC-05 — `bower push`](docs/EPIC-05_Push.md)** — 6/6 components. Publishing, behind a guard with no override.
 - **[EPIC-06 — `bower publish`](docs/EPIC-06_Publish.md)** — 9/9 components. One render plan, two targets: mdBook HTML and a pandoc epub.
+- **[EPIC-07 — `--target pdf`](docs/EPIC-07_Pdf.md)** — 6/6 components. Typst, chosen by measurement; the PDF is byte-identical across runs.
 - **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
 
 ## Health
 
 | Signal | State |
 |---|---|
-| Tests | 234 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 243 passing, 0 failing (`make ayce` green from clean) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |

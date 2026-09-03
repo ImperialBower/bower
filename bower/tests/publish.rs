@@ -143,3 +143,47 @@ fn publish_epub_produces_a_readable_book() {
     );
     assert!(bytes.len() > 10_000, "suspiciously small: {}", bytes.len());
 }
+
+/// The promise this project keeps everywhere else, kept here too.
+///
+/// Ignored: needs pandoc and typst. See the module docs for the command.
+#[test]
+#[ignore = "needs pandoc and typst installed"]
+fn pdf_is_byte_identical_across_runs() {
+    let a = scratch("pdf-a");
+    let b = scratch("pdf-b");
+
+    for out in [&a, &b] {
+        let result = Command::new(env!("CARGO_BIN_EXE_bower"))
+            .arg("--book")
+            .arg(book_root())
+            .args(["publish", "--target", "pdf", "-o"])
+            .arg(out)
+            .output()
+            .expect("the bower binary must run");
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+
+    let one = std::fs::read(a.join("hello-playbook.pdf")).unwrap();
+    let two = std::fs::read(b.join("hello-playbook.pdf")).unwrap();
+    assert!(one.starts_with(b"%PDF"), "not a pdf");
+    assert_eq!(
+        one, two,
+        "two runs of an unchanged book must produce identical bytes"
+    );
+}
+
+#[test]
+fn pdf_plan_matches_the_epub_plan() {
+    // Fast, no renderer: pdf and epub share an elision rule, so their markdown
+    // must be identical. Two targets growing two engines would show here first.
+    let epub = plan_for(Target::Epub);
+    let pdf = plan_for(Target::Pdf);
+    for (e, p) in epub.chapters.iter().zip(pdf.chapters.iter()) {
+        assert_eq!(e.markdown, p.markdown, "{} differs", e.path);
+    }
+}

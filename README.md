@@ -47,9 +47,11 @@ written to flatter it.
 - **The page links to the code, by line** — every rendered block carries a
   footer naming its file and line range at a tag, and those lines are the lines
   the reader just saw (`bower/tests/preprocessor.rs`).
-- **Every target shows the same thing** — html and epub render identically
+- **Every target shows the same thing** — html, epub, and PDF render identically
   except for how an elided span is shown, which is the one thing that must
   differ (`bower/tests/publish.rs`).
+- **The PDF is reproducible** — two runs of an unchanged book produce identical
+  bytes (`pdf_is_byte_identical_across_runs`).
 
 ## Quick tour
 
@@ -126,6 +128,7 @@ as such and are **not** drift, so it is safe in CI on a fresh checkout.
 ```
 make book      # HTML, via mdBook
 make epub      # epub, via pandoc
+make pdf       # PDF, via pandoc + typst
 ```
 
 Both go through `bower publish --target …`, which folds the book into one
@@ -134,10 +137,17 @@ display-marker engine and differ in exactly one rule: mdBook HTML keeps Rust's
 expandable hidden lines, and an epub — which has no toggle anywhere — collapses
 each elided span to `// ⋯ 9 lines elided — full file: <url>`.
 
-`books/hello-playbook/book.toml` declares `[preprocessor.bower]`, so the HTML
-path needs `mdbook-bower` on `PATH`. Without it the build **fails** rather than
-quietly rendering a book whose directives were never applied. The epub path
-needs `pandoc`. Both are checked before anything is written.
+Three targets, one engine. `html` needs `mdbook-bower` on `PATH` — the book's
+`book.toml` declares `[preprocessor.bower]`, so without it the build **fails**
+rather than quietly rendering a book whose directives were never applied.
+`epub` needs `pandoc`; `pdf` needs `pandoc` and `typst`. Every tool is checked,
+by name and with its install command, before anything is written.
+
+The PDF is **byte-identical across runs**, because its timestamp is pinned from
+the same `bower.toml` epoch that already makes commit SHAs reproducible.
+`books/hello-playbook/template.typ` sets its typography, and any font it names
+is checked against `typst fonts` first — a silently substituted font is how a
+missing glyph reaches a reader.
 
 ## License
 

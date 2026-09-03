@@ -55,11 +55,11 @@ build `--target ipynb` (spec § 15, needs play cells). It does not touch
 | Component | Status |
 |---|---|
 | Typst installed and spiked | **Complete** |
-| `Target::Pdf` + its elision rule | Planned |
-| `TypstRenderer` | Planned |
-| Reproducibility, asserted | Planned |
-| Code typography: the template | Planned |
-| Goldens + `make pdf` | Planned |
+| `Target::Pdf` + its elision rule | **Complete** |
+| `TypstRenderer` | **Complete** |
+| Reproducibility, asserted | **Complete** |
+| Code typography: the template | **Complete** |
+| Goldens + `make pdf` | **Complete** |
 
 ---
 
@@ -107,12 +107,12 @@ EPIC-06 Phase 0.
 
 | Domain concept | Code construct | Status |
 |---|---|---|
-| Which output is wanted | `Target` `bower/src/publish.rs:28` | 🟡 two of three |
-| Whether a toggle exists | `has_hidden_lines` | 🟡 needs `Pdf` |
+| Which output is wanted | `Target` `bower/src/publish.rs:28` | ✅ done |
+| Whether a toggle exists | `has_hidden_lines` | ✅ done |
 | The book, rendered | `RenderPlan` `bower/src/publish.rs:177` | ✅ done |
 | A thing that writes artifacts | `Renderer` `bower/src/publish.rs:230` | ✅ done |
-| The PDF renderer | `TypstRenderer` | ❌ absent |
-| Page and code styling | `template.typ` | ❌ absent |
+| The PDF renderer | `TypstRenderer` | ✅ done |
+| Page and code styling | `template.typ` | ✅ done |
 
 ---
 
@@ -224,46 +224,46 @@ reconsider LaTeX, not to quietly drop the promise.
 
 ### Phase 1 — The target
 
-- [ ] **1a.** `Target::Pdf`, `has_hidden_lines() == false`, `Display`,
+- [x] **1a.** `Target::Pdf`, `has_hidden_lines() == false`, `Display`,
   `FromStr`.
-- [ ] **1b.** Tests: `target__pdf_has_no_toggle`,
+- [x] **1b.** Tests: `target__pdf_has_no_toggle`,
   `target__round_trips_through_its_name` extended to three variants, and
   `render_plan__pdf_matches_epub_markdown` — the two targets that share an
   elision rule must produce the same markdown, which is the architecture claim
   restated.
-- [ ] **1c.** Confirm the html and epub goldens are untouched.
+- [x] **1c.** Confirm the html and epub goldens are untouched.
 
 ### Phase 2 — The renderer
 
-- [ ] **2a.** Extract the numbered-chapter scratch writer out of
+- [x] **2a.** Extract the numbered-chapter scratch writer out of
   `PandocRenderer` (`bower/src/publish.rs:292`) so both renderers share one
   definition of chapter order.
-- [ ] **2b.** `TypstRenderer`: preflight for `pandoc` **and** `typst`, convert,
+- [x] **2b.** `TypstRenderer`: preflight for `pandoc` **and** `typst`, convert,
   compile, report the artifact.
-- [ ] **2c.** Refuse a template naming a font `typst fonts` does not list. A
+- [x] **2c.** Refuse a template naming a font `typst fonts` does not list. A
   silently substituted font is how the `⋯` bug survived.
-- [ ] **2d.** Tests: `typst__preflight_names_both_tools`,
+- [x] **2d.** Tests: `typst__preflight_names_both_tools`,
   `scratch__numbers_chapters_in_reading_order`.
 
 ### Phase 3 — Reproducibility, asserted
 
-- [ ] **3a.** Whatever 0d found — `SOURCE_DATE_EPOCH`, `--creation-timestamp`
+- [x] **3a.** Whatever 0d found — `SOURCE_DATE_EPOCH`, `--creation-timestamp`
   from `bower.toml`'s `epoch`, or both — implemented in `TypstRenderer`.
-- [ ] **3b.** `bower/tests/publish.rs`: `pdf_is_byte_identical_across_runs`,
+- [x] **3b.** `bower/tests/publish.rs`: `pdf_is_byte_identical_across_runs`,
   `#[ignore]`d because it needs typst, and named in the module docs like the
   other slow lanes.
-- [ ] **3c.** `make slow` gains it, so it runs where the other ignored lanes do.
+- [x] **3c.** `make slow` gains it, so it runs where the other ignored lanes do.
 
 ### Phase 4 — Typography, goldens, documentation
 
-- [ ] **4a.** `template.typ` with page, body font, and code styling; the fonts
+- [x] **4a.** `template.typ` with page, body font, and code styling; the fonts
   it names checked in preflight.
-- [ ] **4b.** `make pdf`, `README.md`, and `BACKLOG.md`.
-- [ ] **4c.** Record in the corrigendum what would justify revisiting LaTeX:
+- [x] **4b.** `make pdf`, `README.md`, and `BACKLOG.md`.
+- [x] **4c.** Record in the corrigendum what would justify revisiting LaTeX:
   Typst's highlighting failing a language a real book uses, or a typographic
   need its templating cannot express. `Renderer` keeps that door open; this
   writes down when to walk through it.
-- [ ] **4d.** Flip Status rows; append the corrigendum.
+- [x] **4d.** Flip Status rows; append the corrigendum.
 
 ---
 
@@ -346,3 +346,77 @@ Exit criteria:
 5. A missing `typst` fails with its install command named, before anything is
    written.
 6. `cargo tree -p bower-core -e normal` still prints one line.
+
+
+---
+
+## Implementation corrigendum
+
+Recorded 2 September 2026, branch `review2`.
+
+### 1. Two facts in this EPIC's own Context were wrong
+
+Both mine, both corrected by Phase 0's measurement. Typst was described as **not
+installed** — it had been since July, but a missing Homebrew symlink meant
+`command -v typst` correctly answered no; `brew install` relinked it. And the
+footprint was estimated at **~30 MB**; it is **43 MB**. The argument survives
+both — 43 MB against 7.5 GB is a factor of 174 — but a table of guesses is not
+evidence, and this one now holds measurements.
+
+### 2. EPIC-06's architecture claim held
+
+Adding a third target required **one enum variant and three match arms**: the
+variant itself, `Display`, `FromStr`, and the CLI's renderer selection. The
+render engine — `body_lines`, `chapter`, the whole display-marker path — needed
+**no change at all**. `Target::Pdf` simply reports no hidden lines, and
+`render_plan__pdf_matches_epub_markdown` asserts the two targets that share an
+elision rule produce byte-identical markdown.
+
+The compiler said so plainly: after adding the variant, the only error in the
+workspace was the CLI's non-exhaustive `match`.
+
+### 3. Phase 1 could not stand alone, and did not pretend to
+
+Adding `Target::Pdf` leaves the CLI's `match` non-exhaustive, so Phase 1 in
+isolation would have shipped a stub arm saying "not built yet". That arm existed
+for about four minutes. The phases were carried through together, as EPIC-02 and
+EPIC-05 each concluded before them — a variant and the code that handles it are
+one unit.
+
+### 4. The template is a preamble, not a wrapper
+
+Typst's `#set` rules apply to everything that follows, so a template is simply
+prepended to pandoc's output. That is simpler than LaTeX's document-class
+machinery, and it is a fair part of why Typst was the right call.
+
+### 5. The font guard came from the `⋯` bug
+
+`check_fonts` refuses a template naming a face `typst fonts` cannot list,
+because Typst substitutes **silently** — which is exactly how a missing glyph
+reached a spike unnoticed in EPIC-06. The scanner is deliberately a scan and not
+a parser: a guard that needs a language front end is a guard that stops working.
+
+### Phase status summary
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (install, spike, decide) | Shipped | item 1; the decision measured, not assumed |
+| 1 (the target) | Shipped | item 2, 3 |
+| 2 (the renderer) | Shipped | items 4, 5 |
+| 3 (reproducibility) | Shipped | `SOURCE_DATE_EPOCH` from `bower.toml`'s epoch |
+| 4 (typography, docs) | Shipped | |
+
+### Still open after this EPIC
+
+- **A long URL wraps mid-URL inside a code block** — `…/hello-playbook/` then
+  `blob/step-011-…`. Found in Phase 0c, legible but ugly. The template can
+  address it; nothing does yet.
+- **`TypstRenderer` is untested**, the same last inch as `GitHubForge` and
+  `PandocRenderer`. The decisions are tested against `FakeRenderer`, and the
+  pure parts — `fonts_named_in`, `write_chapters`, `slug` — were extracted and
+  are. `pdf_is_byte_identical_across_runs` covers the whole path end to end, in
+  the ignored lane.
+- **`--target ipynb`** remains, and still needs play cells (spec § 15).
+- **LaTeX stays reachable.** `Renderer` is the seam. What would justify walking
+  through it: Typst failing to highlight a language a real book uses, or a
+  typographic need its templating cannot express. Neither has happened.
