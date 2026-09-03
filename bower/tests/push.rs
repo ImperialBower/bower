@@ -63,15 +63,70 @@ fn built(case: &str, p: &RepoPlan, cfg: &BookConfig) -> PathBuf {
     dir
 }
 
+/// A copy of the sample book with its `github` key removed.
+///
+/// The test below owns its fixture rather than leaning on the sample book's
+/// configuration: the sample now publishes to a real remote, and a test that
+/// asserts what it does *not* declare breaks the day someone configures it —
+/// which is exactly what happened on 2 September 2026.
+fn book_that_does_not_publish(case: &str) -> PathBuf {
+    let dir = scratch(case);
+    copy_dir(&book_root(), &dir);
+    let toml = dir.join("bower.toml");
+    let text = std::fs::read_to_string(&toml).unwrap();
+    let stripped: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("github ="))
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(&toml, stripped).unwrap();
+    dir
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap();
+        if name == "book" {
+            continue;
+        }
+        let target = to.join(name);
+        if path.is_dir() {
+            copy_dir(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
 #[test]
 fn a_book_without_a_github_key_publishes_nothing_and_says_so() {
-    let out = bower(&["push", "-o", "/nonexistent"]);
+    let book = book_that_does_not_publish("no-github-key");
+    let out = Command::new(env!("CARGO_BIN_EXE_bower"))
+        .arg("--book")
+        .arg(&book)
+        .args(["push", "-o", "/nonexistent"])
+        .output()
+        .expect("the bower binary must run");
+
     assert!(
         out.status.success(),
-        "a book that does not publish is normal"
+        "a book that does not publish is normal: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("does not publish it"), "{text}");
+}
+
+#[test]
+fn the_sample_book_now_declares_a_remote() {
+    // The counterweight, and the thing the old test was accidentally asserting.
+    let cfg = BookConfig::load(&book_root()).unwrap();
+    assert_eq!(
+        cfg.repos["hello-playbook"].github.as_deref(),
+        Some("abstecker/hello-playbook")
+    );
 }
 
 #[test]

@@ -58,7 +58,7 @@ fn epub_plan_elides_chapter_four() {
         "the epub must say what it left out"
     );
     assert!(
-        ch4.contains("full file: https://github.com/ImperialBower/hello-playbook/blob/"),
+        ch4.contains("full file: https://github.com/abstecker/hello-playbook/blob/"),
         "spec § 3.4 asks for the link"
     );
     assert!(

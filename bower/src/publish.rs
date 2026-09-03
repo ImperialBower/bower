@@ -382,6 +382,51 @@ impl Renderer for PandocRenderer {
     }
 }
 
+/// A short, stable fingerprint of a plan.
+///
+/// FNV-1a, written out rather than pulled in: "did this change" needs no
+/// cryptography, and this project has declined a dependency for less. Stable
+/// across runs and machines, which is all the site marker asks of it.
+#[must_use]
+pub fn digest(text: &str) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in text.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// The contents of `.bower-site`.
+///
+/// One file, two jobs. `marker_line` makes it readable by
+/// `trailers::book_named_in`, so `bower push`'s gate works on a site branch
+/// unchanged — a branch with content and no marker is refused. The digest lets
+/// `bower status` answer "is this site current?" without fetching a page.
+#[must_use]
+pub fn site_marker(book_name: &str, lock: &str) -> String {
+    format!(
+        "{}\n\nplan-digest: {}\n",
+        crate::trailers::marker_line(book_name),
+        digest(lock)
+    )
+}
+
+/// Write the two files a static host needs beside the rendered book.
+///
+/// `.nojekyll` matters more than it looks: without it GitHub Pages runs Jekyll,
+/// which silently drops files and directories beginning with `_`. mdBook emits
+/// none today, so the failure mode is missing CSS with no error anywhere —
+/// exactly the class of bug that survives unnoticed.
+///
+/// # Errors
+///
+/// Any filesystem failure while writing.
+pub fn write_site_files(dir: &Path, marker: &str) -> std::io::Result<()> {
+    std::fs::write(dir.join(".nojekyll"), "")?;
+    std::fs::write(dir.join(".bower-site"), marker)
+}
+
 /// The HTML, via mdBook.
 ///
 /// This renderer does **not** consume the `RenderPlan` the way `PandocRenderer`
@@ -393,6 +438,9 @@ impl Renderer for PandocRenderer {
 pub struct MdBookRenderer {
     /// mdBook needs the source directory, not the plan. Hence the field.
     pub book_root: PathBuf,
+    /// The `.bower-site` contents, when this render is destined for a site
+    /// branch. `None` renders HTML for local reading only.
+    pub site_marker: Option<String>,
 }
 
 impl Renderer for MdBookRenderer {
@@ -431,6 +479,13 @@ impl Renderer for MdBookRenderer {
         }
         // Reporting 0 bytes for a file that is not there would hide exactly
         // the bug that `-d` relativity caused.
+        if let Some(marker) = &self.site_marker {
+            write_site_files(&dest, marker).map_err(|source| PublishError::Read {
+                path: dest.clone(),
+                source,
+            })?;
+        }
+
         let index = dest.join("index.html");
         let bytes = std::fs::metadata(&index).map_err(|source| PublishError::Read {
             path: index.clone(),
@@ -857,6 +912,7 @@ mod publish_tests {
         // rather than the plan.
         let r = MdBookRenderer {
             book_root: sample_root(),
+            site_marker: None,
         };
         assert!(r.book_root.join("book.toml").exists());
     }
@@ -931,5 +987,58 @@ mod publish_tests {
             .collect();
         assert_eq!(names[0], "001-ch01-a-repo-that-builds.md");
         assert_eq!(names[5], "006-ch06-ci.md");
+    }
+
+    #[test]
+    fn digest__is_stable_and_changes_with_content() {
+        assert_eq!(digest("abc"), digest("abc"), "must be stable across calls");
+        assert_ne!(digest("abc"), digest("abd"));
+        assert_eq!(
+            digest("abc").len(),
+            16,
+            "fixed-width hex is easier to eyeball"
+        );
+        // The empty case has a defined value rather than a panic.
+        assert_eq!(digest("").len(), 16);
+    }
+
+    #[test]
+    fn site_marker__round_trips_through_book_named_in() {
+        // The guard reads what the renderer wrote. This is the fourth time
+        // this project has needed that assertion, and the reason `marker_line`
+        // and `book_named_in` are one definition.
+        use crate::trailers::book_named_in;
+        let m = site_marker("hello-playbook", "001 a expect=pass\n");
+        assert_eq!(book_named_in(&m), Some("hello-playbook"));
+        assert!(m.contains("plan-digest: "), "{m}");
+    }
+
+    #[test]
+    fn site_marker__changes_when_the_plan_does() {
+        // Staleness is answerable without fetching a page.
+        let a = site_marker("b", "001 a expect=pass\n");
+        let b = site_marker("b", "001 a expect=test_fail\n");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn write_site_files__writes_nojekyll_and_the_marker() {
+        // Without `.nojekyll`, GitHub Pages runs Jekyll and silently drops
+        // anything starting with `_`. No error, just missing CSS.
+        let dir = std::env::temp_dir().join("bower-site-files");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let marker = site_marker("hello-playbook", "lock\n");
+        write_site_files(&dir, &marker).unwrap();
+
+        assert!(
+            dir.join(".nojekyll").exists(),
+            "Jekyll would eat the assets"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dir.join(".bower-site")).unwrap(),
+            marker
+        );
     }
 }

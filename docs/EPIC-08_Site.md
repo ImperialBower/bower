@@ -36,8 +36,8 @@ which stays pure and dependency-free — an eighth EPIC running.
 
 | Component | Status |
 |---|---|
-| `site_branch` in `bower.toml` | Planned |
-| `.bower-site` marker + `.nojekyll` | Planned |
+| `site_branch` in `bower.toml` | **Complete** |
+| `.bower-site` marker + `.nojekyll` | **Complete** |
 | The site gate | Planned |
 | `bower push` ships the site | Planned |
 | `bower status` reports site drift | Planned |
@@ -109,10 +109,10 @@ convention:
 | Domain concept | Code construct | Status |
 |---|---|---|
 | The remote's name | `RepoConfig::github` `bower/src/config.rs:43` | ✅ done |
-| Which branch serves the site | `RepoConfig::site_branch` | ❌ absent |
+| Which branch serves the site | `RepoConfig::site_branch` | ✅ done |
 | The rendered book | `MdBookRenderer` `bower/src/publish.rs:393` | ✅ done |
 | Is this branch ours? | `marker_verdict` `bower/src/push.rs:60` | ✅ reusable as-is |
-| What the site was built from | `.bower-site` digest | ❌ absent |
+| What the site was built from | `.bower-site` digest | ✅ done |
 | Pushing a branch | `Forge::push` `bower/src/forge.rs:86` | 🟡 takes one branch |
 | Is the site current? | `SiteDrift` | ❌ absent |
 
@@ -181,14 +181,32 @@ crate for less.
 
 ### Phase 0 — Configuration and the marker
 
-- [ ] **0a.** `RepoConfig::site_branch: Option<String>` and its wire field
-  (`bower/src/config.rs:41`); absent is not an error.
-- [ ] **0b.** `MdBookRenderer` (`bower/src/publish.rs:393`) writes `.nojekyll`
-  and `.bower-site` into its output.
-- [ ] **0c.** `.bower-site` carries `marker_line(book_name)` and the plan
-  digest, so one file answers both "is this ours" and "is this current".
-- [ ] **0d.** Tests: `site_marker__round_trips_through_book_named_in`,
-  `renderer__writes_nojekyll`, `config__site_branch_is_optional`.
+- [x] **0a.** `RepoConfig::site_branch`, optional, absent by default.
+- [x] **0b.** `write_site_files()` writes both, and `MdBookRenderer` calls it —
+  **but only when the render is destined for a site**. A `site_marker: None`
+  renders HTML for local reading and leaves no stray dotfiles behind.
+- [x] **0c.** `site_marker()` and `digest()`. **Deviation:** the digest is
+  FNV-1a written out by hand rather than a hashing crate. "Did this change"
+  needs no cryptography, it must be stable across runs and machines, and this
+  project has declined a dependency for less.
+- [x] **0d.** Seven tests, including `digest__is_stable_and_changes_with_content`
+  and `site_marker__changes_when_the_plan_does`.
+
+**Three stale test assertions found and fixed, and the process failure behind
+them.** Repointing the sample book at `abstecker` on 2 September broke
+`config__loads_the_sample_book`, a golden in `bower/tests/publish.rs`, and
+`a_book_without_a_github_key_publishes_nothing_and_says_so` — and **none of it
+was noticed, because the suite was never run after that edit**. Building,
+pushing, and publishing all succeeded on a red test suite.
+
+Two of the three were simple staleness. The third was a design fault worth
+naming: that test asserted the *sample book* declares no `github` key, so it
+broke the day the sample book started publishing. Its intent — "a book that does
+not publish is normal" — now owns its own fixture, a copy of the sample with the
+key stripped. A test that asserts what a live fixture does **not** contain is a
+test waiting to break. `the_sample_book_now_declares_a_remote` is its
+counterweight. Verified on branch `review2`, 2 September 2026: 248 tests,
+`make ayce` green.
 
 ### Phase 1 — The gate
 

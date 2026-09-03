@@ -570,6 +570,15 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
         Target::Epub => Box::new(PandocRenderer),
         Target::Html => Box::new(MdBookRenderer {
             book_root: book_root.to_path_buf(),
+            // Only a book that ships a site needs the marker beside its HTML.
+            site_marker: cfg
+                .repos
+                .values()
+                .any(|r| r.site_branch.is_some())
+                .then(|| {
+                    let name = book_name(book_root, "book");
+                    bower::publish::site_marker(&name, &lock_text(&resolved))
+                }),
         }),
         Target::Pdf => Box::new(TypstRenderer {
             // One epoch, every artifact: the value that already pins commit
