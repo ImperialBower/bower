@@ -18,10 +18,13 @@ chapters:
 
 | Question | LaTeX (`xelatex`) | Typst |
 |---|---|---|
-| Installed here | yes, TeX Live 2026 | no |
-| Footprint | **7.5 GB** | ~30 MB, one binary |
+| Installed here | yes, TeX Live 2026 | **yes** — 0.15.1, see below |
+| Footprint | **7.5 GB** | **43 MB**, one binary |
 | `pandoc --to` support | `pdf`, `latex` | `typst`, in pandoc 3.11 |
-| **Two runs, identical bytes** | **no** | to be confirmed (work item 0d) |
+| Two runs, identical bytes | **no** | **no** |
+| ... with `SOURCE_DATE_EPOCH` | **still no** | **IDENTICAL** |
+
+The last row is the whole decision, and Phase 0 measured both halves of it.
 
 The determinism result is the one that decided it. Two identical `pandoc → pdf
 → xelatex` runs produced different SHAs; pinning `SOURCE_DATE_EPOCH` **and**
@@ -51,7 +54,7 @@ build `--target ipynb` (spec § 15, needs play cells). It does not touch
 
 | Component | Status |
 |---|---|
-| Typst installed and spiked | Planned |
+| Typst installed and spiked | **Complete** |
 | `Target::Pdf` + its elision rule | Planned |
 | `TypstRenderer` | Planned |
 | Reproducibility, asserted | Planned |
@@ -191,18 +194,33 @@ reconsider LaTeX, not to quietly drop the promise.
 
 ### Phase 0 — Install, spike, decide for real
 
-- [ ] **0a.** Install `typst` and record the version and footprint, to replace
-  this EPIC's "~30 MB" estimate with a measurement.
-- [ ] **0b.** By hand: `pandoc --to typst` over the sample book's rendered
-  chapters, then `typst compile`. Confirm a PDF is produced at all.
-- [ ] **0c.** Look at the code blocks. Syntax highlighting, no mid-token breaks,
-  and the elision comment legible. Record what is wrong before designing around
-  it.
-- [ ] **0d.** **Compile twice and compare bytes.** With `SOURCE_DATE_EPOCH`
-  unset, then set. Record which produces identical output. If neither does, stop
-  and report — this EPIC's central premise would be false.
-- [ ] **0e.** If Typst fails 0b or 0d, write the finding into this Context and
-  re-open the LaTeX option rather than proceeding.
+- [x] **0a.** **typst 0.15.1, a 43 MB binary.** Two corrections to this EPIC's
+  own Context, both mine:
+  1. It said typst was **not installed**. It was — since 17 July — but its
+     Homebrew symlink was missing, so `command -v typst` correctly said no.
+     `brew install` relinked it. The probe was right; my conclusion from it was
+     wrong.
+  2. It estimated **~30 MB**. The measurement is **43 MB**. The argument is
+     unaffected — 43 MB against 7.5 GB is still a factor of 174 — but the
+     number in the table is now one I took rather than one I guessed.
+- [x] **0b.** `pandoc --from markdown --to typst` produced an 18.9 KB `.typ`,
+  and `typst compile` produced a **144 KB PDF, exit 0, no warnings**. Compare
+  with the LaTeX spike, which emitted six missing-glyph warnings.
+- [x] **0c.** Everything arrives: the marked test, both elision forms, the
+  `full file:` link, and the footer reading
+  `src/lib.rs · L18–L21 · step 011 of hello-playbook · diff · browse`. **Zero
+  directive lines.** **One finding:** a long URL inside a code block wraps
+  mid-URL — `…/hello-playbook/` then `blob/step-011-…` on the next line. Legible
+  but ugly, and it is the template's problem to solve (work item 4a), not the
+  renderer's.
+- [x] **0d.** **The decisive result.** Two plain runs produced different SHAs.
+  Two runs with `SOURCE_DATE_EPOCH` pinned produced **identical bytes**. LaTeX
+  stayed different even with `SOURCE_DATE_EPOCH` *and* `FORCE_SOURCE_DATE` set.
+  Work item 3a is therefore settled by measurement: pin `SOURCE_DATE_EPOCH`,
+  fed from `bower.toml`'s `epoch`.
+- [x] **0e.** Not needed. Typst passed 0b and 0d, so the LaTeX option stays
+  closed — with work item 4c recording what would re-open it. Verified on branch
+  `review2`, 2 September 2026.
 
 ### Phase 1 — The target
 
