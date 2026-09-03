@@ -181,7 +181,7 @@ pub fn body_lines(
         if *elided > 0 && !rustish {
             let plural = if *elided == 1 { "line" } else { "lines" };
             let link = full_file.map_or_else(String::new, |u| format!(" — full file: {u}"));
-            out.push(format!("{comment} ⋯ {elided} {plural} elided{link}"));
+            out.push(format!("{comment} ... {elided} {plural} elided{link}"));
         }
         *elided = 0;
     };
@@ -401,9 +401,9 @@ mod render_tests {
         assert_eq!(
             body_lines("yaml", &body, None, Target::Html, None),
             vec![
-                "# ⋯ 1 line elided",
+                "# ... 1 line elided",
                 "  - run: make ayce",
-                "# ⋯ 1 line elided"
+                "# ... 1 line elided"
             ]
         );
     }
@@ -515,6 +515,22 @@ mod render_tests {
             out.iter()
                 .any(|l| l.contains("full file: https://x.invalid/blob/step-001-a/src/lib.rs")),
             "{out:?}"
+        );
+    }
+
+    #[test]
+    fn elision__is_ascii_so_every_font_can_render_it() {
+        // The elision lands inside a code block, where the font is a monospace
+        // one the renderer picked. `⋯` (U+22EF) is absent from Latin Modern
+        // Mono, so xelatex dropped it silently and the PDF read
+        // `# 9 lines elided` with no ellipsis at all. ASCII is what a code
+        // comment should be anyway.
+        let body = lines("a\n// bower:show\nb\n// bower:show end");
+        let out = body_lines("rust", &body, None, Target::Epub, None);
+        let elision = out.iter().find(|l| l.contains("elided")).unwrap();
+        assert!(
+            elision.is_ascii(),
+            "a glyph a mono font may lack: {elision:?}"
         );
     }
 

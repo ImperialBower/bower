@@ -10,6 +10,12 @@
 _Nothing. EPIC-03 shipped._
 
 
+## Next up
+
+**[EPIC-07 — `--target pdf`](docs/EPIC-07_Pdf.md)** — written, not started.
+Typst, chosen on evidence: a LaTeX spike produced non-reproducible PDFs and
+needs 7.5 GB of TeX. Phase 0 is a spike that can still overturn the choice.
+
 ## Next up — unwritten EPICs
 
 | Work | Source | Note |

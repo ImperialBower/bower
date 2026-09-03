@@ -15,7 +15,7 @@ The render logic already exists and already knows about more than one target.
 `render::body_lines` (`bower/src/render.rs:138`) elides differently by language
 because mdBook's hidden-line toggle only works for Rust: a `rust` fence gets
 `# `-prefixed lines the reader expands in place, and every other language gets
-`# ⋯ 11 lines elided`. That second form *is* the epub rendering spec § 3.4
+`# ... 11 lines elided`. That second form *is* the epub rendering spec § 3.4
 describes — built, working, and rendered into nothing, because no epub build
 exists. `docs/TECHNICAL_DEBT.md` has carried it as "designed but unbuilt" since
 EPIC-03.
@@ -87,7 +87,7 @@ through the render rather than inferred from the fence.
   required; there is no default, because silently producing the wrong artifact
   is worse than asking.
 - The elision comment carries a link when the book declares a `blob` template:
-  `// ⋯ 14 lines elided — full file: <url>`. Spec § 3.4 specifies that link, and
+  `// ... 14 lines elided — full file: <url>`. Spec § 3.4 specifies that link, and
   without a target to render into it was never added.
 - Book metadata — title, authors, language — comes from **`book.toml`**, which
   is where mdBook already keeps it. Not a second copy in `bower.toml`.
@@ -158,7 +158,7 @@ let hidden_lines = target.has_hidden_lines() && info.split([',', ' ']).next() ==
 and the elision comment gains the link spec § 3.4 asks for:
 
 ```rust
-// `// ⋯ 14 lines elided — full file: https://…/blob/step-011-…/src/lib.rs`
+// `// ... 14 lines elided — full file: https://…/blob/step-011-…/src/lib.rs`
 fn elision(comment: &str, n: usize, full_file: Option<&str>) -> String;
 ```
 
@@ -479,6 +479,16 @@ error.
 | 2 (the renderers) | Shipped | items 5, 6 |
 | 3 (the command) | Shipped | |
 | 4 (goldens and docs) | Shipped | closed the epub debt item |
+
+### 7. The elision used a glyph monospace fonts lack
+
+`⋯` (U+22EF) is absent from Latin Modern Mono, so a PDF spike rendered
+`# 9 lines elided` — the ellipsis silently dropped, with only a xelatex warning
+to say so. It survived in the epub only because a reader's own fonts supply it.
+The elision lands inside a **code block**, where ASCII is what belongs anyway;
+it is now `...`, and `elision__is_ascii_so_every_font_can_render_it` keeps it
+that way. Found while spiking `--target pdf`, which is exactly what a spike is
+for.
 
 ### Still open after this EPIC
 
