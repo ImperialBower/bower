@@ -1,7 +1,10 @@
 # Backlog
 
-> Refreshed by the `/backlog` skill on 1 September 2026. `bower status`
-> shipped after the first pass; EPIC-04 is done.
+> Refreshed 2 September 2026. Eight EPICs closed: replay, verification, the
+> mdBook preprocessor, status, push, publish (html + epub), PDF via Typst, and
+> the site branch. `hello-playbook` is live at
+> <https://github.com/abstecker/hello-playbook> with its book served from
+> `gh-pages`.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
@@ -15,7 +18,9 @@ _Nothing. EPIC-03 shipped._
 | Work | Source | Note |
 |---|---|---|
 | **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failers* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
-| **Publishing maturity** | spec § 11 Phase 6+, § 13, § 14 | epub/PDF targets, notebook target, Obsidian and Scrivener bridges. Explicitly scoped only after Phase 5. |
+| **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
+| **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. |
+| **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 
 ## Known gaps
 
@@ -30,7 +35,8 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 ## Open questions — decisions, not code
 
-From `bower-spec.md` § 12. Three are closed; these six are not.
+From `bower-spec.md` § 12. Three are closed (gix, failure-only snapshots, crate
+names); these six are not.
 
 | # | Question |
 |---|---|
