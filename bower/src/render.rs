@@ -275,7 +275,7 @@ pub fn footer(
     for range in &ranges {
         let label = format!("L{}–L{}", range.start, range.end);
         parts.push(match subst(links.blob.as_deref(), &tag, Some(range)) {
-            Some(url) => format!("[{label}]({url})"),
+            Some(url) => format!("[{label}]({url} \"View source\")"),
             None => label,
         });
     }
@@ -283,13 +283,16 @@ pub fn footer(
     parts.push(format!("step {:03} of {repo}", step.seq));
 
     if let Some(url) = subst(links.commit.as_deref(), &tag, None) {
-        parts.push(format!("[diff]({url})"));
+        parts.push(format!("[diff]({url} \"View diff\")"));
     }
     if let Some(url) = subst(links.tree.as_deref(), &tag, None) {
-        parts.push(format!("[browse]({url})"));
+        parts.push(format!("[browse]({url} \"Browse repo\")"));
     }
 
-    Some(format!("<sub>{}</sub>", parts.join(" · ")))
+    Some(format!(
+        "<span class=\"step-meta\"><sub>💾 {}</sub></span>",
+        parts.join(" · ")
+    ))
 }
 
 /// Fill `{tag}`, `{path}`, `{start}`, `{end}` in a template.
@@ -605,18 +608,20 @@ mod render_tests {
             &github_links(),
             Target::Html,
         );
-        assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
+        assert!(out.contains("<span class=\"step-meta\"><sub>💾 `src/lib.rs`"), "{out}");
         assert!(out.contains("step 001 of r"), "{out}");
         assert!(
-            out.contains("[L1–L1](https://x.invalid/blob/step-001-first/src/lib.rs#L1-L1)"),
+            out.contains(
+                "[L1–L1](https://x.invalid/blob/step-001-first/src/lib.rs#L1-L1 \"View source\")"
+            ),
             "{out}"
         );
         assert!(
-            out.contains("[diff](https://x.invalid/commit/step-001-first)"),
+            out.contains("[diff](https://x.invalid/commit/step-001-first \"View diff\")"),
             "{out}"
         );
         assert!(
-            out.contains("[browse](https://x.invalid/tree/step-001-first)"),
+            out.contains("[browse](https://x.invalid/tree/step-001-first \"Browse repo\")"),
             "{out}"
         );
     }
@@ -625,7 +630,7 @@ mod render_tests {
     fn footer__omits_links_without_templates() {
         // A plausible-looking broken link is worse than plain text.
         let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
-        assert!(out.contains("<sub>`src/lib.rs`"), "{out}");
+        assert!(out.contains("<span class=\"step-meta\"><sub>💾 `src/lib.rs`"), "{out}");
         assert!(out.contains("L1–L1"), "{out}");
         assert!(!out.contains("]("), "no links may be invented: {out}");
         assert!(!out.contains("diff"), "{out}");

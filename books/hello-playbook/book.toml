@@ -14,3 +14,4 @@ command = "mdbook-bower"
 
 [output.html]
 default-theme = "ayu"
+additional-css = ["theme/step-meta.css"]
