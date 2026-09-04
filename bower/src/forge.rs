@@ -20,6 +20,21 @@ pub enum RemoteState {
     HasContent,
 }
 
+/// A release to create or refresh, with the files to hang off it.
+///
+/// A struct rather than five arguments because it crosses the [`Forge`]
+/// boundary, and a boundary with five positional strings is one a caller gets
+/// wrong exactly once, silently.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Release {
+    /// The git tag the release hangs on — `v0.1.0`.
+    pub tag: String,
+    pub title: String,
+    pub notes: String,
+    /// Files to attach. Existing files of the same name are replaced.
+    pub assets: Vec<std::path::PathBuf>,
+}
+
 /// What a push moved.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PushOutcome {
@@ -117,6 +132,18 @@ pub trait Forge {
     ///
     /// If the push is rejected or the tooling fails.
     fn push(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError>;
+
+    /// Create the release at `release.tag`, or refresh the one already there.
+    ///
+    /// Additive, unlike everything else on this trait: it hangs files off a tag
+    /// and destroys no history. Refreshing replaces same-named assets, which is
+    /// safe precisely because this project's artifacts are byte-reproducible —
+    /// re-shipping an unchanged book uploads the same bytes.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be reached, or the upload is refused.
+    fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError>;
 }
 
 /// A [`Forge`] that talks to nothing, and remembers everything it was asked.
@@ -137,6 +164,7 @@ pub struct FakeForge {
     /// unreachable remote must never be mistaken for an empty one.
     pub unreachable: Option<String>,
     calls: std::cell::RefCell<Vec<String>>,
+    releases: std::cell::RefCell<Vec<Release>>,
 }
 
 impl FakeForge {
@@ -149,6 +177,7 @@ impl FakeForge {
             site_marker: None,
             unreachable: None,
             calls: std::cell::RefCell::new(Vec::new()),
+            releases: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -169,6 +198,7 @@ impl FakeForge {
             site_marker: None,
             unreachable: Some(reason.to_string()),
             calls: std::cell::RefCell::new(Vec::new()),
+            releases: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -178,12 +208,22 @@ impl FakeForge {
         self.calls.borrow().clone()
     }
 
+    /// Every release this forge was asked to publish, in order.
+    #[must_use]
+    pub fn releases(&self) -> Vec<Release> {
+        self.releases.borrow().clone()
+    }
+
     /// Whether anything that changes the remote was called.
+    ///
+    /// A release counts. It creates nothing destructive, but a dry run that
+    /// uploaded a PDF would still have reached out — and "nothing was sent" has
+    /// to mean nothing.
     #[must_use]
     pub fn mutated(&self) -> bool {
         self.calls()
             .iter()
-            .any(|c| c.starts_with("push") || c.starts_with("create"))
+            .any(|c| c.starts_with("push") || c.starts_with("create") || c.starts_with("release"))
     }
 
     fn record(&self, what: &str) {
@@ -250,6 +290,13 @@ impl Forge for FakeForge {
             commits: 0,
             tags: 0,
         })
+    }
+
+    fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError> {
+        self.record("release");
+        self.reachable(repo)?;
+        self.releases.borrow_mut().push(release.clone());
+        Ok(())
     }
 }
 
@@ -550,6 +597,70 @@ impl Forge for GitHubForge {
             tags: count(dir, &["tag", "--list"]),
         })
     }
+
+    fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError> {
+        let paths: Vec<String> = release
+            .assets
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+
+        // `gh release create` fails outright on an existing tag, so which
+        // command to run is a question that has to be asked first.
+        let (found, _, stderr) = gh(&["release", "view", &release.tag, "--repo", repo])?;
+        if !found && !release_absent(&stderr) {
+            return Err(ForgeError::Unreachable {
+                repo: repo.to_string(),
+                reason: stderr.trim().to_string(),
+            });
+        }
+
+        let mut args: Vec<&str> = if found {
+            // `--clobber` is what makes a re-ship idempotent rather than a
+            // duplicate-filename error.
+            vec![
+                "release",
+                "upload",
+                &release.tag,
+                "--repo",
+                repo,
+                "--clobber",
+            ]
+        } else {
+            vec![
+                "release",
+                "create",
+                &release.tag,
+                "--repo",
+                repo,
+                "--title",
+                &release.title,
+                "--notes",
+                &release.notes,
+            ]
+        };
+        args.extend(paths.iter().map(String::as_str));
+
+        let (ok, _, stderr) = gh(&args)?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: format!("gh release {}", if found { "upload" } else { "create" }),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Whether `gh release view` failed because there is no such release.
+///
+/// The same distinction this module draws for repositories, and drawn for
+/// the same reason: "no release yet" means create one, while "we could not
+/// look" must never be mistaken for it and quietly create a second.
+#[must_use]
+pub fn release_absent(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("release not found") || lower.contains("no release found")
 }
 
 /// Recursively copy `from` into `to`, skipping any `.git` already present.

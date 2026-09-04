@@ -102,7 +102,20 @@ pub enum PushPlan {
         /// The site push, when this book ships one. `None` means the book
         /// declares no `site_branch`, which is a normal book.
         site: Option<SitePush>,
+        /// The release, when this book publishes one. `None` means the book
+        /// declares no `version` or no `assets`, which is a normal book.
+        release: Option<ReleasePush>,
     },
+}
+
+/// What publishing a release would do.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReleasePush {
+    pub tag: String,
+    pub title: String,
+    pub notes: String,
+    /// Every `.pdf` and `.epub` found, in a fixed order.
+    pub assets: Vec<PathBuf>,
 }
 
 /// What publishing the rendered book would do.
@@ -225,6 +238,14 @@ pub fn plan_push(
         SiteDecision::Push(s) => Some(s),
     };
 
+    // The release half, last: it hangs files off a tag, so it has nothing to
+    // say about whether the push itself is safe.
+    let release = match plan_release(cfg, &repo, &book, book_root, plan.steps.len()) {
+        ReleaseDecision::None => None,
+        ReleaseDecision::Blocked(why) => return blocked(why),
+        ReleaseDecision::Publish(r) => Some(r),
+    };
+
     Ok(PushPlan::Ready {
         repo,
         remote,
@@ -232,7 +253,116 @@ pub fn plan_push(
         tags: expected_tags(plan).len(),
         create: state == RemoteState::Absent,
         site,
+        release,
     })
+}
+
+/// What the release half of a push decided.
+enum ReleaseDecision {
+    /// The book declares no `version`, or the repo no `assets`.
+    None,
+    Blocked(String),
+    Publish(ReleasePush),
+}
+
+/// Decide whether, and what, to publish as a release.
+///
+/// Entirely local: a release is decided from the book's own configuration and
+/// its own artifacts, and contacts nothing. Half-configured is an error rather
+/// than a silence — a book that declares `assets` and gets no release would
+/// look published and not be.
+fn plan_release(
+    cfg: &BookConfig,
+    repo: &str,
+    book: &str,
+    book_root: &Path,
+    steps: usize,
+) -> ReleaseDecision {
+    let dir = cfg.repos.get(repo).and_then(|r| r.assets.clone());
+    match (cfg.version.as_deref(), dir) {
+        // No `assets` is no release, with or without a version: declaring an
+        // edition is not the same as shipping downloads.
+        (_, None) => ReleaseDecision::None,
+        (None, Some(_)) => ReleaseDecision::Blocked(
+            "this repo declares `assets`, but the book declares no `version`, so              there is nothing to name a release. Add `version` under `[book]`, or              drop `assets`."
+                .to_string(),
+        ),
+        (Some(version), Some(rel)) => {
+            let dir = book_root.join(&rel);
+            let assets = collect_assets(&dir);
+            if assets.is_empty() {
+                return ReleaseDecision::Blocked(format!(
+                    "{} holds no `.pdf` or `.epub`; render them there first, \
+                     with `bower publish --target pdf -o {}` and the same for epub",
+                    dir.display(),
+                    dir.display()
+                ));
+            }
+            let tag = release_tag(version);
+            ReleaseDecision::Publish(ReleasePush {
+                title: format!("{book} {tag}"),
+                notes: release_notes(book, steps, cfg.site.as_deref()),
+                tag,
+                assets,
+            })
+        }
+    }
+}
+
+/// The git tag a declared version hangs on.
+///
+/// A dotted number gets the near-universal `v`: `0.1.0` becomes `v0.1.0`.
+/// Anything else is used exactly as written, because a book that calls its
+/// edition `2e` did not mean `v2e`, and one that already wrote `v1.0` did not
+/// mean `vv1.0`.
+#[must_use]
+pub fn release_tag(version: &str) -> String {
+    let dotted_number = version.starts_with(|c: char| c.is_ascii_digit())
+        && version.chars().all(|c| c.is_ascii_digit() || c == '.');
+    if dotted_number {
+        format!("v{version}")
+    } else {
+        version.to_string()
+    }
+}
+
+/// The release body. Short, factual, and the same every time for one book: a
+/// release note that changed on every publish would make an unchanged book look
+/// like a new edition.
+#[must_use]
+pub fn release_notes(book: &str, steps: usize, site: Option<&str>) -> String {
+    let online = site.map_or(String::new(), |url| format!("\nRead it online: {url}\n"));
+    format!("Generated from the book `{book}` — {steps} steps.\n{online}")
+}
+
+/// Whether a file is something a reader would download from a release.
+///
+/// A closed list. Attaching whatever happens to sit in the directory is how a
+/// scratch file becomes a published artifact.
+#[must_use]
+pub fn is_release_asset(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "pdf" | "epub"))
+}
+
+/// Every attachable file directly inside `dir`, in a fixed order.
+///
+/// Not recursive: the render's own scratch directories (`.typst`, `.chapters`)
+/// live under the same roof, and a release is not the place to find out what
+/// else was in there. Sorted, because two runs must produce the same release.
+#[must_use]
+pub fn collect_assets(dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && is_release_asset(p))
+        .collect();
+    out.sort();
+    out
 }
 
 /// What the site half of a push decided.
@@ -314,6 +444,62 @@ mod gate_tests {
 
     fn ours() -> String {
         format!("# Steps\n\n{}\n", marker_line(BOOK))
+    }
+
+    #[test]
+    fn release_tag__prefixes_a_number_and_leaves_anything_else_alone() {
+        assert_eq!(release_tag("0.1.0"), "v0.1.0");
+        assert_eq!(release_tag("2026.09"), "v2026.09");
+        // A book that calls its edition `2e` did not mean `v2e`.
+        assert_eq!(release_tag("2e"), "2e");
+        assert_eq!(release_tag("v1.0"), "v1.0");
+    }
+
+    #[test]
+    fn is_release_asset__is_a_closed_list() {
+        assert!(is_release_asset(Path::new("book.pdf")));
+        assert!(is_release_asset(Path::new("book.epub")));
+        assert!(is_release_asset(Path::new("BOOK.EPUB")));
+        // The render's own leftovers share the directory. None of them ship.
+        assert!(!is_release_asset(Path::new("body.typ")));
+        assert!(!is_release_asset(Path::new("001-ch01.md")));
+        assert!(!is_release_asset(Path::new("notes")));
+    }
+
+    #[test]
+    fn collect_assets__takes_only_the_top_level_and_sorts_it() {
+        let dir = std::env::temp_dir()
+            .join("bower-push-assets")
+            .join("published");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join(".typst")).unwrap();
+        for name in ["b.epub", "a.pdf", "body.typ"] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        // A scratch subdirectory full of intermediate files must not ship.
+        std::fs::write(dir.join(".typst").join("deep.pdf"), "x").unwrap();
+
+        let names: Vec<String> = collect_assets(&dir)
+            .iter()
+            .filter_map(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["a.pdf", "b.epub"], "sorted, and top level only");
+    }
+
+    #[test]
+    fn collect_assets__a_missing_directory_is_empty_not_a_panic() {
+        assert!(collect_assets(Path::new("/no/such/place")).is_empty());
+    }
+
+    #[test]
+    fn release_notes__say_the_same_thing_every_time() {
+        // An unchanged book must not look like a new edition on re-ship.
+        let a = release_notes("hello-playbook", 20, Some("https://example.invalid"));
+        let b = release_notes("hello-playbook", 20, Some("https://example.invalid"));
+        assert_eq!(a, b);
+        assert!(a.contains("20 steps"));
+        assert!(a.contains("https://example.invalid"));
     }
 
     #[test]
@@ -484,6 +670,174 @@ mod plan_tests {
 
     fn ours() -> String {
         format!("# Steps\n\n{}\n", marker_line(BOOK_DIR))
+    }
+
+    /// A config with a book `version` and/or a repo `assets` directory.
+    fn config_with(
+        github: Option<&str>,
+        version: Option<&str>,
+        assets: Option<&str>,
+    ) -> BookConfig {
+        let gh = github.map_or(String::new(), |g| format!("github = \"{g}\"\n"));
+        let v = version.map_or(String::new(), |v| format!("version = \"{v}\"\n"));
+        let a = assets.map_or(String::new(), |a| format!("assets = \"{a}\"\n"));
+        let text = format!(
+            concat!(
+                "[book]\nepoch = 2026-09-01T00:00:00Z\n{}\n",
+                "[identity]\nname = \"N\"\nemail = \"e@example.invalid\"\n\n",
+                "[repos.r]\n{}{}",
+            ),
+            v, gh, a
+        );
+        BookConfig::parse(&text).unwrap()
+    }
+
+    /// Put artifacts where a book's `assets` key points.
+    fn with_artifacts(root: &Path, rel: &str, names: &[&str]) {
+        let dir = root.join(rel);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in names {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+    }
+
+    #[test]
+    fn plan__a_version_and_artifacts_make_a_release() {
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("rel-ok");
+        let p = one_step_plan();
+        let cfg = config_with(Some(REMOTE), Some("0.1.0"), Some("published"));
+        with_artifacts(&root, "published", &["hello.epub", "hello.pdf", "body.typ"]);
+        let dir = built("rel-ok-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Ready {
+            release: Some(r), ..
+        } = got
+        else {
+            panic!("expected a release, got {got:?}");
+        };
+        assert_eq!(r.tag, "v0.1.0");
+        assert_eq!(r.title, "hello-playbook v0.1.0");
+        assert_eq!(
+            r.assets.len(),
+            2,
+            "only the pdf and the epub: {:?}",
+            r.assets
+        );
+        assert!(
+            !forge.mutated(),
+            "planning must not publish anything: {:?}",
+            forge.calls()
+        );
+    }
+
+    #[test]
+    fn plan__no_version_means_no_release() {
+        // Every book that existed before releases did. It must publish exactly
+        // as it always has.
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("rel-none");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("rel-none-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        assert!(
+            matches!(got, PushPlan::Ready { release: None, .. }),
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn plan__a_version_without_assets_is_not_a_release() {
+        // Declaring an edition is not the same as shipping downloads. A book
+        // may want the first without the second.
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("rel-nodir");
+        let p = one_step_plan();
+        let cfg = config_with(Some(REMOTE), Some("0.1.0"), None);
+        let dir = built("rel-nodir-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        assert!(
+            matches!(got, PushPlan::Ready { release: None, .. }),
+            "{got:?}"
+        );
+    }
+
+    #[test]
+    fn plan__assets_without_a_version_is_refused() {
+        // Half-configured. Silently skipping would leave the author believing
+        // the downloads shipped.
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("rel-nover");
+        let p = one_step_plan();
+        let cfg = config_with(Some(REMOTE), None, Some("published"));
+        with_artifacts(&root, "published", &["hello.pdf"]);
+        let dir = built("rel-nover-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Blocked { reason, .. } = &got else {
+            panic!("expected Blocked, got {got:?}");
+        };
+        assert!(reason.contains("no `version`"), "{reason}");
+        assert!(!forge.mutated());
+    }
+
+    #[test]
+    fn plan__an_empty_assets_directory_is_refused() {
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let root = book_root("rel-empty");
+        let p = one_step_plan();
+        let cfg = config_with(Some(REMOTE), Some("0.1.0"), Some("published"));
+        // Rendered nothing, or rendered somewhere else.
+        with_artifacts(&root, "published", &["body.typ"]);
+        let dir = built("rel-empty-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Blocked { reason, .. } = &got else {
+            panic!("expected Blocked, got {got:?}");
+        };
+        assert!(reason.contains("no `.pdf` or `.epub`"), "{reason}");
+        assert!(!forge.mutated());
+    }
+
+    #[test]
+    fn plan__a_refused_gate_never_reaches_the_release() {
+        // Ordering, stated as a test: the safety gate decides before anything
+        // else, so a repository we must not touch never gets a release either.
+        let forge = FakeForge::new(
+            RemoteState::HasContent,
+            Some("# Steps\n\nno marker\n".into()),
+        );
+        let root = book_root("rel-gate");
+        let p = one_step_plan();
+        let cfg = config_with(Some(REMOTE), Some("0.1.0"), Some("published"));
+        with_artifacts(&root, "published", &["hello.pdf"]);
+        let dir = built("rel-gate-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
+        assert!(forge.releases().is_empty(), "nothing may be released");
+        assert!(!forge.mutated());
+    }
+
+    #[test]
+    fn fake_forge__records_a_release_and_counts_it_as_a_mutation() {
+        // The guard behind every dry-run assertion in this suite: if a release
+        // did not count as reaching out, "nothing was sent" would be a lie.
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()));
+        let release = crate::forge::Release {
+            tag: "v0.1.0".into(),
+            title: "hello-playbook v0.1.0".into(),
+            notes: "n".into(),
+            assets: vec![PathBuf::from("a.pdf")],
+        };
+        forge.publish_release(REMOTE, &release).unwrap();
+
+        assert_eq!(forge.releases(), vec![release]);
+        assert!(forge.mutated(), "a release reaches the network");
     }
 
     #[test]

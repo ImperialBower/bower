@@ -18,7 +18,7 @@ use bower_core::prelude::{lock_text, plan, BookPlan, PlannedStep};
 use clap::{Parser, Subcommand};
 
 use bower::config::BookConfig;
-use bower::forge::{Forge, GitHubForge};
+use bower::forge::{Forge, GitHubForge, Release};
 use bower::loader::BookLoader;
 use bower::publish::{
     render_plan, BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target,
@@ -658,6 +658,7 @@ fn report_push(
             tags,
             create,
             site,
+            release,
         } => {
             println!("{repo} → {remote}");
             println!("  branch    {branch}");
@@ -673,6 +674,20 @@ fn report_push(
                     if s.create { " (branch is new)" } else { "" }
                 ),
                 None => println!("  site      no `site_branch` — skipped"),
+            }
+            match &release {
+                Some(r) => println!(
+                    "  release   {} — {} file(s): {}",
+                    r.tag,
+                    r.assets.len(),
+                    r.assets
+                        .iter()
+                        .filter_map(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+                None => println!("  release   no `version` or `assets` — skipped"),
             }
             if !execute {
                 println!("  dry run   nothing was sent; pass --execute to publish");
@@ -695,6 +710,27 @@ fn report_push(
             if let Some(s) = site {
                 match forge.push_tree(&s.dir, &remote, &s.branch) {
                     Ok(o) => println!("  site      pushed {} files to {}", o.tags, s.branch),
+                    Err(e) => {
+                        eprintln!("bower: {e}");
+                        return false;
+                    }
+                }
+            }
+            // Last, and only after the repository is really there: a release
+            // pointing at a tag nobody can fetch is worse than no release.
+            if let Some(r) = release {
+                let payload = Release {
+                    tag: r.tag.clone(),
+                    title: r.title,
+                    notes: r.notes,
+                    assets: r.assets.clone(),
+                };
+                match forge.publish_release(&remote, &payload) {
+                    Ok(()) => println!(
+                        "  release   {} published with {} file(s)",
+                        r.tag,
+                        r.assets.len()
+                    ),
                     Err(e) => {
                         eprintln!("bower: {e}");
                         return false;

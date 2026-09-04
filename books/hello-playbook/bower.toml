@@ -7,6 +7,10 @@
 # every commit's time is this epoch plus its step number, in minutes.
 epoch = 2026-09-01T00:00:00Z
 site = "https://abstecker.github.io/hello-playbook"
+# The edition. `bower push` hangs a GitHub release off `v0.1.0` and attaches
+# every `.pdf` and `.epub` in the repo's `assets` directory. Absent means the
+# book publishes no releases, which is a normal book.
+version = "0.1.0"
 
 [identity]
 name = "ImperialBower Bower"
@@ -18,6 +22,9 @@ email = "bower@imperialbower.example"
 github = "abstecker/hello-playbook"
 # The branch that serves the rendered book.
 site_branch = "gh-pages"
+# Book-relative, like `template`: an artifact of a book belongs to that book.
+# `make epub` and `make pdf` render into it; `bower push` attaches what it finds.
+assets = "published"
 template = "template"
 keep_region_markers = false
 # Two commands, because the book distinguishes "does not compile" from

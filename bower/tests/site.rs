@@ -33,7 +33,14 @@ fn scratch(case: &str) -> PathBuf {
 }
 
 fn sample() -> (BookConfig, BookPlan, RepoPlan, String) {
-    let cfg = BookConfig::load(&book_root()).unwrap();
+    let mut cfg = BookConfig::load(&book_root()).unwrap();
+    // Every test in this file is about the *site* half of a push. The sample
+    // book also declares `assets`, and `make clean` empties the directory that
+    // names — so inheriting it would make these tests pass or fail on whether
+    // someone had run `make pdf` lately. Drop it, and say why.
+    for repo in cfg.repos.values_mut() {
+        repo.assets = None;
+    }
     let book = BookLoader::new(&book_root()).load().unwrap();
     let resolved = plan(&book, &cfg.catalog()).unwrap();
     let fingerprint = site_fingerprint(&book, &lock_text(&resolved));

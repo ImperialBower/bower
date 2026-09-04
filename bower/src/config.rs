@@ -24,6 +24,13 @@ pub struct BookConfig {
     pub epoch: OffsetDateTime,
     /// Public site the rendered book lives at, for `Book-Url` trailers.
     pub site: Option<String>,
+    /// The book's edition, as the author declares it — `"0.1.0"`, `"2e"`,
+    /// whatever means an edition to this book. Absent means the book publishes
+    /// no releases, which is a normal book.
+    ///
+    /// Deliberately a free string and not `semver`: an edition of a book is not
+    /// an edition of a library, and the tool has no business insisting.
+    pub version: Option<String>,
     pub identity: Identity,
     pub repos: BTreeMap<String, RepoConfig>,
 }
@@ -44,6 +51,14 @@ pub struct RepoConfig {
     /// The branch that serves the rendered book — `gh-pages`, typically.
     /// Absent means this book ships no site, which is a normal book.
     pub site_branch: Option<String>,
+    /// Book-relative directory holding the artifacts to attach to a release —
+    /// every `.pdf` and `.epub` directly inside it. Absent means this book
+    /// publishes no releases, which is a normal book.
+    ///
+    /// Book-relative, like `template`, and for the same reason the rendered
+    /// site already lives inside the book: an artifact of a book belongs to
+    /// that book, not to whatever directory someone happened to run from.
+    pub assets: Option<PathBuf>,
     /// Book-relative directory applied as step 0 scaffolding.
     pub template: Option<PathBuf>,
     /// Command that must *compile* a step's tree. Distinguishing "fails to
@@ -145,6 +160,7 @@ impl BookConfig {
         Ok(Self {
             epoch,
             site: wire.book.site,
+            version: wire.book.version,
             identity: Identity {
                 name: wire.identity.name,
                 email: wire.identity.email,
@@ -158,6 +174,7 @@ impl BookConfig {
                         RepoConfig {
                             github: r.github,
                             site_branch: r.site_branch,
+                            assets: r.assets,
                             template: r.template,
                             check: r.check,
                             verify: r.verify,
@@ -210,6 +227,7 @@ struct Wire {
 struct WireBook {
     epoch: toml::value::Datetime,
     site: Option<String>,
+    version: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -224,6 +242,7 @@ struct WireIdentity {
 struct WireRepo {
     github: Option<String>,
     site_branch: Option<String>,
+    assets: Option<PathBuf>,
     template: Option<PathBuf>,
     check: Option<String>,
     verify: Option<String>,

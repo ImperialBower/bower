@@ -138,6 +138,32 @@ make ship-hello-execute   # the same, then actually push
 Two targets rather than one flag, so `--execute` is written down in exactly one
 place and a force-push has to be asked for by name.
 
+### Releases
+
+A book that declares an edition ships its downloads with it:
+
+```toml
+[book]
+version = "0.1.0"          # the edition; absent means no releases
+
+[repos.hello-playbook]
+assets = "published"       # book-relative; where the epub and PDF are rendered
+```
+
+`push` then hangs a GitHub release off `v0.1.0` and attaches every `.pdf` and
+`.epub` directly inside that directory — not recursively, because the render's
+own scratch folders live under the same roof. Re-shipping the same edition
+replaces the files rather than failing, which is safe precisely because both
+artifacts are byte-reproducible: an unchanged book uploads identical bytes.
+
+Half-configured is an error, not a silence. `assets` without a `version`, or an
+`assets` directory holding neither format, refuses the push and says which —
+a book whose downloads quietly did not ship would look published and not be.
+
+The release is decided locally and published last, after the repository and the
+site are really there: a release pointing at a tag nobody can fetch is worse
+than no release at all.
+
 `status` answers the question between the other commands: what here is out of
 date? It compares the book against `bower.lock` and against a previously built
 repository, names the steps, tags, and files that drifted, and exits non-zero

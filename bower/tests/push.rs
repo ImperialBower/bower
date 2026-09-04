@@ -177,14 +177,64 @@ fn a_remote_that_is_not_ours_is_refused_and_nothing_is_sent() {
 }
 
 #[test]
+fn a_declared_edition_ships_its_downloads_and_the_dry_run_still_sends_nothing() {
+    let (cfg, p) = sample_plan();
+    let mut cfg = cfg;
+    let repo = cfg.repos.get_mut("hello-playbook").unwrap();
+    repo.github = Some("ImperialBower/hello-playbook".to_string());
+    repo.site_branch = None;
+    repo.assets = Some(PathBuf::from("published"));
+    cfg.version = Some("0.1.0".to_string());
+
+    // The book's own fixture, so the test does not depend on anyone having run
+    // `make pdf` — and does not write into the real book to get there.
+    // Named `hello-playbook`, because the marker every blob carries is the
+    // book's *directory* name — a copy under any other name reads as a
+    // different book and the repository looks stale.
+    let root = scratch("release-book").join("hello-playbook");
+    copy_dir(&book_root(), &root);
+    let published = root.join("published");
+    std::fs::create_dir_all(&published).unwrap();
+    for name in ["hello-playbook.epub", "hello-playbook.pdf", "body.typ"] {
+        std::fs::write(published.join(name), "x").unwrap();
+    }
+    let dir = built("release-repo", &p, &cfg);
+
+    let steps = format!("# Steps\n\n{}\n", marker_line("hello-playbook"));
+    let forge = FakeForge::new(RemoteState::HasContent, Some(steps));
+    let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+
+    let PushPlan::Ready { release, .. } = got else {
+        panic!("expected Ready, got {got:?}");
+    };
+    let release = release.expect("a version plus artifacts is a release");
+    assert_eq!(release.tag, "v0.1.0");
+    assert_eq!(
+        release.assets.len(),
+        2,
+        "the epub and the pdf, and nothing else: {:?}",
+        release.assets
+    );
+    assert!(release.notes.contains("20 steps"), "{}", release.notes);
+    // Deciding is not doing — and on this trait a release counts as doing.
+    assert!(!forge.mutated(), "{:?}", forge.calls());
+    assert!(forge.releases().is_empty(), "nothing may be uploaded");
+}
+
+#[test]
 fn our_own_remote_is_ready_and_the_dry_run_still_sends_nothing() {
     let (cfg, p) = sample_plan();
     let mut cfg = cfg;
     cfg.repos.get_mut("hello-playbook").unwrap().github =
         Some("ImperialBower/hello-playbook".to_string());
     // This test is about the code branch. Say so, rather than inheriting
-    // whatever the live sample book happens to declare today.
+    // whatever the live sample book happens to declare today. `assets` joins
+    // `site_branch` here for the same reason and by the same route: the sample
+    // book started declaring one, and `make clean` empties the directory it
+    // names, so a test that inherited it would pass or fail on whether someone
+    // had run `make pdf` lately.
     cfg.repos.get_mut("hello-playbook").unwrap().site_branch = None;
+    cfg.repos.get_mut("hello-playbook").unwrap().assets = None;
     let dir = built("ours", &p, &cfg);
 
     let steps = format!("# Steps\n\n{}\n", marker_line("hello-playbook"));

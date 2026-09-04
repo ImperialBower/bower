@@ -7,6 +7,7 @@ help:  ## self-documenting: every target has a '## comment' printed here
 clean: ## remove build artifacts
 	cargo clean
 	rm -rf books/*/book
+	rm -rf books/*/published
 
 fmt: ## format all sources
 	cargo fmt --all
@@ -54,16 +55,19 @@ slow: ## the #[ignore]d lanes: the 20-step verify sweep and a real mdbook build
 	PATH="$(CURDIR)/target/debug:$$PATH" cargo test -p bower --test preprocessor -- --ignored
 	cargo test -p bower --test publish -- --ignored
 
+HELLO     := books/hello-playbook
+HELLO_OUT := target/hello-playbook
+
 book: ## render the sample book as HTML
 	cargo build -p bower --all-features
 	PATH="$(CURDIR)/target/debug:$$PATH" cargo run -q -p bower -- \
 		--book books/hello-playbook publish --target html -o books/hello-playbook/book
 
 epub: ## render the sample book as an epub (needs pandoc)
-	cargo run -q -p bower -- --book books/hello-playbook publish --target epub -o published
+	cargo run -q -p bower -- --book $(HELLO) publish --target epub -o $(HELLO)/published
 
 pdf: ## render the sample book as a PDF (needs pandoc and typst)
-	cargo run -q -p bower -- --book books/hello-playbook publish --target pdf -o published
+	cargo run -q -p bower -- --book $(HELLO) publish --target pdf -o $(HELLO)/published
 
 # ---------------------------------------------------------------------------
 # Shipping the sample book.
@@ -73,9 +77,10 @@ pdf: ## render the sample book as a PDF (needs pandoc and typst)
 # written down. A force-push should have to be asked for by name.
 # ---------------------------------------------------------------------------
 
-HELLO     := books/hello-playbook
-HELLO_OUT := target/hello-playbook
-ship-hello: book ## build, verify and render the sample book, then report what a push would do
+# `epub` and `pdf` are prerequisites of the *dry run*, not just the real push:
+# a preview that cannot see the release it would publish is not a preview. They
+# need pandoc and typst, which is the price of shipping downloads.
+ship-hello: book epub pdf ## build, verify and render the sample book, then report what a push would do
 	cargo run -q -p bower -- --book $(HELLO) build -o $(HELLO_OUT)
 	cargo run -q -p bower -- --book $(HELLO) verify
 	cargo run -q -p bower -- --book $(HELLO) status -o $(HELLO_OUT)
@@ -83,5 +88,5 @@ ship-hello: book ## build, verify and render the sample book, then report what a
 	@echo
 	@echo "dry run only. to publish: make ship-hello-execute"
 
-ship-hello-execute: ship-hello ## the same, then actually push the repo and its site to GitHub
+ship-hello-execute: ship-hello ## the same, then push the repo, its site, and a release
 	cargo run -q -p bower -- --book $(HELLO) push -o $(HELLO_OUT) --execute
