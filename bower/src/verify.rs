@@ -21,6 +21,28 @@ use crate::materialize::{blobs_of, read_dir_recursive, write_tree_to_disk, Blobs
 const DEFAULT_CHECK: &str = "cargo check";
 const DEFAULT_VERIFY: &str = "cargo test";
 
+/// Where `bower verify` writes its scratch trees when `--work` is not given.
+///
+/// Under the system temp directory rather than the book's `target/`, because
+/// most books that teach Rust *are* cargo workspaces, and a scratch package
+/// written inside one is a package cargo refuses to build. The old default,
+/// `target/bower-verify`, reported all twenty of the sample book's true claims
+/// as false for exactly that reason — and no test caught it, because every test
+/// passes `--work` explicitly.
+///
+/// Keyed by the book's directory name so two books do not share, and thrash,
+/// one cargo cache.
+#[must_use]
+pub fn default_work_dir(book_root: &Path) -> PathBuf {
+    let name = book_root
+        .canonicalize()
+        .ok()
+        .as_deref()
+        .and_then(|p| p.file_name().map(std::ffi::OsStr::to_os_string))
+        .unwrap_or_else(|| "book".into());
+    std::env::temp_dir().join("bower-verify").join(name)
+}
+
 /// The result of running one command in one tree.
 #[derive(Clone, Debug)]
 pub struct Outcome {
@@ -78,6 +100,16 @@ pub enum VerifyError {
     },
     EmptyCommand,
     UnknownStep(String),
+    /// The scratch tree landed inside another cargo workspace, so cargo refused
+    /// to build it before compiling a line.
+    ///
+    /// Its own variant because the alternative is worse than an error: cargo
+    /// fails, every step's check fails with it, and the report says twenty true
+    /// claims are false. A verifier that cannot run must say so, not blame the
+    /// book.
+    NestedWorkspace {
+        tree: PathBuf,
+    },
 }
 
 impl fmt::Display for VerifyError {
@@ -86,6 +118,13 @@ impl fmt::Display for VerifyError {
             Self::Io { path, source } => write!(f, "{}: {source}", path.display()),
             Self::EmptyCommand => write!(f, "a check or verify command is empty"),
             Self::UnknownStep(id) => write!(f, "no step named `{id}`"),
+            Self::NestedWorkspace { tree } => write!(
+                f,
+                "the scratch tree at {} is inside another cargo workspace, so \
+                 cargo refuses to build it; pass `--work` a directory outside \
+                 every Cargo.toml above it",
+                tree.display()
+            ),
         }
     }
 }
@@ -236,6 +275,17 @@ pub fn verdict_for(expect: Expect, check: &Outcome, verify: Option<&Outcome>) ->
     }
 }
 
+/// Whether a failed command failed because cargo found a workspace above it.
+///
+/// A substring match on cargo's own wording, kept as its own function so the
+/// signature is pinned by a test rather than buried in an `if`. Matching the
+/// short middle of the sentence, not the whole line, because the words around
+/// it name paths that differ on every machine.
+#[must_use]
+pub fn nested_workspace(stderr: &str) -> bool {
+    stderr.contains("believes it's in a workspace")
+}
+
 /// Run one command in `dir`, with a shared cargo target directory.
 ///
 /// The command is split on whitespace, not handed to a shell. A book needing a
@@ -255,6 +305,12 @@ fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyEr
             path: PathBuf::from(program),
             source,
         })?;
+
+    if !output.status.success() && nested_workspace(&String::from_utf8_lossy(&output.stderr)) {
+        return Err(VerifyError::NestedWorkspace {
+            tree: dir.to_path_buf(),
+        });
+    }
 
     Ok(Outcome {
         command: command.to_string(),
@@ -360,6 +416,56 @@ mod verify_tests {
         let target = dir.join("bower-verify-target");
         assert!(run("true", &dir, &target).unwrap().success);
         assert!(!run("false", &dir, &target).unwrap().success);
+    }
+
+    #[test]
+    fn nested_workspace__recognises_cargos_own_wording() {
+        // The exact sentence cargo prints, kept verbatim. If cargo rewords it,
+        // this test fails and someone updates the match — which is better than
+        // the tool silently going back to blaming the book.
+        let stderr = concat!(
+            "error: current package believes it's in a workspace when it's not:\n",
+            "current:   /tmp/bower-verify/tree/Cargo.toml\n",
+            "workspace: /home/me/project/Cargo.toml\n",
+        );
+        assert!(nested_workspace(stderr));
+    }
+
+    #[test]
+    fn nested_workspace__does_not_fire_on_an_ordinary_failure() {
+        // A real compile error must stay a real compile error: this predicate
+        // is what decides whether a step is judged at all.
+        assert!(!nested_workspace("error[E0308]: mismatched types"));
+        assert!(!nested_workspace(""));
+    }
+
+    #[test]
+    fn default_work_dir__is_not_inside_the_book() {
+        // The regression, stated directly. The old default was
+        // `target/bower-verify`, relative to the current directory — which put
+        // the scratch package inside whatever workspace the book lives in.
+        let book = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let work = default_work_dir(&book);
+        let root = book.canonicalize().unwrap();
+        assert!(
+            !work.starts_with(&root),
+            "{} is inside {}",
+            work.display(),
+            root.display()
+        );
+    }
+
+    #[test]
+    fn default_work_dir__gives_two_books_two_directories() {
+        // One shared cache across books would thrash: every switch would be a
+        // cold build.
+        let a = default_work_dir(Path::new(env!("CARGO_MANIFEST_DIR")));
+        let b = default_work_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("..")
+                .join("bower-core"),
+        );
+        assert_ne!(a, b);
     }
 
     #[test]

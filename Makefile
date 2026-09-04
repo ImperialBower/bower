@@ -75,16 +75,9 @@ pdf: ## render the sample book as a PDF (needs pandoc and typst)
 
 HELLO     := books/hello-playbook
 HELLO_OUT := target/hello-playbook
-# Outside this workspace on purpose. `verify` writes a Cargo package into its
-# work directory and runs `cargo check` there; under `target/` that package is
-# inside Bower's own workspace, and cargo refuses to build it ("current package
-# believes it's in a workspace when it's not"). Every claim in the book then
-# reports as false. The CLI's own default has the same problem — see BACKLOG.
-HELLO_WORK := /tmp/bower-verify-hello
-
 ship-hello: book ## build, verify and render the sample book, then report what a push would do
 	cargo run -q -p bower -- --book $(HELLO) build -o $(HELLO_OUT)
-	cargo run -q -p bower -- --book $(HELLO) verify --work $(HELLO_WORK)
+	cargo run -q -p bower -- --book $(HELLO) verify
 	cargo run -q -p bower -- --book $(HELLO) status -o $(HELLO_OUT)
 	cargo run -q -p bower -- --book $(HELLO) push   -o $(HELLO_OUT)
 	@echo

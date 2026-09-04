@@ -118,8 +118,13 @@ enum Command {
 
         /// Scratch directory for the trees under test and their shared cargo
         /// target directory.
-        #[arg(long, default_value = "target/bower-verify")]
-        work: PathBuf,
+        ///
+        /// Defaults to a per-book directory under the system temp directory.
+        /// Not `target/`: a scratch cargo package written inside the book's own
+        /// workspace is one cargo refuses to build, and every step then fails
+        /// for a reason that has nothing to do with the book.
+        #[arg(long)]
+        work: Option<PathBuf>,
     },
     /// Replay the plan into a local git repository, one commit per step.
     Build {
@@ -175,7 +180,7 @@ fn main() -> ExitCode {
             repo.as_deref(),
             step.as_deref(),
             from.as_deref(),
-            &work,
+            work.as_deref(),
         ),
     }
 }
@@ -291,11 +296,16 @@ fn run_verify(
     only_repo: Option<&str>,
     step: Option<&str>,
     from: Option<&str>,
-    work: &Path,
+    work: Option<&Path>,
 ) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
         return ExitCode::FAILURE;
     };
+
+    let work = work.map_or_else(
+        || bower::verify::default_work_dir(book_root),
+        Path::to_path_buf,
+    );
 
     let selected: Vec<_> = resolved
         .repos
@@ -326,7 +336,7 @@ fn run_verify(
         let verifier = Verifier {
             config: cfg,
             book_root,
-            work_dir: work,
+            work_dir: &work,
         };
         let report = match verifier.run(repo, step, from) {
             Ok(r) => r,

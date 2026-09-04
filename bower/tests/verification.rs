@@ -113,6 +113,60 @@ fn reports_a_wrong_expectation_as_broken() {
     );
 }
 
+/// The bug this project shipped for a while: `bower verify` wrote its scratch
+/// package under `target/`, cargo refused to build anything inside its own
+/// workspace, and the report said all twenty of the book's true claims were
+/// false.
+///
+/// Not `#[ignore]`d, and deliberately so. Cargo rejects the package before
+/// compiling a line, so this costs milliseconds — and the default gate is the
+/// one place this failure had to be caught and was not.
+#[test]
+fn a_scratch_tree_inside_a_workspace_is_the_verifiers_fault_not_the_books() {
+    // Inside this repository's own cargo workspace, which is exactly where the
+    // old default `target/bower-verify` put it.
+    let work = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("target")
+        .join("bower-verify-nested");
+    let _ = std::fs::remove_dir_all(&work);
+
+    let out = verify(&book_root(), &work, &["--step", "cargo-init"]);
+    let text = String::from_utf8_lossy(&out.stderr);
+
+    assert!(!out.status.success(), "this cannot be reported as a pass");
+    assert!(
+        text.contains("inside another cargo workspace"),
+        "the verifier must name its own problem: {text}"
+    );
+    assert!(text.contains("--work"), "and say how to fix it: {text}");
+    assert!(
+        !text.contains("claim"),
+        "it must not blame the book: {text}"
+    );
+}
+
+/// The default `--work` is usable — which is the half a unit test cannot prove.
+///
+/// `#[ignore]`d with the sweep: it runs a real compiler.
+#[test]
+#[ignore = "runs a compiler"]
+fn the_default_work_dir_verifies_a_step() {
+    let out = Command::new(env!("CARGO_BIN_EXE_bower"))
+        .arg("--book")
+        .arg(book_root())
+        .args(["verify", "--step", "cargo-init"])
+        .output()
+        .expect("the bower binary must run");
+
+    assert!(
+        out.status.success(),
+        "verify must work with no --work at all: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("cargo-init"));
+}
+
 #[test]
 fn unknown_step_is_an_error() {
     let out = verify(

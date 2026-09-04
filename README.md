@@ -122,6 +122,22 @@ environment variable, no config key. To adopt an existing repository, push a
 `STEPS.md` to it by hand first. Force-pushing is a generated repo's normal life,
 and the guard is what keeps that from being anyone else's problem.
 
+`verify` writes each step's tree to a scratch directory outside the book — under
+the system temp directory by default, never the book's `target/`. Most books
+that teach Rust are themselves cargo workspaces, and a scratch package written
+inside one is a package cargo refuses to build; when that happens `verify` says
+so by name rather than reporting every true claim as false.
+
+The whole sequence has a name:
+
+```
+make ship-hello           # build, verify, render, and report what a push would do
+make ship-hello-execute   # the same, then actually push
+```
+
+Two targets rather than one flag, so `--execute` is written down in exactly one
+place and a force-push has to be asked for by name.
+
 `status` answers the question between the other commands: what here is out of
 date? It compares the book against `bower.lock` and against a previously built
 repository, names the steps, tags, and files that drifted, and exits non-zero
