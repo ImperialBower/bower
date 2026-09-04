@@ -1,8 +1,9 @@
 # Backlog
 
-> Refreshed 2 September 2026. Eight EPICs closed: replay, verification, the
+> Refreshed 3 September 2026. Eight EPICs closed: replay, verification, the
 > mdBook preprocessor, status, push, publish (html + epub), PDF via Typst, and
-> the site branch. `hello-playbook` is live at
+> the site branch. Since then, three unnumbered pieces of work landed on top:
+> covers, a verify defect fix, and releases. `hello-playbook` is live at
 > <https://github.com/abstecker/hello-playbook> with its book served from
 > `gh-pages`.
 > Items marked 🤖 were proposed by automation — review before acting on them.
@@ -10,8 +11,7 @@
 
 ## In flight
 
-_Nothing. EPIC-03 shipped._
-
+_Nothing. Releases shipped._
 
 ## Next up — unwritten EPICs
 
@@ -19,7 +19,7 @@ _Nothing. EPIC-03 shipped._
 |---|---|---|
 | **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failers* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
-| **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. |
+| **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 
 ## Known gaps
@@ -28,10 +28,12 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
+- [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
-- [ ] The epub/pandoc elision rendering is designed but unbuilt (spec § 3.4)
+- [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
+- [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 
 ## Open questions — decisions, not code
 
@@ -50,6 +52,13 @@ names); these six are not.
 
 ## Recently fixed
 
+- **`bower verify` blamed the book for its own scratch tree.** The default
+  `--work target/bower-verify` sat inside the book's cargo workspace, so cargo
+  refused every step's tree and all twenty true claims reported false. No test
+  saw it: every test passed `--work` explicitly. Fixed 3 September 2026 — the
+  default moved under the system temp directory, and a nested work directory now
+  stops with a named error instead of judging the book.
+
 - **[DEFECT: three review findings](docs/DEFECT_Review_Findings.md)** — the
   scaffolding was deleted at step 1 (every generated repo shipped with no
   licence), `verify --step` failed on multi-repo books, and the `show=` key was
@@ -62,6 +71,17 @@ names); these six are not.
 
 ## Recently completed
 
+- **Releases** (3 September 2026) — `bower push` hangs a GitHub release off
+  `[book] version` and attaches every `.pdf`/`.epub` in the repo's `assets`
+  directory. Decided locally, published last, refused when half-configured.
+  Never yet run against real GitHub.
+- **Covers** (3 September 2026) — `cover.svg` plus optional `cover.png`,
+  composed into one self-contained SVG before either renderer sees it, so the
+  epub and the PDF cannot show different covers. The sample book gained an
+  `Appendix: credits` chapter carrying its cover photograph's CC BY-SA 3.0
+  attribution.
+- **`make ship-hello` / `make ship-hello-execute`** (3 September 2026) — the
+  whole sample-book sequence, split so `--execute` is written down once.
 - **[EPIC-01 — replay](docs/EPIC-01_Replay.md)** — 11/11 components. Deterministic git replay, tags, trailers, `STEPS.md`.
 - **[EPIC-02 — verification](docs/EPIC-02_Verification.md)** — 8/8 components. `bower verify` against a real compiler.
 - **[EPIC-03 — the mdBook preprocessor](docs/EPIC-03_Preprocessor.md)** — 10/10 components. Directives stripped, display markers applied, anchors and line-anchored footers injected.
@@ -70,13 +90,14 @@ names); these six are not.
 - **[EPIC-06 — `bower publish`](docs/EPIC-06_Publish.md)** — 9/9 components. One render plan, two targets: mdBook HTML and a pandoc epub.
 - **[EPIC-07 — `--target pdf`](docs/EPIC-07_Pdf.md)** — 6/6 components. Typst, chosen by measurement; the PDF is byte-identical across runs.
 - **[EPIC-08 — the site branch](docs/EPIC-08_Site.md)** — 6/6 components. `bower push` ships the rendered book, gated like the code branch, and `status` catches a stale site.
-- **The sample book** — `books/hello-playbook/`, six chapters, twenty steps.
+- **The sample book** — `books/hello-playbook/`, seven chapters, twenty steps.
 
 ## Health
 
 | Signal | State |
 |---|---|
-| Tests | 270 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 297 passing, 0 failing (`make ayce` green from clean) |
+| Slow lanes | 6 `#[ignore]`d, all green (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |

@@ -3,8 +3,8 @@
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
-> Created 1 September 2026 at `b3def07`. Last refreshed 2 September 2026, when
-> the Makefile landed.
+> Created 1 September 2026 at `b3def07`. Last refreshed 3 September 2026, after
+> covers, the `verify` work-directory fix, and releases.
 >
 > There are **no `TODO`, `FIXME`, `HACK`, or `XXX` markers anywhere in this
 > codebase**, so nothing here came from a code comment. Most items were written
@@ -12,6 +12,14 @@
 > the rest were found by `make ayce`.
 
 ## Tracked debt
+
+- [x] ~~**`bower verify`'s default work directory was inside the workspace.**~~
+  Closed 3 September 2026. `--work` defaulted to `target/bower-verify`, which
+  put the scratch cargo package inside the book's own workspace; cargo refused
+  to build it and all twenty of the sample book's true claims reported false.
+  The default now lives under the system temp directory, keyed by book, and a
+  nested work directory stops with a named error rather than judging the book
+  (`bower/src/verify.rs`, `default_work_dir` and `nested_workspace`).
 
 - [ ] **`bower verify` does not run the book's own gate.**
   `books/hello-playbook/bower.toml` declares `check = "cargo check"` and
@@ -91,14 +99,43 @@
   outright.
 
 - [ ] **`GitHubForge` is untested.**
-  `bower/src/forge.rs`'s real implementation — every `gh api` call and both
-  `git push` invocations — is executed by no test. This is the acknowledged last
-  inch of EPIC-05: the *decisions* are tested against `FakeForge`, and the pure
-  parts that could be extracted (`remote_url`, `state_from`, `is_not_found`)
-  were. What remains untested is the shelling-out itself, and it cannot be
-  covered without a network and a repository we are willing to destroy. Related:
-  **no `bower push --execute` has ever been run**, here or anywhere, because no
-  book in this repository declares a `github` remote.
+  `bower/src/forge.rs`'s real implementation — every `gh api` call, both
+  `git push` invocations, and now `publish_release`'s `gh release view` /
+  `create` / `upload --clobber` — is executed by no test. This is the
+  acknowledged last inch of EPIC-05: the *decisions* are tested against
+  `FakeForge`, and the pure parts that could be extracted (`remote_url`,
+  `state_from`, `is_not_found`, `release_absent`) were. What remains untested is
+  the shelling-out itself, and it cannot be covered without a network and a
+  repository we are willing to destroy.
+
+  `bower push --execute` **has** now been run for real — `hello-playbook` is
+  live with its `gh-pages` site — but the release path has not. The first
+  `make ship-hello-execute` carrying a release will be its first real exercise,
+  and `gh release view`'s "not found" wording is the one string that decides
+  between creating a release and clobbering one.
+
+- [ ] **Nothing reports whether a published artifact is current.**
+  `bower status` names lock, repo, and site drift. It says nothing about the
+  `.pdf` and `.epub` in a book's `assets` directory, so a hand-run
+  `bower push --execute` can attach an artifact rendered from an older book.
+  Mitigated, not fixed: `make clean` wipes `books/*/published`, and
+  `make ship-hello` re-renders both before it previews. The honest fix is an
+  `ArtifactDrift` beside `SiteDrift`, digesting the same fingerprint the site
+  marker already uses.
+
+- [ ] **The epub cover is an SVG, and no reader has been tested.**
+  `publish::compose_cover` always emits SVG, and pandoc embeds it as
+  `EPUB/media/file0.svg`. That is legal EPUB 3 and renders in Apple Books and
+  Calibre; Kindle and older EPUB 2 readers handle SVG covers unevenly, and none
+  has been checked. A raster fallback — rendering the composed SVG to PNG when
+  a raster cover is wanted — needs either a rasterizer dependency or a shell out
+  to one, which is why it was not done.
+
+- [ ] **A book's cover is outside every drift check.**
+  Editing `cover.svg` or `cover.png` changes the epub and the PDF and nothing
+  else. `site_fingerprint` covers the HTML render only, and correctly so — but
+  it means no command anywhere will tell you the published artifacts no longer
+  match the cover on disk. Subsumed by the artifact-drift item above.
 
 - [ ] **Symlinks in a `template/` directory are followed.**
   A book cannot create a symlink — the kernel has no op for it — but
