@@ -28,6 +28,7 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
+- [ ] `bower verify`'s default `--work target/bower-verify` is inside this cargo workspace, so `cargo check` refuses every step's tree ("current package believes it's in a workspace when it's not") and all 20 claims report false. Passing `--work` outside the workspace works. `make ship-hello` does exactly that; the CLI default should too. The verification test suite never saw it because it uses `std::env::temp_dir()` (`bower/tests/verification.rs:24`)
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
