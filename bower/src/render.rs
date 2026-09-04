@@ -84,6 +84,21 @@ pub fn chapter(
             continue;
         };
 
+        // The header belongs right above the fence: a reader deciding whether
+        // a block is worth reading wants the file and step before the code,
+        // not after it.
+        if let Some((repo, step, display)) = blocks.get(&directive_line) {
+            // A chapter may feed several repos, and each declares its own forge
+            // templates. A repo with none gets a header with plain text where
+            // the links would be, never someone else's URLs.
+            let empty = LinkTemplates::default();
+            let repo_links = forge.get(repo).unwrap_or(&empty);
+            if let Some(line) = footer(step, display, repo, repo_links) {
+                out.push(line);
+                out.push(String::new());
+            }
+        }
+
         for line in lines.iter().take(j).skip(i) {
             out.push((*line).to_string());
         }
@@ -114,19 +129,6 @@ pub fn chapter(
         ));
         if k < lines.len() {
             out.push(lines[k].to_string());
-        }
-        // The footer belongs after the closing fence: it describes the block,
-        // and inside the fence it would be code.
-        if let Some((repo, step, display)) = blocks.get(&directive_line) {
-            // A chapter may feed several repos, and each declares its own forge
-            // templates. A repo with none gets a footer with plain text where
-            // the links would be, never someone else's URLs.
-            let empty = LinkTemplates::default();
-            let repo_links = forge.get(repo).unwrap_or(&empty);
-            if let Some(line) = footer(step, display, repo, repo_links) {
-                out.push(String::new());
-                out.push(line);
-            }
         }
         i = k + 1;
     }
@@ -252,10 +254,10 @@ fn fence_info(line: &str) -> String {
     line.trim_start().trim_start_matches('`').trim().to_string()
 }
 
-/// The source-link footer for one block.
+/// The source-link header for one block, printed above its fence.
 ///
 /// Returns `None` when nothing in the block resolved to a line range — a
-/// `delete`, a prose step, or a block that is entirely elided. A footer that
+/// `delete`, a prose step, or a block that is entirely elided. A header that
 /// names no code is furniture.
 #[must_use]
 pub fn footer(
@@ -268,7 +270,14 @@ pub fn footer(
     let first = ranges.first()?;
     let tag = step.tag();
 
-    let mut parts = vec![format!("`{}`", first.file)];
+    let file_label = format!("💾 `{}`", first.file);
+    let mut parts = vec![match links.blob.as_deref() {
+        Some(template) => {
+            let url = full_file_url(template, &tag, &first.file);
+            format!("[{file_label}]({url} \"View full file\")")
+        }
+        None => file_label,
+    }];
 
     // One link per shown span, because a block may show two slices of a file
     // and a reader following the link deserves the one they just read.
@@ -290,7 +299,7 @@ pub fn footer(
     }
 
     Some(format!(
-        "<span class=\"step-meta\"><sub>💾 {}</sub></span>",
+        "<span class=\"step-meta\"><sub>{}</sub></span>",
         parts.join(" · ")
     ))
 }
@@ -608,7 +617,12 @@ mod render_tests {
             &github_links(),
             Target::Html,
         );
-        assert!(out.contains("<span class=\"step-meta\"><sub>💾 `src/lib.rs`"), "{out}");
+        assert!(
+            out.contains(
+                "<span class=\"step-meta\"><sub>[💾 `src/lib.rs`](https://x.invalid/blob/step-001-first/src/lib.rs \"View full file\")"
+            ),
+            "{out}"
+        );
         assert!(out.contains("step 001 of r"), "{out}");
         assert!(
             out.contains(
@@ -637,7 +651,7 @@ mod render_tests {
     }
 
     #[test]
-    fn footer__comes_after_the_closing_fence() {
+    fn footer__comes_before_the_opening_fence() {
         let out = chapter(
             CH,
             "src/ch01.md",
@@ -645,11 +659,11 @@ mod render_tests {
             &github_links(),
             Target::Html,
         );
-        let fence_end = out.rfind("```").expect("closing fence");
-        let footer = out.find("<sub>").expect("footer");
+        let fence_start = out.find("```").expect("opening fence");
+        let header = out.find("<sub>").expect("header");
         assert!(
-            footer > fence_end,
-            "a footer inside the fence is code: {out}"
+            header < fence_start,
+            "a header inside the fence is code: {out}"
         );
     }
 
