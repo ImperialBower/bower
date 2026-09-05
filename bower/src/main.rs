@@ -18,13 +18,13 @@ use bower_core::prelude::{BookPlan, PlannedStep, lock_text, plan};
 use clap::{Parser, Subcommand};
 
 use bower::config::BookConfig;
-use bower::forge::{Forge, GitHubForge, Release};
+use bower::forge::{Forge, GitHubForge, PagesAction, Release};
 use bower::loader::BookLoader;
 use bower::publish::{
     BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target, TypstRenderer,
     render_plan,
 };
-use bower::push::{PushPlan, plan_push};
+use bower::push::{PushPlan, SitePush, plan_push};
 use bower::replay::{Replayer, book_name, final_blobs, scaffolding};
 use bower::status::{StatusReport, lock_drift, repo_drift, site_drift};
 use bower::verify::{Verdict, Verifier};
@@ -635,6 +635,47 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
 /// Split out of `run_push` because the two halves — deciding what to say, and
 /// deciding whether to act — read better apart, and together they ran past the
 /// line limit.
+/// Push the rendered book, then make GitHub actually serve it.
+///
+/// Its own function because a pushed branch is not a served site, and saying so
+/// takes enough lines to push `report_push` over the length limit — which is
+/// the second time that limit has noticed this exact seam.
+fn publish_site(forge: &dyn Forge, remote: &str, s: &SitePush) -> bool {
+    match forge.push_tree(&s.dir, remote, &s.branch) {
+        Ok(o) => println!("  site      pushed {} files to {}", o.tags, s.branch),
+        Err(e) => {
+            eprintln!("bower: {e}");
+            return false;
+        }
+    }
+    // Only for a branch this run created: on every later push Pages is already
+    // listening, and the push itself triggers the build.
+    if s.create {
+        match forge.enable_pages(remote, &s.branch) {
+            Ok(a) => println!("  pages     {}", describe_pages(&a, &s.branch)),
+            Err(e) => {
+                eprintln!("bower: {e}");
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// One line saying what the Pages step did, for the push report.
+fn describe_pages(action: &PagesAction, branch: &str) -> String {
+    match action {
+        PagesAction::Create => format!("enabled, serving `{branch}`; first build requested"),
+        PagesAction::Repoint => {
+            format!("repointed at `{branch}` — it had never served a page; build requested")
+        }
+        PagesAction::BuildOnly => format!("already serving `{branch}`; build requested"),
+        PagesAction::LeaveAlone { serving } => {
+            format!("left alone — this repository already serves {serving}")
+        }
+    }
+}
+
 fn report_push(
     forge: &dyn Forge,
     plan: PushPlan,
@@ -675,6 +716,11 @@ fn report_push(
                 ),
                 None => println!("  site      no `site_branch` — skipped"),
             }
+            if site.as_ref().is_some_and(|s| s.create) {
+                println!(
+                    "  pages     will point GitHub Pages at the site branch and build it once"
+                );
+            }
             match &release {
                 Some(r) => println!(
                     "  release   {} — {} file(s): {}",
@@ -707,14 +753,10 @@ fn report_push(
                     return false;
                 }
             }
-            if let Some(s) = site {
-                match forge.push_tree(&s.dir, &remote, &s.branch) {
-                    Ok(o) => println!("  site      pushed {} files to {}", o.tags, s.branch),
-                    Err(e) => {
-                        eprintln!("bower: {e}");
-                        return false;
-                    }
-                }
+            if let Some(s) = site
+                && !publish_site(forge, &remote, &s)
+            {
+                return false;
             }
             // Last, and only after the repository is really there: a release
             // pointing at a tag nobody can fetch is worse than no release.

@@ -37,7 +37,6 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
-- [ ] `bower push` creates `gh-pages` but never enables GitHub Pages, nor requests the one build that a first-time repo needs — the branch is published, `status` says `in sync`, and the reader gets a 404. Found on the first repo nobody had configured by hand
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 
@@ -63,6 +62,17 @@ Generated repos are unaffected — each book still publishes to its own GitHub
 repository. See `bower-spec.md` § 12.
 
 ## Recently fixed
+
+- **A pushed site branch was not a served site.** `bower push` created and
+  force-pushed `gh-pages` and stopped there, so on a repository nobody had
+  configured by hand GitHub kept its `build_type: "workflow"` default, pointed
+  at `main`, and never built once. Everything the tool said was true — the
+  branch really was published, `status` really was in sync — while the URL
+  404'd indefinitely. Fixed 5 September 2026: `Forge::enable_pages` points
+  Pages at the site branch and requests the one build that the branch push
+  could not trigger, but only for a branch that run created, and never on a
+  repository already serving something. The decision is pure and tested;
+  only the `gh api` call is the last inch.
 
 - **`bower push` could publish a repository once and never again.** The branch
   push ran `git push --force-with-lease <url> main:main`. A bare

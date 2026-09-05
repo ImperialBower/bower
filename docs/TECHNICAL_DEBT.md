@@ -5,9 +5,9 @@
 >
 > Created 1 September 2026 at `b3def07`. Last refreshed 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
-> single page: the book-name fallback, a garbled refusal message, a
-> `--force-with-lease` that could never push twice (all three fixed), and Pages
-> never being enabled (below).
+> single page — the book-name fallback, a garbled refusal message, a
+> `--force-with-lease` that could never push twice, and a site branch that was
+> pushed but never served. All four are fixed.
 >
 > There are **no `TODO`, `FIXME`, `HACK`, or `XXX` markers anywhere in this
 > codebase**, so nothing here came from a code comment. Most items were written
@@ -117,7 +117,19 @@
   and `gh release view`'s "not found" wording is the one string that decides
   between creating a release and clobbering one.
 
-- [ ] **`bower push` ships a site branch but never turns Pages on.**
+- [x] ~~**`bower push` ships a site branch but never turns Pages on.**~~
+  Closed 5 September 2026, the same day it was found. `Forge::enable_pages`
+  runs after a site branch this run *created*, decides with the pure
+  `pages_action`, and reports what it did. The rule it enforces is "never take
+  a served site away from its owner": no Pages at all is created, Pages that
+  has never built is repointed (the state a real repository was found in),
+  Pages already pointed here is only asked to build, and a repository serving
+  anything else is left alone and said so. Twelve tests, two of them driven by
+  the exact API bodies GitHub returned before and after the manual fix. The
+  original write-up follows, because the reasoning is why the shape is what it
+  is.
+
+  ~~Original:~~
   `push_site` creates and force-pushes `gh-pages`, and stops there. Nothing
   calls `PUT /repos/{repo}/pages`, so on a repository that has never served a
   site GitHub keeps whatever default it had and the URL in `[book] site` returns

@@ -144,6 +144,19 @@ pub trait Forge {
     ///
     /// If the remote cannot be reached, or the upload is refused.
     fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError>;
+
+    /// Make `branch` the site GitHub actually serves, and ask for one build.
+    ///
+    /// Pushing a site branch is not publishing a site. Pages has to be told
+    /// which branch to read, and it builds on a *push* to that branch — which
+    /// has already happened by the time it is listening. Reports what it did so
+    /// the caller can print it; a repository already serving something is left
+    /// alone, which is a result and not a failure.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be reached, or the change is refused.
+    fn enable_pages(&self, repo: &str, branch: &str) -> Result<PagesAction, ForgeError>;
 }
 
 /// A [`Forge`] that talks to nothing, and remembers everything it was asked.
@@ -163,6 +176,9 @@ pub struct FakeForge {
     /// When set, `probe` and `read_steps_md` fail with this reason. An
     /// unreachable remote must never be mistaken for an empty one.
     pub unreachable: Option<String>,
+    /// What GitHub would say about this repository's Pages. `None` is a
+    /// repository with no Pages at all.
+    pub pages: Option<PagesState>,
     calls: std::cell::RefCell<Vec<String>>,
     releases: std::cell::RefCell<Vec<Release>>,
 }
@@ -176,6 +192,7 @@ impl FakeForge {
             site_state: RemoteState::Absent,
             site_marker: None,
             unreachable: None,
+            pages: None,
             calls: std::cell::RefCell::new(Vec::new()),
             releases: std::cell::RefCell::new(Vec::new()),
         }
@@ -197,6 +214,7 @@ impl FakeForge {
             site_state: RemoteState::HasContent,
             site_marker: None,
             unreachable: Some(reason.to_string()),
+            pages: None,
             calls: std::cell::RefCell::new(Vec::new()),
             releases: std::cell::RefCell::new(Vec::new()),
         }
@@ -266,6 +284,16 @@ impl Forge for FakeForge {
         Ok(self.site_marker.clone())
     }
 
+    fn enable_pages(&self, repo: &str, branch: &str) -> Result<PagesAction, ForgeError> {
+        self.record("enable_pages");
+        self.reachable(repo)?;
+        let action = pages_action(self.pages.as_ref(), branch);
+        if !matches!(action, PagesAction::LeaveAlone { .. }) {
+            self.record("pages_mutated");
+        }
+        Ok(action)
+    }
+
     fn create(&self, _repo: &str, _description: &str) -> Result<(), ForgeError> {
         self.record("create");
         Ok(())
@@ -314,6 +342,40 @@ impl Forge for FakeForge {
 pub struct GitHubForge;
 
 impl GitHubForge {
+    /// What GitHub currently believes about `repo`'s Pages, or `None` when
+    /// there are none.
+    ///
+    /// A `404` is the answer "no Pages"; anything else is a refusal to answer
+    /// and must not be read as absence — the same rule the repository probe
+    /// follows, and for the same reason.
+    fn pages_state(repo: &str) -> Result<Option<PagesState>, ForgeError> {
+        let (ok, body, stderr) = gh(&["api", &format!("repos/{repo}/pages")])?;
+        if !ok {
+            if is_not_found(&stderr) {
+                return Ok(None);
+            }
+            return Err(ForgeError::Failed {
+                what: format!("gh api repos/{repo}/pages"),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Ok(Some(parse_pages_state(&body)))
+    }
+
+    /// Ask for one Pages build. See [`pages_build_args`] for why it is needed.
+    fn request_pages_build(repo: &str) -> Result<(), ForgeError> {
+        let args = pages_build_args(repo);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (ok, _, stderr) = gh(&borrowed)?;
+        if ok {
+            return Ok(());
+        }
+        Err(ForgeError::Failed {
+            what: format!("gh api POST repos/{repo}/pages/builds"),
+            stderr: stderr.trim().to_string(),
+        })
+    }
+
     /// Confirm `git` and `gh` are installed.
     ///
     /// # Errors
@@ -470,6 +532,35 @@ impl Forge for GitHubForge {
             repo: format!("{repo}#{branch}"),
             reason: stderr.trim().to_string(),
         })
+    }
+
+    fn enable_pages(&self, repo: &str, branch: &str) -> Result<PagesAction, ForgeError> {
+        let action = pages_action(Self::pages_state(repo)?.as_ref(), branch);
+        let create = match &action {
+            // Somebody's live site. Read-only from here.
+            PagesAction::LeaveAlone { .. } => return Ok(action),
+            PagesAction::BuildOnly => {
+                Self::request_pages_build(repo)?;
+                return Ok(action);
+            }
+            PagesAction::Create => true,
+            PagesAction::Repoint => false,
+        };
+
+        let args = pages_source_args(repo, branch, create);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (ok, _, stderr) = gh(&borrowed)?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: format!(
+                    "gh api {} repos/{repo}/pages",
+                    if create { "POST" } else { "PUT" }
+                ),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Self::request_pages_build(repo)?;
+        Ok(action)
     }
 
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError> {
@@ -703,6 +794,132 @@ fn count_files(dir: &Path) -> usize {
     n
 }
 
+/// What GitHub currently believes about a repository's Pages.
+///
+/// Only the three fields a decision turns on. `ever_built` is the important
+/// one: it separates "configured" from "serving", and a repository can sit in
+/// the first state forever without anybody noticing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PagesState {
+    /// `build_type`: `legacy` deploys from a branch, `workflow` waits for an
+    /// Actions workflow.
+    pub build_type: String,
+    /// `source.branch`, when there is one.
+    pub branch: Option<String>,
+    /// Whether Pages has ever produced a build. `status: null` and an empty
+    /// build list both mean no.
+    pub ever_built: bool,
+}
+
+/// What to do about a repository's Pages before calling a site published.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PagesAction {
+    /// Pages is not set up at all. Create it, pointing at the site branch.
+    Create,
+    /// Pages exists but has never served a page, so nothing can break by
+    /// repointing it at the branch Bower just pushed.
+    Repoint,
+    /// Already pointed here. It only needs the build that the push could not
+    /// trigger.
+    BuildOnly,
+    /// Somebody is serving something else from this repository. Change
+    /// nothing, and say so.
+    LeaveAlone { serving: String },
+}
+
+/// Decide what a site push should do about Pages.
+///
+/// The rule is "never take a served site away from its owner". A repository
+/// with no Pages, or with Pages that has never built, is nobody's yet —
+/// GitHub hands out a `build_type: "workflow"` default that waits on an
+/// Actions workflow this project never writes, so a book pushed to a fresh
+/// repository would 404 forever unless something repoints it. A repository
+/// that is genuinely serving pages is left alone, whatever it is serving.
+#[must_use]
+pub fn pages_action(current: Option<&PagesState>, want_branch: &str) -> PagesAction {
+    match current {
+        None => PagesAction::Create,
+        Some(s) if !s.ever_built => PagesAction::Repoint,
+        Some(s) if s.build_type == "legacy" && s.branch.as_deref() == Some(want_branch) => {
+            PagesAction::BuildOnly
+        }
+        Some(s) => PagesAction::LeaveAlone {
+            serving: match (&s.branch, s.build_type.as_str()) {
+                (_, "workflow") => "a GitHub Actions workflow".to_string(),
+                (Some(b), _) => format!("branch `{b}`"),
+                (None, t) => format!("`{t}`"),
+            },
+        },
+    }
+}
+
+/// The value of a top-level JSON string field, or `None` for `null`/absent.
+///
+/// Three fields out of a twelve-field object do not justify pulling
+/// `serde_json` into the base binary, where it is an optional dependency of
+/// the preprocessor and nothing else.
+fn json_str<'a>(body: &'a str, key: &str) -> Option<&'a str> {
+    let after = body.split(&format!("\"{key}\":")).nth(1)?.trim_start();
+    let rest = after.strip_prefix('"')?;
+    rest.split('"').next()
+}
+
+/// Read a `GET /repos/{repo}/pages` body into the three fields a decision needs.
+///
+/// `source.branch` is read after the `"source"` key so a `branch` field
+/// somewhere else in the object could never be mistaken for it.
+#[must_use]
+pub fn parse_pages_state(body: &str) -> PagesState {
+    let source = body.split("\"source\":").nth(1).unwrap_or("");
+    PagesState {
+        build_type: json_str(body, "build_type").unwrap_or_default().to_string(),
+        branch: json_str(source, "branch").map(str::to_string),
+        // `"status": null` is the state that matters: configured, never served.
+        ever_built: json_str(body, "status").is_some(),
+    }
+}
+
+/// The `gh` arguments that point `repo`'s Pages at `branch`.
+///
+/// `build_type=legacy` is "deploy from a branch". The default on a repository
+/// nobody has configured is `workflow`, which waits for an Actions workflow
+/// this project never writes and reads the wrong branch regardless.
+///
+/// `create` chooses the verb: Pages that does not exist is `POST`ed into being,
+/// Pages that does is `PUT` over. The payload is identical either way.
+#[must_use]
+pub fn pages_source_args(repo: &str, branch: &str, create: bool) -> Vec<String> {
+    vec![
+        "api".into(),
+        "-X".into(),
+        if create { "POST".into() } else { "PUT".into() },
+        format!("repos/{repo}/pages"),
+        "-f".into(),
+        "build_type=legacy".into(),
+        "-f".into(),
+        format!("source[branch]={branch}"),
+        "-f".into(),
+        "source[path]=/".into(),
+    ]
+}
+
+/// The `gh` arguments that ask for one Pages build.
+///
+/// Pages builds on a *push* to its source branch, and Bower pushes the branch
+/// before it can configure Pages — so the push that would have triggered the
+/// first build has already happened by the time Pages is listening. Without
+/// this the settings read correctly, the build list is empty, and the URL 404s
+/// indefinitely. Later pushes need no such help.
+#[must_use]
+pub fn pages_build_args(repo: &str) -> Vec<String> {
+    vec![
+        "api".into(),
+        "-X".into(),
+        "POST".into(),
+        format!("repos/{repo}/pages/builds"),
+    ]
+}
+
 /// What `branch` points at on the remote, or `None` if it is not there yet.
 ///
 /// `git ls-remote` rather than a fetch: the answer is one line, and a replayed
@@ -771,6 +988,163 @@ mod forge_tests {
     use super::*;
 
     const URL: &str = "https://github.com/folkengine/rust4failures.git";
+
+    fn pages(build_type: &str, branch: Option<&str>, ever_built: bool) -> PagesState {
+        PagesState {
+            build_type: build_type.to_string(),
+            branch: branch.map(str::to_string),
+            ever_built,
+        }
+    }
+
+    // The two responses `folkengine/rust4failures` actually returned on
+    // 5 September 2026, before and after its Pages source was corrected.
+    const PAGES_BROKEN: &str = r#"{"url":"https://api.github.com/repos/folkengine/rust4failures/pages","status":null,"cname":null,"custom_404":false,"html_url":"https://folkengine.github.io/rust4failures/","build_type":"workflow","source":{"branch":"main","path":"/"},"public":true,"https_enforced":true}"#;
+    const PAGES_FIXED: &str = r#"{"url":"https://api.github.com/repos/folkengine/rust4failures/pages","status":"built","cname":null,"custom_404":true,"html_url":"https://folkengine.github.io/rust4failures/","build_type":"legacy","source":{"branch":"gh-pages","path":"/"},"public":true,"https_enforced":true}"#;
+
+    #[test]
+    fn enable_pages__never_touches_a_repository_that_is_serving() {
+        // The one rule that could cost somebody something. A repository with a
+        // live site keeps it, and `enable_pages` must not have written.
+        let mut f = FakeForge::new(RemoteState::HasContent, None);
+        f.pages = Some(parse_pages_state(PAGES_FIXED));
+        // Serving `gh-pages` already; we want `docs`. Someone else's site.
+        let got = f.enable_pages("o/r", "docs").unwrap();
+        assert!(matches!(got, PagesAction::LeaveAlone { .. }), "{got:?}");
+        assert!(
+            !f.calls().contains(&"pages_mutated".to_string()),
+            "a served site was written to: {:?}",
+            f.calls()
+        );
+    }
+
+    #[test]
+    fn enable_pages__repoints_a_repository_that_never_served() {
+        let mut f = FakeForge::new(RemoteState::HasContent, None);
+        f.pages = Some(parse_pages_state(PAGES_BROKEN));
+        assert_eq!(
+            f.enable_pages("o/r", "gh-pages").unwrap(),
+            PagesAction::Repoint
+        );
+        assert!(f.calls().contains(&"pages_mutated".to_string()));
+    }
+
+    #[test]
+    fn parse_pages_state__reads_the_response_that_was_404ing() {
+        let got = parse_pages_state(PAGES_BROKEN);
+        assert_eq!(got.build_type, "workflow");
+        assert_eq!(got.branch.as_deref(), Some("main"));
+        assert!(!got.ever_built, "`status: null` is not a build");
+    }
+
+    #[test]
+    fn parse_pages_state__reads_the_response_that_was_serving() {
+        let got = parse_pages_state(PAGES_FIXED);
+        assert_eq!(got.build_type, "legacy");
+        assert_eq!(got.branch.as_deref(), Some("gh-pages"));
+        assert!(got.ever_built);
+    }
+
+    #[test]
+    fn parse_pages_state__end_to_end_over_the_real_bodies() {
+        // The whole point, stated once: the broken repository gets repointed,
+        // the working one is only asked to build.
+        assert_eq!(
+            pages_action(Some(&parse_pages_state(PAGES_BROKEN)), "gh-pages"),
+            PagesAction::Repoint
+        );
+        assert_eq!(
+            pages_action(Some(&parse_pages_state(PAGES_FIXED)), "gh-pages"),
+            PagesAction::BuildOnly
+        );
+    }
+
+    #[test]
+    fn pages_action__no_pages_at_all_is_created() {
+        assert_eq!(pages_action(None, "gh-pages"), PagesAction::Create);
+    }
+
+    #[test]
+    fn pages_action__configured_but_never_built_is_repointed() {
+        // The state a real repository was actually found in: GitHub had handed
+        // out `build_type: "workflow"` pointing at `main`, `status` was null,
+        // and the build list was empty. Nothing was being served, so nothing
+        // could be taken away — and leaving it alone would 404 forever.
+        let found = pages("workflow", Some("main"), false);
+        assert_eq!(pages_action(Some(&found), "gh-pages"), PagesAction::Repoint);
+    }
+
+    #[test]
+    fn pages_action__already_pointed_here_only_needs_a_build() {
+        let found = pages("legacy", Some("gh-pages"), true);
+        assert_eq!(
+            pages_action(Some(&found), "gh-pages"),
+            PagesAction::BuildOnly
+        );
+    }
+
+    #[test]
+    fn pages_action__a_site_someone_is_serving_is_never_touched() {
+        // The rule that matters. A repository publishing something real keeps
+        // publishing it, whatever Bower would have preferred.
+        let workflow = pages("workflow", Some("main"), true);
+        let PagesAction::LeaveAlone { serving } = pages_action(Some(&workflow), "gh-pages") else {
+            panic!("a served site must be left alone");
+        };
+        assert!(serving.contains("workflow"), "{serving}");
+
+        let other_branch = pages("legacy", Some("docs"), true);
+        let PagesAction::LeaveAlone { serving } = pages_action(Some(&other_branch), "gh-pages")
+        else {
+            panic!("a served site must be left alone");
+        };
+        assert!(serving.contains("docs"), "{serving}");
+    }
+
+    #[test]
+    fn pages_source_args__match_the_call_that_actually_worked() {
+        // Verified by hand against a real repository before this was written.
+        assert_eq!(
+            pages_source_args("folkengine/rust4failures", "gh-pages", false),
+            vec![
+                "api",
+                "-X",
+                "PUT",
+                "repos/folkengine/rust4failures/pages",
+                "-f",
+                "build_type=legacy",
+                "-f",
+                "source[branch]=gh-pages",
+                "-f",
+                "source[path]=/",
+            ]
+        );
+    }
+
+    #[test]
+    fn pages_source_args__creating_posts_instead_of_putting() {
+        let create = pages_source_args("o/r", "gh-pages", true);
+        assert!(create.contains(&"POST".to_string()), "{create:?}");
+        assert!(!create.contains(&"PUT".to_string()), "{create:?}");
+        // The payload does not change with the verb.
+        assert_eq!(
+            &create[3..],
+            &pages_source_args("o/r", "gh-pages", false)[3..]
+        );
+    }
+
+    #[test]
+    fn pages_build_args__ask_for_one_build() {
+        assert_eq!(
+            pages_build_args("folkengine/rust4failures"),
+            vec![
+                "api",
+                "-X",
+                "POST",
+                "repos/folkengine/rust4failures/pages/builds"
+            ]
+        );
+    }
 
     #[test]
     fn remote_url__is_https() {
