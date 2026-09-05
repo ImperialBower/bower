@@ -1088,7 +1088,7 @@ mod publish_tests {
     }
 
     use crate::loader::BookLoader;
-    use bower_core::prelude::{plan, RepoCatalog};
+    use bower_core::prelude::{RepoCatalog, plan};
 
     fn sample_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))

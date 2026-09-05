@@ -7,7 +7,7 @@ use crate::display::{self, BlockDisplay};
 use crate::source::{BookSource, Location, RepoCatalog, RepoName};
 use crate::step::{self, Step, StepId};
 use crate::tree::TreeState;
-use crate::{block, BowerError, Errors};
+use crate::{BowerError, Errors, block};
 
 /// The resolved plan for a whole book: one [`RepoPlan`] per repo the book
 /// actually feeds, in catalog order.
@@ -329,7 +329,9 @@ mod plan_tests {
         let p = plan(&book, &catalog()).unwrap();
         let lock = lock_text(&p);
         assert!(lock.contains("[failers]"));
-        assert!(lock.contains("001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs"));
+        assert!(
+            lock.contains("001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs")
+        );
         assert!(lock.contains("002"));
     }
 }

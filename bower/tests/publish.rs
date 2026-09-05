@@ -18,7 +18,7 @@ use std::process::Command;
 
 use bower::config::BookConfig;
 use bower::loader::BookLoader;
-use bower::publish::{render_plan, BookMeta, RenderPlan, Target};
+use bower::publish::{BookMeta, RenderPlan, Target, render_plan};
 use bower_core::prelude::plan;
 
 fn book_root() -> PathBuf {

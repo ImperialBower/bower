@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use bower_core::prelude::{RepoCatalog, RepoName, RepoSpec};
 use serde::Deserialize;
-use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
+use time::format_description::well_known::Rfc3339;
 
 /// The parsed `bower.toml`.
 #[derive(Clone, Debug, Eq, PartialEq)]

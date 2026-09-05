@@ -365,18 +365,24 @@ mod display_tests {
         let _ = analyze(&block(&["// bower:show end"]), &mut errors);
         let _ = analyze(&block(&["// bower:show", "// bower:show"]), &mut errors);
         let _ = analyze(&block(&["// bower:show", "x"]), &mut errors);
-        assert!(errors
-            .0
-            .iter()
-            .any(|e| matches!(e, BowerError::OrphanShowEnd { .. })));
-        assert!(errors
-            .0
-            .iter()
-            .any(|e| matches!(e, BowerError::NestedShowSpan { .. })));
-        assert!(errors
-            .0
-            .iter()
-            .any(|e| matches!(e, BowerError::UnclosedShowSpan { .. })));
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|e| matches!(e, BowerError::OrphanShowEnd { .. }))
+        );
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|e| matches!(e, BowerError::NestedShowSpan { .. }))
+        );
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|e| matches!(e, BowerError::UnclosedShowSpan { .. }))
+        );
     }
 
     #[test]

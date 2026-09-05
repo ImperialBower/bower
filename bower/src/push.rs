@@ -24,8 +24,8 @@ use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
 use crate::forge::{Forge, ForgeError, RemoteState};
-use crate::replay::{book_name, expected_tags, final_blobs, scaffolding, BRANCH};
-use crate::status::{repo_drift, site_drift, RepoDrift, SiteDrift, StatusError};
+use crate::replay::{BRANCH, book_name, expected_tags, final_blobs, scaffolding};
+use crate::status::{RepoDrift, SiteDrift, StatusError, repo_drift, site_drift};
 use crate::trailers::book_named_in;
 
 /// Whether it is safe to force-push over a remote.
@@ -197,21 +197,21 @@ pub fn plan_push(
             return blocked(format!(
                 "{} has not been built; run `bower build` first",
                 dir.display()
-            ))
+            ));
         }
         RepoDrift::Stale { .. } => {
             return blocked(
                 "the built repository is out of date; run `bower status` to see what, \
                  then `bower build`"
                     .to_string(),
-            )
+            );
         }
         RepoDrift::TagsPacked => {
             return blocked(
                 "the built repository's tags are packed and cannot be checked; \
                  rebuild it with `bower build`"
                     .to_string(),
-            )
+            );
         }
         RepoDrift::InSync => {}
     }
@@ -398,14 +398,14 @@ fn plan_site(
                 "{} holds no rendered book; run `bower publish --target html -o {}`",
                 site_dir.display(),
                 site_dir.display()
-            )))
+            )));
         }
         SiteDrift::Stale { .. } => {
             return Ok(SiteDecision::Blocked(format!(
                 "the rendered book in {} was built from a different plan; \
                  re-run `bower publish --target html`",
                 site_dir.display()
-            )))
+            )));
         }
         SiteDrift::InSync { files } => files,
     };
@@ -598,7 +598,7 @@ mod plan_tests {
     use crate::forge::FakeForge;
     use crate::materialize::write_files;
     use crate::trailers::marker_line;
-    use bower_core::prelude::{plan as resolve, BookSource, Chapter, RepoCatalog};
+    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan as resolve};
     use std::path::PathBuf;
 
     const BOOK_DIR: &str = "hello-playbook";

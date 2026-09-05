@@ -11,9 +11,9 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use bower_core::prelude::{lock_text, BookPlan, RepoPlan};
+use bower_core::prelude::{BookPlan, RepoPlan, lock_text};
 
-use crate::materialize::{read_dir_recursive, Blobs};
+use crate::materialize::{Blobs, read_dir_recursive};
 use crate::replay::expected_tags;
 
 #[derive(Debug)]
@@ -142,7 +142,7 @@ pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoD
             return Err(StatusError::Io {
                 path: tags_dir,
                 source,
-            })
+            });
         }
     };
     if found_tags.is_empty() && git.join("packed-refs").exists() {
@@ -434,7 +434,7 @@ fn list(f: &mut fmt::Formatter<'_>, label: &str, items: &[String]) -> fmt::Resul
 #[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
 mod status_tests {
     use super::*;
-    use bower_core::prelude::{plan, BookSource, Chapter, RepoCatalog};
+    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
 
     fn scratch(case: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("bower-status-{case}"));
@@ -514,7 +514,7 @@ mod status_tests {
 mod repo_tests {
     use super::*;
     use crate::materialize::blobs_of;
-    use bower_core::prelude::{plan, BookSource, Chapter, RepoCatalog};
+    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
 
     fn scratch(case: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("bower-repodrift-{case}"));

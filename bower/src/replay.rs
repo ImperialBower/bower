@@ -9,15 +9,15 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use bower_core::prelude::{PlannedStep, RepoPlan};
+use gix::ObjectId;
 use gix::bstr::BStr;
 use gix::object::tree::EntryKind;
 use gix::objs::Kind;
 use gix::refs::transaction::PreviousValue;
-use gix::ObjectId;
 use time::Duration;
 
 use crate::config::BookConfig;
-use crate::materialize::{blobs_of, check_all, read_dir_recursive, write_files, Blobs};
+use crate::materialize::{Blobs, blobs_of, check_all, read_dir_recursive, write_files};
 use crate::trailers;
 
 /// The branch every generated repository uses. Fixed, not inherited from the

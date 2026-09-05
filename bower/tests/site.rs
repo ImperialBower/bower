@@ -14,10 +14,10 @@ use bower::forge::{FakeForge, RemoteState};
 use bower::loader::BookLoader;
 use bower::materialize::write_files;
 use bower::publish::{site_fingerprint, site_marker, write_site_files};
-use bower::push::{plan_push, PushPlan};
+use bower::push::{PushPlan, plan_push};
 use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
-use bower::status::{site_drift, SiteDrift};
-use bower_core::prelude::{lock_text, plan, BookPlan, RepoPlan};
+use bower::status::{SiteDrift, site_drift};
+use bower_core::prelude::{BookPlan, RepoPlan, lock_text, plan};
 
 fn book_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))

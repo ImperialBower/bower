@@ -121,7 +121,7 @@ fn html_name(chapter: &str) -> String {
 #[allow(non_snake_case, clippy::unwrap_used)]
 mod trailer_tests {
     use super::*;
-    use bower_core::prelude::{plan, RepoCatalog};
+    use bower_core::prelude::{RepoCatalog, plan};
 
     fn sample_plan() -> RepoPlan {
         let f = bower_testkit::fixtures::hello_playbook();

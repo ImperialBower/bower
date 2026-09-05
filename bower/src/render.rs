@@ -11,7 +11,7 @@
 use std::collections::BTreeMap;
 
 use bower_core::prelude::{
-    show_marker, BlockDisplay, BookPlan, Directive, LineRange, PlannedStep, ShowMark,
+    BlockDisplay, BookPlan, Directive, LineRange, PlannedStep, ShowMark, show_marker,
 };
 
 use crate::config::LinkTemplates;
@@ -359,7 +359,7 @@ fn anchors_by_line(plan: &BookPlan, chapter_path: &str) -> BTreeMap<usize, Strin
 #[allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
 mod render_tests {
     use super::*;
-    use bower_core::prelude::{plan, BookSource, Chapter, RepoCatalog};
+    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
 
     fn no_links() -> BTreeMap<String, LinkTemplates> {
         BTreeMap::new()
@@ -644,7 +644,10 @@ mod render_tests {
     fn footer__omits_links_without_templates() {
         // A plausible-looking broken link is worse than plain text.
         let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
-        assert!(out.contains("<span class=\"step-meta\"><sub>💾 `src/lib.rs`"), "{out}");
+        assert!(
+            out.contains("<span class=\"step-meta\"><sub>💾 `src/lib.rs`"),
+            "{out}"
+        );
         assert!(out.contains("L1–L1"), "{out}");
         assert!(!out.contains("]("), "no links may be invented: {out}");
         assert!(!out.contains("diff"), "{out}");
