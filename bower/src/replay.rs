@@ -274,9 +274,19 @@ impl Replayer<'_> {
 /// Public because `status` must expect the same `STEPS.md` that `replay` wrote,
 /// and a second guess at the book's name would produce a file that differs by a
 /// word and reports as drift forever.
+///
+/// The path is made absolute first, because one directory can be spelled more
+/// than one way and every spelling must yield the same name. `--book` defaults
+/// to `.`, which has no last component at all: taken literally it named every
+/// book `"book"` in one place and the target repo in another, and `status` then
+/// called the site stale forever. `std::path::absolute` is the right tool
+/// rather than `canonicalize` — it touches no filesystem, so a book that has
+/// not been rendered yet still has a name, and a book reached through a symlink
+/// keeps the name the reader typed.
 #[must_use]
 pub fn book_name(book_root: &Path, fallback: &str) -> String {
-    book_root.file_name().map_or_else(
+    let absolute = std::path::absolute(book_root).ok();
+    absolute.as_deref().and_then(Path::file_name).map_or_else(
         || fallback.to_string(),
         |n| n.to_string_lossy().into_owned(),
     )
@@ -397,5 +407,26 @@ mod replay_tests {
     fn chapter_stem__strips_directory_and_extension() {
         assert_eq!(chapter_stem("src/ch01-a-repo.md"), "ch01-a-repo");
         assert_eq!(chapter_stem("ch06-ci.md"), "ch06-ci");
+    }
+
+    #[test]
+    fn book_name__does_not_depend_on_how_the_root_is_addressed() {
+        // `--book` defaults to `.`, so running `bower` from inside the book is
+        // the *normal* invocation, not an edge case. `.` has no last path
+        // component, so a name taken straight from `file_name` fell back — and
+        // the five call sites do not pass the same fallback. `STEPS.md` and
+        // `.bower-site` then named different books and `status` reported a
+        // site that was stale forever.
+        let cwd = std::env::current_dir().unwrap();
+        let expected = cwd.file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(book_name(Path::new("."), "fallback"), expected);
+        assert_eq!(book_name(Path::new("./"), "fallback"), expected);
+        assert_eq!(book_name(&cwd, "fallback"), expected);
+    }
+
+    #[test]
+    fn book_name__falls_back_when_the_path_names_no_directory() {
+        // The fallback still has a job: the root directory is not a book.
+        assert_eq!(book_name(Path::new("/"), "fallback"), "fallback");
     }
 }

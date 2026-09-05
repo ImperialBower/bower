@@ -17,7 +17,7 @@ _Nothing. Releases shipped._
 
 | Work | Source | Note |
 |---|---|---|
-| **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failers* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
+| **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failures* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
 | **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
@@ -52,6 +52,18 @@ Decided 4 September 2026: **(2)** one repo per book, not a shared workspace;
 the block library is core, not an extension — see `bower-spec.md` § 12.
 
 ## Recently fixed
+
+- **The book's name changed with the spelling of its path.** `book_name` took
+  the book root's last path segment, and `--book` defaults to `.`, which has no
+  last segment. Running Bower from inside a book — the normal way — fell back
+  instead, and the five call sites do not pass the same fallback: `STEPS.md`
+  got the target repo's name and `.bower-site` got the literal `"book"`, so
+  `status` called the site stale forever. Invisible in `hello-playbook`, whose
+  directory and target repo share one name; found 5 September 2026 on the first
+  real Phase 5 book, where they differ. Fixed by normalizing the root with
+  `std::path::absolute` before naming it — no filesystem access, so an
+  unrendered book still has a name and a symlinked one keeps the name the
+  reader typed.
 
 - **`bower verify` blamed the book for its own scratch tree.** The default
   `--work target/bower-verify` sat inside the book's cargo workspace, so cargo
