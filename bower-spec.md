@@ -108,7 +108,7 @@ directive word is `bower`; `bf` is accepted as a short alias for drafting speed.
 ### 3.2 The directive
 
 ```markdown
-<!-- bower repo="failers" file="src/rank.rs" -->
+<!-- bower repo="rust4failures" file="src/rank.rs" -->
 ```rust
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Rank {
@@ -215,8 +215,8 @@ full file at the step's tag and to the precise lines shown, e.g.
 so GitHub is the default but not an assumption:
 
 ```toml
-[repos.failers.links]
-blob = "https://github.com/ImperialBower/failers/blob/{tag}/{path}#L{start}-L{end}"
+[repos.rust4failures.links]
+blob = "https://github.com/folkengine/rust4failures/blob/{tag}/{path}#L{start}-L{end}"
 ```
 
 Point it at Codeberg, sourcehut, or a self-hosted forge and every book link
@@ -236,9 +236,9 @@ plus its `mod` declaration plus `Cargo.toml`). Blocks sharing an explicit
 `step` id merge into one step:
 
 ```markdown
-<!-- bower repo="failers" step="rank-enum" file="src/rank.rs" -->
+<!-- bower repo="rust4failures" step="rank-enum" file="src/rank.rs" -->
 …block…
-<!-- bower repo="failers" step="rank-enum" file="src/lib.rs" op="region" region="mods" -->
+<!-- bower repo="rust4failures" step="rank-enum" file="src/lib.rs" op="region" region="mods" -->
 …block…
 ```
 
@@ -292,9 +292,9 @@ Every generated commit carries trailers:
 ```
 ch03: Introduce the Rank enum
 
-Book-Source: rust-for-failers/src/ch03-ranks.md#step-rank-enum
-Book-Url: https://imperialbower.github.io/rust-for-failers/ch03-ranks.html#step-rank-enum
-Bower-Step: failers/012
+Book-Source: rust4failures/src/ch03-ranks.md#step-rank-enum
+Book-Url: https://folkengine.github.io/rust4failures/ch03-ranks.html#step-rank-enum
+Bower-Step: rust4failures/012
 Generated-By: bower v0.x
 ```
 
@@ -307,8 +307,8 @@ SHAs change whenever an earlier step changes, so the book never links to SHAs.
 Every step gets an annotated tag `step-012-rank-enum`; every chapter boundary
 gets `ch03-end`. Tags are recreated on regeneration; names are stable as long as
 step ids are. The rendered book links to
-`…/failers/tree/step-012-rank-enum` (browse the state) and
-`…/failers/commit/step-012-rank-enum` (see the diff — git resolves tags here).
+`…/rust4failures/tree/step-012-rank-enum` (browse the state) and
+`…/rust4failures/commit/step-012-rank-enum` (see the diff — git resolves tags here).
 
 ### 5.4 The mdBook preprocessor
 
@@ -318,7 +318,7 @@ step ids are. The rendered book links to
 - applies display markers (§ 3.4): marked spans render, elided code becomes
   toggle-hidden lines in HTML or a linked elision comment in epub;
 - injects under each annotated block a small footer:
-  *`src/rank.rs` L18–31 · step 12 of failers · [full file] · [view diff] ·
+  *`src/rank.rs` L18–31 · step 12 of rust4failures · [full file] · [view diff] ·
   [browse repo here]* — the file and line links resolved through the `links.blob`
   template against the generated tree;
 - injects an anchor `#step-<id>` so commit trailers land on the exact block;
@@ -328,7 +328,7 @@ step ids are. The rendered book links to
 ### 5.5 Publishing repos
 
 `bower push` force-pushes with lease to the configured GitHub remote
-(`ImperialBower/<repo>`), tags included, and can create the repo via the GitHub
+(`<owner>/<repo>`), tags included, and can create the repo via the GitHub
 API on first push. Local-only is the default; push is always an explicit flag or
 a separate CI job. Generated repos get `archived: false` but a branch protection
 exception — they are build artifacts, and force-push is their normal life.
@@ -378,20 +378,20 @@ kernel's error enum *is* a chapter draft for *Rust for Failures*.
 ```toml
 [book]
 epoch = 2026-09-01T00:00:00Z          # timestamp base for deterministic SHAs
-site  = "https://imperialbower.github.io/rust-for-failers"
+site  = "https://folkengine.github.io/rust4failures"
 
 [identity]
-name  = "ImperialBower Bower"
-email = "bower@imperialbower.example"
+name  = "folkengine"
+email = "bower@folkengine.example"
 
-[repos.failers]
-github   = "ImperialBower/failers"     # optional; enables push
-template = "templates/failers"         # step-0 scaffolding
+[repos.rust4failures]
+github   = "folkengine/rust4failures"     # optional; enables push
+template = "templates/rust4failures"      # step-0 scaffolding
 verify   = "cargo test --quiet"
 keep_region_markers = false
 
-[repos.failers-clock]                  # a second repo fed by the same book
-github = "ImperialBower/failers-clock"
+[repos.rust4failures-clock]               # a second repo fed by the same book
+github = "folkengine/rust4failures-clock"
 ```
 
 CLI surface:
@@ -488,7 +488,7 @@ This is the phase that makes the tool worth having.
 build-time validation), `push` with GitHub repo creation, `status` drift report.
 
 **Phase 5 — migration.** Stand up the *Rust for Failures* mdBook, move the
-DIARY/doc-comment material chapter by chapter, generate `failers` for real.
+DIARY/doc-comment material chapter by chapter, generate `rust4failures` for real.
 
 **Phase 6+ — publishing maturity and authoring bridges.** § 13 and § 14; each
 milestone there is scoped only after Phase 5 has produced a real book end to end.
@@ -504,12 +504,21 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
    pinned at `+0000` by hand rather than inherited from a machine. The kernel
    was unaffected, as predicted.
 2. ~~**One book per repo of book-source, or one workspace holding both books?**~~
-   **Decided: one repo per book** (4 September 2026). Each book's *source*
-   (chapters, `bower.toml`, block library) lives in its own repo rather than
-   both books sharing this one. This does not change how a book's *generated*
-   code repos work — that was never in question — but it does mean M4 (§ 13)
-   can no longer assume both books' source sits in one workspace; see the
-   revised M4 text.
+   ~~**Decided: one repo per book** (4 September 2026).~~ **Reversed: one
+   workspace** (5 September 2026). Every book's *source* (chapters,
+   `bower.toml`, block library) lives in this repository under `books/`, beside
+   the sample — *Rust for Failures* at `books/rust4failures/` and
+   *Controllability* alongside it when it starts. Standing up the first real
+   book settled the question by trying the other answer first: a separate
+   source repo duplicates the toolchain, the Makefile, and the `.gitignore`,
+   and it puts a version skew between a book and the `bower` that renders it.
+   In one workspace a change to the kernel and the chapter that exercises it
+   are one commit, and `make failures` is the whole loop.
+
+   This still does not change how a book's *generated* code repos work — that
+   was never in question. Each book publishes to its own GitHub repository,
+   which receives the code on its default branch and the rendered book on
+   `site_branch`. M4 (§ 13) may assume a shared workspace again.
 3. ~~**Diagnostic snapshots for `compile_fail`**~~ **Decided: failure-only**
    (EPIC-02, 1 September 2026). `bower verify` asserts that the check command
    fails and captures its stderr for the failure report, but matches nothing
@@ -576,15 +585,13 @@ plan on save and fails fast on annotation errors, `draft = true` chapters
 just a render plan over a subset of chapters, with its repo links pointing at
 the full generated repos.
 
-**M4 — the imprint.** Each book keeps its own book-source repo (§ 12 Q2), so
-"the imprint" is a shared *template*, not a shared *workspace*: a common
-`bower.toml` starter and CI workflow that every book repo pulls in and can
-diverge from, cross-book step links (*Controllability* citing a *Failures* step
-by id, resolved across repos rather than within one), a catalog page built by
-reading every book repo it's told about, and one `bower publish --all`
-invocation that takes a list of book repos and rebuilds every book, every
-generated repo, every target, verifying the whole estate without requiring
-them to share a directory. At this rung Bower is a publishing system that
+**M4 — the imprint.** Every book's source shares one workspace (§ 12 Q2), so
+"the imprint" is that workspace's own furniture: a common `bower.toml` starter
+and CI workflow each book inherits and can override, cross-book step links
+(*Controllability* citing a *Failures* step by id, resolved within the
+workspace rather than across repos), a catalog page built by reading `books/`,
+and one `bower publish --all` invocation that rebuilds every book, every
+generated repo, every target, verifying the whole estate in a single pass. At this rung Bower is a publishing system that
 happens to have started as a repo generator.
 
 What Bower does **not** aspire to: DRM, storefronts, or payment. Leanpub, Gumroad
@@ -710,9 +717,9 @@ A play cell is a new block kind in the book source — Python, annotated, and
 never part of any repo tree:
 
 ```markdown
-<!-- bower repo="failers" notebook="play" -->
+<!-- bower repo="rust4failures" notebook="play" -->
 ```python
-from failers import Rank
+from failures import Rank
 Rank.from_char("A")   # now break it: what does 'Z' do?
 ```​
 ```
@@ -750,7 +757,7 @@ are visible at every tag.
 Each chapter's notebook must import exactly the code state that chapter ends
 at. The generated first cell installs the wheel for the chapter-end tag:
 preferably a CI-built wheel published against the `ch03-end` tag; falling back
-to `pip install "git+https://…/failers@ch03-end#subdirectory=bindings"` with
+to `pip install "git+https://…/rust4failures@ch03-end#subdirectory=bindings"` with
 maturin building locally. Regenerating the book regenerates the pin — the
 notebook can never drift ahead of or behind its chapter.
 
@@ -780,7 +787,7 @@ playable book would be a real distribution edge.
 
 The books' promise is "check out any step, run it, and watch it fail on cue."
 That promise dies at toolchain friction: the reader who clones
-`failers@step-012-rank-enum` needs the *exact* rustc the book was verified
+`rust4failures@step-012-rank-enum` needs the *exact* rustc the book was verified
 with — a `compile_fail` step is a claim about a specific compiler — plus, for
 notebook chapters, Python, maturin, and Jupyter in compatible versions.
 "Install these nine things first" is where follow-along readers quit.

@@ -3,8 +3,11 @@
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
-> Created 1 September 2026 at `b3def07`. Last refreshed 3 September 2026, after
-> covers, the `verify` work-directory fix, and releases.
+> Created 1 September 2026 at `b3def07`. Last refreshed 5 September 2026, after
+> the first real Phase 5 book, which turned up four defects before it served a
+> single page: the book-name fallback, a garbled refusal message, a
+> `--force-with-lease` that could never push twice (all three fixed), and Pages
+> never being enabled (below).
 >
 > There are **no `TODO`, `FIXME`, `HACK`, or `XXX` markers anywhere in this
 > codebase**, so nothing here came from a code comment. Most items were written
@@ -113,6 +116,38 @@
   `make ship-hello-execute` carrying a release will be its first real exercise,
   and `gh release view`'s "not found" wording is the one string that decides
   between creating a release and clobbering one.
+
+- [ ] **`bower push` ships a site branch but never turns Pages on.**
+  `push_site` creates and force-pushes `gh-pages`, and stops there. Nothing
+  calls `PUT /repos/{repo}/pages`, so on a repository that has never served a
+  site GitHub keeps whatever default it had and the URL in `[book] site` returns
+  a 404. The failure is silent in the worst way: `bower push` reports
+  `site  gh-pages — 46 files`, `status` reports `site  in sync`, and every
+  claim the tool makes is true — the branch really is published — while the
+  page a reader visits does not exist.
+
+  Found 5 September 2026 on `folkengine/rust4failures`, the first site branch
+  pushed to a repository nobody had configured by hand. GitHub reported
+  `build_type: "workflow"` and `source.branch: "main"`: waiting on an Actions
+  workflow that was never written, and pointed at the wrong branch regardless.
+  `abstecker/hello-playbook` never showed it because its Pages settings were
+  switched on manually before Bower ever pushed to it.
+
+  Shape of the fix: when `push_site` creates the branch — the
+  `RemoteState::Absent` arm it already distinguishes — follow it with
+  `PUT /repos/{repo}/pages` carrying `build_type: "legacy"` and
+  `source: {branch: <site_branch>, path: "/"}`. Only on create: a repository
+  whose Pages are already configured, perhaps deliberately to a workflow, must
+  not be reconfigured underneath its owner. A `409` saying Pages already exist
+  is a success, not an error. The dry run should say `pages  will enable` so
+  the one step that reaches outside git is visible before it happens.
+
+  Two smaller things belong with it. `bower status` cannot currently tell
+  "branch pushed" from "site served", so it says `in sync` about a 404; a
+  `GET /repos/{repo}/pages` reading `status` and `source.branch` would let it
+  say "site branch pushed, but Pages serves `main`" instead. And this is one more reason the `GitHubForge` gap above keeps costing: the decision (enable
+  or leave alone) is pure and testable against `FakeForge`, and only the `gh
+  api` call itself is the last inch.
 
 - [ ] **Nothing reports whether a published artifact is current.**
   `bower status` names lock, repo, and site drift. It says nothing about the

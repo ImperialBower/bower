@@ -284,7 +284,9 @@ fn plan_release(
         // edition is not the same as shipping downloads.
         (_, None) => ReleaseDecision::None,
         (None, Some(_)) => ReleaseDecision::Blocked(
-            "this repo declares `assets`, but the book declares no `version`, so              there is nothing to name a release. Add `version` under `[book]`, or              drop `assets`."
+            "this repo declares `assets`, but the book declares no `version`, \
+             so there is nothing to name a release. Add `version` under \
+             `[book]`, or drop `assets`."
                 .to_string(),
         ),
         (Some(version), Some(rel)) => {
@@ -782,6 +784,13 @@ mod plan_tests {
             panic!("expected Blocked, got {got:?}");
         };
         assert!(reason.contains("no `version`"), "{reason}");
+        // A refusal is prose a human reads at the moment they are stuck. A run
+        // of spaces means a wrapped literal lost its continuation and the
+        // sentence reached the terminal with the source's indentation in it.
+        assert!(
+            !reason.contains("  "),
+            "refusal has run-together spacing: {reason}"
+        );
         assert!(!forge.mutated());
     }
 

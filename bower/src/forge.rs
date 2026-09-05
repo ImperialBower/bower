@@ -566,14 +566,11 @@ impl Forge for GitHubForge {
             ))
         };
 
-        // The branch, with a lease: refuse if the remote moved under us.
-        let refspec = format!("{branch}:{branch}");
-        let (ok, stderr) = run(vec![
-            "push".into(),
-            "--force-with-lease".into(),
-            url.clone(),
-            refspec,
-        ])?;
+        // The branch, with a lease: refuse if the remote moved under us. The
+        // lease needs the value we read, because there is no remote-tracking
+        // ref to read it from — see `push_branch_args`.
+        let head = remote_head(dir, &url, branch);
+        let (ok, stderr) = run(push_branch_args(&url, branch, head.as_deref()))?;
         if !ok {
             return Err(ForgeError::Failed {
                 what: "git push --force-with-lease".into(),
@@ -706,6 +703,49 @@ fn count_files(dir: &Path) -> usize {
     n
 }
 
+/// What `branch` points at on the remote, or `None` if it is not there yet.
+///
+/// `git ls-remote` rather than a fetch: the answer is one line, and a replayed
+/// repository shares no history with the remote it is about to replace, so
+/// fetching would download objects only to throw them away.
+fn remote_head(dir: &Path, url: &str, branch: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["ls-remote", url, branch])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    let sha = text.split_whitespace().next()?;
+    (!sha.is_empty()).then(|| sha.to_string())
+}
+
+/// The arguments that push `branch` to `url`, given what the remote's branch
+/// pointed at when we last looked.
+///
+/// A bare `--force-with-lease` compares against the *remote-tracking* ref, and
+/// a push to a URL has none — git answers `stale info` and refuses. That made
+/// every push after a repository's first one fail, which is the only kind that
+/// matters: a generated repo is republished every time the book changes. The
+/// lease therefore carries the value [`remote_head`] read. It is still a lease:
+/// a remote that moved between the read and the push is still refused.
+///
+/// A branch that is not there yet needs no force and has nothing to protect.
+#[must_use]
+pub fn push_branch_args(url: &str, branch: &str, remote_head: Option<&str>) -> Vec<String> {
+    let refspec = format!("{branch}:{branch}");
+    match remote_head {
+        None => vec!["push".into(), url.to_string(), refspec],
+        Some(sha) => vec![
+            "push".into(),
+            format!("--force-with-lease={branch}:{sha}"),
+            url.to_string(),
+            refspec,
+        ],
+    }
+}
+
 /// Best-effort count for the report. A wrong count is cosmetic; refusing to
 /// report a successful push because counting failed would not be.
 fn count(dir: &Path, args: &[&str]) -> usize {
@@ -730,12 +770,60 @@ fn count(dir: &Path, args: &[&str]) -> usize {
 mod forge_tests {
     use super::*;
 
+    const URL: &str = "https://github.com/folkengine/rust4failures.git";
+
     #[test]
     fn remote_url__is_https() {
         assert_eq!(
             remote_url("ImperialBower/hello-playbook"),
             "https://github.com/ImperialBower/hello-playbook.git"
         );
+    }
+
+    #[test]
+    fn push_branch_args__leases_against_the_value_we_read() {
+        // A bare `--force-with-lease` has no remote-tracking ref to compare
+        // against when the push target is a URL, so git refuses with `stale
+        // info` — every push after the repository's first one. The expected
+        // value has to be spelled out.
+        let args = push_branch_args(URL, "refs/heads/main", Some("abc123"));
+        assert_eq!(
+            args,
+            vec![
+                "push".to_string(),
+                "--force-with-lease=refs/heads/main:abc123".to_string(),
+                URL.to_string(),
+                "refs/heads/main:refs/heads/main".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn push_branch_args__still_carry_a_lease() {
+        // The fix must not become a plain `--force`: the whole point is that a
+        // remote which moved between the read and the push is refused.
+        let args = push_branch_args(URL, "refs/heads/main", Some("abc123"));
+        assert!(
+            args.iter().any(|a| a.starts_with("--force-with-lease=")),
+            "{args:?}"
+        );
+        assert!(!args.iter().any(|a| a == "--force"), "{args:?}");
+    }
+
+    #[test]
+    fn push_branch_args__creating_a_branch_forces_nothing() {
+        // Nothing is there, so there is nothing to protect and nothing to
+        // overwrite. Forcing a create would only hide a mistake.
+        let args = push_branch_args(URL, "refs/heads/gh-pages", None);
+        assert_eq!(
+            args,
+            vec![
+                "push".to_string(),
+                URL.to_string(),
+                "refs/heads/gh-pages:refs/heads/gh-pages".to_string(),
+            ]
+        );
+        assert!(!args.iter().any(|a| a.contains("force")), "{args:?}");
     }
 
     #[test]

@@ -10,8 +10,9 @@ page and code.
 
 This workspace is **Phases 1 to 4** of the [design spec](https://github.com/ImperialBower)
 (`bower-spec.md`, Draft 0.2): the kernel, its testkit, replay, verification, the
-`mdbook-bower` preprocessor, `status`, and `push`. Phase 5 is migration —
-standing up the real *Rust for Failures* book.
+`mdbook-bower` preprocessor, `status`, and `push`. Phase 5 — migration — is
+under way: *Rust for Failures* lives in `books/rust4failures/`, one chapter
+so far, and publishes to `folkengine/rust4failures`.
 
 ## Crates
 
@@ -59,16 +60,16 @@ let book = BookSource::from_chapters(vec![Chapter::new(
     "ch01.md",
     r#"# Hello
 
-<!-- bower repo="failers" file="src/lib.rs" -->
+<!-- bower repo="failures" file="src/lib.rs" -->
 ```rust
 pub fn hello() {}
 ```
 "#,
 )]);
-let catalog = RepoCatalog::from_names(&["failers"]);
+let catalog = RepoCatalog::from_names(&["failures"]);
 let plan = plan(&book, &catalog)?;
 
-let step = &plan.repo("failers").unwrap().steps[0];
+let step = &plan.repo("failures").unwrap().steps[0];
 assert_eq!(step.tag(), "step-001-ch01-hello");
 assert_eq!(step.tree.text("src/lib.rs").unwrap(), "pub fn hello() {}\n");
 ````

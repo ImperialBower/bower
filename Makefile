@@ -1,4 +1,4 @@
-.PHONY: default help clean fmt build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute
+.PHONY: default help clean fmt build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
 default: ayce
 
 help:  ## self-documenting: every target has a '## comment' printed here
@@ -90,3 +90,38 @@ ship-hello: book epub pdf ## build, verify and render the sample book, then repo
 
 ship-hello-execute: ship-hello ## the same, then push the repo, its site, and a release
 	cargo run -q -p bower -- --book $(HELLO) push -o $(HELLO_OUT) --execute
+
+# ---------------------------------------------------------------------------
+# Rust for Failures — the real book (spec § 11 Phase 5).
+#
+# Same shape as the sample above, and for the same reason: source in `books/`,
+# generated code in `target/`, and one GitHub repository receiving both the
+# code and, on `gh-pages`, the rendered book.
+# ---------------------------------------------------------------------------
+
+R4F     := books/rust4failures
+R4F_OUT := target/rust4failures
+
+failures-book: ## render Rust for Failures as HTML
+	cargo build -p bower --all-features
+	PATH="$(CURDIR)/target/debug:$$PATH" cargo run -q -p bower -- \
+		--book $(R4F) publish --target html -o $(R4F)/book
+
+failures-epub: ## render Rust for Failures as an epub (needs pandoc)
+	cargo run -q -p bower -- --book $(R4F) publish --target epub -o $(R4F)/published
+
+failures-pdf: ## render Rust for Failures as a PDF (needs pandoc and typst)
+	cargo run -q -p bower -- --book $(R4F) publish --target pdf -o $(R4F)/published
+
+failures: failures-book ## build, verify and render Rust for Failures, then report drift
+	cargo run -q -p bower -- --book $(R4F) build -o $(R4F_OUT)
+	cargo run -q -p bower -- --book $(R4F) verify
+	cargo run -q -p bower -- --book $(R4F) status -o $(R4F_OUT)
+
+ship-failures: failures failures-epub failures-pdf ## the whole book, then report what a push would do
+	cargo run -q -p bower -- --book $(R4F) push -o $(R4F_OUT)
+	@echo
+	@echo "dry run only. to publish: make ship-failures-execute"
+
+ship-failures-execute: ship-failures ## the same, then push the repo, its site, and a release
+	cargo run -q -p bower -- --book $(R4F) push -o $(R4F_OUT) --execute

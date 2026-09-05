@@ -1,0 +1,18 @@
+[book]
+title = "Rust for Failures"
+description = "How controlled failing is the way to build solid systems."
+authors = ["folkengine"]
+language = "en"
+src = "src"
+
+# Requires the `mdbook-bower` binary on PATH. `make failures` puts it there;
+# by hand it is:
+#   cargo build -p bower && export PATH="$PWD/target/debug:$PATH"
+# Without it, `mdbook build` fails rather than quietly rendering a book whose
+# directives were never applied.
+[preprocessor.bower]
+command = "mdbook-bower"
+
+[output.html]
+default-theme = "ayu"
+additional-css = ["theme/step-meta.css"]

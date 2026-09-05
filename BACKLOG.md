@@ -11,13 +11,18 @@
 
 ## In flight
 
-_Nothing. Releases shipped._
+- **Migration — *Rust for Failures*** (spec § 11 Phase 5). The book lives in
+  `books/rust4failures/`, beside the sample, and publishes both its code and
+  its rendered site to `folkengine/rust4failures`. Chapter 1 is written and
+  green: five steps, one of them a declared `compile_fail`, all five verified
+  against a real compiler (`make failures`). Next is the chapter map — the
+  teaching order over `pkcore`'s `DIARY.md`, which is deliberately not the
+  order the work was done in. Nothing has been pushed to GitHub yet.
 
 ## Next up — unwritten EPICs
 
 | Work | Source | Note |
 |---|---|---|
-| **Migration** | spec § 11 Phase 5 | Stand up the real *Rust for Failures* mdBook, move the DIARY and doc-comment material chapter by chapter, generate `failers` for real. This is the phase that proves the whole tool. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
 | **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
@@ -28,10 +33,11 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
-- [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch
+- [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_branch_args` is the first piece pulled out into something testable
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
+- [ ] `bower push` creates `gh-pages` but never enables GitHub Pages — the branch is published, `status` says `in sync`, and the reader gets a 404. Found on the first repo nobody had configured by hand
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 
@@ -47,11 +53,28 @@ names, repo layout, repo CI, block library); these four are not.
 | 9 | JupyterLite / pyodide |
 | 10 | `devenv.nix` — hand-authored per repo, or derived? |
 
-Decided 4 September 2026: **(2)** one repo per book, not a shared workspace;
-**(4)** yes, generated repos get GitHub Actions that re-verify on push; **(6)**
-the block library is core, not an extension — see `bower-spec.md` § 12.
+Decided 4 September 2026: **(4)** yes, generated repos get GitHub Actions that
+re-verify on push; **(6)** the block library is core, not an extension.
+
+**(2)** was decided 4 September as one repo per book and **reversed 5
+September**: every book's source lives in this workspace under `books/`.
+Standing up the first real book settled it by trying the other answer first.
+Generated repos are unaffected — each book still publishes to its own GitHub
+repository. See `bower-spec.md` § 12.
 
 ## Recently fixed
+
+- **`bower push` could publish a repository once and never again.** The branch
+  push ran `git push --force-with-lease <url> main:main`. A bare
+  `--force-with-lease` compares against a *remote-tracking* ref, and a push to
+  a URL has none, so git answered `stale info` and refused — every push after
+  a repository's first one, which is the only kind that matters, since a
+  generated repo is republished whenever the book changes. The first push to an
+  empty remote succeeded, which is why `hello-playbook` shipped and nothing
+  looked wrong. Fixed 5 September 2026: `remote_head` reads the branch with
+  `git ls-remote` and the lease carries that value explicitly. Still a lease —
+  a remote that moved between the read and the push is still refused, proven
+  against a local bare repository before the change was written.
 
 - **The book's name changed with the spelling of its path.** `book_name` took
   the book root's last path segment, and `--book` defaults to `.`, which has no

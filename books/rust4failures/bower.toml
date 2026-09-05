@@ -1,0 +1,35 @@
+# Rust for Failures — the replay layer's configuration.
+# `bower/src/config.rs` parses this file; `bower-core` never sees it, and only
+# `keep_region_markers` crosses into the kernel's `RepoCatalog`.
+
+[book]
+# The timestamp base for deterministic commit SHAs. Replay never reads a clock:
+# every commit's time is this epoch plus its step number, in minutes.
+epoch = 2026-09-05T00:00:00Z
+site = "https://folkengine.github.io/rust4failures"
+# The edition. `bower push` hangs a GitHub release off this and attaches every
+# `.pdf` and `.epub` in the repo's `assets` directory. A book that declares
+# `assets` must declare a version: a release has to be called something.
+version = "0.1.0"
+
+[identity]
+name = "folkengine"
+email = "bower@folkengine.example"
+
+# One repository receives both halves of this book: the generated code on the
+# default branch, and the rendered book on `site_branch`.
+[repos.rust4failures]
+github = "folkengine/rust4failures"
+site_branch = "gh-pages"
+assets = "published"
+template = "template"
+keep_region_markers = false
+# Two commands, because the book distinguishes "does not compile" from
+# "compiles, tests fail". `bower verify` needs both to tell them apart.
+check = "cargo check"
+verify = "cargo test"
+
+[repos.rust4failures.links]
+blob = "https://github.com/folkengine/rust4failures/blob/{tag}/{path}#L{start}-L{end}"
+tree = "https://github.com/folkengine/rust4failures/tree/{tag}"
+commit = "https://github.com/folkengine/rust4failures/commit/{tag}"
