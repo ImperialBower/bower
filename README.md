@@ -2,59 +2,53 @@
 
 **Book-driven repository generation and publishing.**
 
-In euchre, the right bower is the card that controls the game. Here, the book
-is the right bower: annotated code blocks in the book's markdown are the single
-source of truth, and Bower turns them into deterministic, replayable git
-repositories — one commit per teaching step, with links in both directions
-between the page and the code.
+In euchre, the right bower is the card that controls the game. Here the book is
+the right bower: annotated code blocks in the book's markdown are the single
+source of truth. Bower turns them into deterministic, replayable git
+repositories — one commit per teaching step, linked in both directions between
+page and code.
 
 This workspace is **Phases 1 to 4** of the [design spec](https://github.com/ImperialBower)
-(`bower-spec.md`, Draft 0.2): the pure kernel, its testkit, the replay layer that
-turns a plan into real commits, the verifier that checks every step's declared
-`expect` against a real compiler, the `mdbook-bower` preprocessor, the `status`
-drift report, and `push`. Migration — standing up the real *Rust for Failers*
-book — is Phase 5, and is where all of this first meets a book that was not
-written to flatter it.
+(`bower-spec.md`, Draft 0.2): the kernel, its testkit, replay, verification, the
+`mdbook-bower` preprocessor, `status`, and `push`. Phase 5 is migration —
+standing up the real *Rust for Failers* book.
 
 ## Crates
 
 | Crate | What it is |
 |---|---|
-| `bower-core` | The domain kernel. Parses `<!-- bower … -->` directives out of chapter markdown, groups blocks into steps, orders them (document order, bent by `after=`), folds every step into a complete `TreeState`, computes display spans and line-anchored ranges, binds `notebook="play"` cells to their steps for the Jupyter target, and reports every error it can find in one located pass. Zero dependencies; nothing in the public API does I/O or serialization. |
-| `bower` | The CLI. Reads `bower.toml` and the book's `SUMMARY.md`, resolves the plan through the kernel, replays it into a git repository with `gix` — one commit per step, annotated tags, commit trailers pointing back at the chapter, and a generated `STEPS.md` — verifies every step's declared `expect` against a real compiler, and reports drift between the book, the lock, and a built repo. Two runs of an unchanged book produce identical SHAs. |
-| `mdbook-bower` | The mdBook preprocessor, a second binary in the same crate behind the `preprocessor` feature. Strips directives, applies display markers so a block prints only what it marks, injects `#step-<id>` anchors, and adds a footer linking each block to its exact lines in the generated repository. A directive naming an unknown repo fails `mdbook build`. |
-| `bower-testkit` | The controllability half, per the kernel-testkit pattern: a fixture corpus covering every op, mechanism, and error variant (the *data textures* of book sources); proptest generators over arbitrary valid books; and a *state coverage* report over (op × expect × mechanism). |
+| `bower-core` | The domain kernel. Parses `<!-- bower … -->` directives out of chapter markdown, groups blocks into steps, orders them (document order, bent by `after=`), folds each step into a complete `TreeState`, computes display spans and line-anchored ranges, binds `notebook="play"` cells to their steps, and reports every error in one located pass. Zero dependencies; no I/O or serialization in the public API. |
+| `bower` | The CLI. Reads `bower.toml` and the book's `SUMMARY.md`, resolves the plan through the kernel, and replays it into a git repository with `gix` — one commit per step, annotated tags, commit trailers pointing back at the chapter, and a generated `STEPS.md`. Verifies each step's declared `expect` against a real compiler and reports drift between book, lock, and built repo. Two runs of an unchanged book produce identical SHAs. |
+| `mdbook-bower` | The mdBook preprocessor, a second binary in the same crate behind the `preprocessor` feature. Strips directives, applies display markers, injects `#step-<id>` anchors, and adds a footer linking each block to its exact lines in the generated repository. A directive naming an unknown repo fails `mdbook build`. |
+| `bower-testkit` | The controllability half, per the kernel-testkit pattern: a fixture corpus covering every op, mechanism, and error variant; proptest generators over arbitrary valid books; and a state coverage report over (op × expect × mechanism). |
 
 ## The invariants (proven in the test suites)
 
 - **Determinism** — equal book in, byte-identical plan out.
 - **Line-map exactness** — every displayed span's `LineRange` covers exactly
-  that span's text in the materialized tree; source links cannot lie.
+  that span's text in the materialized tree.
 - **Errors, not surprises** — every broken fixture produces its named error,
   with chapter and line attached.
-- **Full state coverage** — the corpus exercises every op, every expectation,
-  and every mechanism, and the report proves it.
+- **Full state coverage** — the corpus exercises every op, expectation, and
+  mechanism, and the report proves it.
 - **Replay determinism** — two `bower build` runs of an unchanged book produce
-  identical commit SHAs, and a replay over a dirty directory produces the same
-  SHAs as one over an empty directory (`bower/tests/determinism.rs`).
-- **Declared failures really fail** — a step marked `expect="compile_fail"` does
-  not compile, and one marked `expect="test_fail"` compiles but fails its tests.
-  Change an expectation to something untrue and the build says so, naming the
-  chapter and line (`bower/tests/verification.rs`).
-- **Drift is visible** — a freshly built book reports in sync; edit a chapter,
-  delete a file, or drop a tag and `bower status` names exactly what changed
-  (`bower/tests/status.rs`).
-- **The page links to the code, by line** — every rendered block carries a
-  footer naming its file and line range at a tag, and those lines are the lines
-  the reader just saw (`bower/tests/preprocessor.rs`).
+  identical SHAs, and a replay over a dirty directory matches one over an empty
+  directory (`bower/tests/determinism.rs`).
+- **Declared failures really fail** — `expect="compile_fail"` does not compile;
+  `expect="test_fail"` compiles but fails its tests. An untrue expectation fails
+  the build, naming chapter and line (`bower/tests/verification.rs`).
+- **Drift is visible** — edit a chapter, delete a file, or drop a tag, and
+  `bower status` names exactly what changed (`bower/tests/status.rs`).
+- **The page links to the code, by line** — every rendered block's footer names
+  its file and line range at a tag, and those are the lines the reader just saw
+  (`bower/tests/preprocessor.rs`).
 - **Every target shows the same thing** — html, epub, and PDF render identically
-  except for how an elided span is shown, which is the one thing that must
-  differ (`bower/tests/publish.rs`).
+  except for how an elided span is shown (`bower/tests/publish.rs`).
 - **The PDF is reproducible** — two runs of an unchanged book produce identical
   bytes (`pdf_is_byte_identical_across_runs`).
-- **A stale site is visible** — edit one paragraph and `bower status` says the
-  rendered book no longer matches, even though the plan, the lock, and the repo
-  are all unchanged (`bower/tests/site.rs`).
+- **A stale site is visible** — edit one paragraph and `bower status` reports
+  the rendered book out of date, even when plan, lock, and repo are unchanged
+  (`bower/tests/site.rs`).
 
 ## Quick tour
 
@@ -90,12 +84,9 @@ make book      # render the sample book with the preprocessor
 
 `make ayce` is the whole gate and the default target. `lint` also asserts the
 kernel's purity (`cargo tree -p bower-core -e normal` must print one line), and
-`build` also compiles the CLI with `--no-default-features`, so both invariants
-run on every sweep without changing `ayce`'s prerequisite list.
-
-The last command is the kernel's purity gate. `bower-core` has no dependencies
-and does no I/O; if that line ever grows a second row, something crossed a
-boundary it should not have.
+`build` also compiles the CLI with `--no-default-features` — both invariants run
+on every sweep without changing `ayce`'s prerequisites. If that purity line ever
+grows a second row, something crossed a boundary it should not have.
 
 ## Building the sample book's repo
 
@@ -110,23 +101,27 @@ cargo run -p bower -- --book books/hello-playbook publish --target epub -o publi
 
 `verify` writes each step's tree to a scratch directory and runs the repo's
 `check` and `verify` commands against it, comparing what happens to what the
-book claimed. It never touches git, so it works before `build` has ever run.
+book claimed. It never touches git, so it works before `build` has ever run. The
+scratch directory lives outside the book — under the system temp directory by
+default, never the book's `target/` — because most Rust books are themselves
+cargo workspaces, and cargo refuses to build a package written inside one. When
+that happens `verify` says so by name instead of reporting every true claim as
+false.
 
-`push` publishes a built repository — **and its rendered site** — to the
-`github` remote its `bower.toml` declares. A book that names a `site_branch`
-ships its HTML there in the same command, so the code and the pages a reader
-sees can never drift apart silently. It **reports and changes nothing** unless given `--execute`, and it
-refuses to force-push over any repository that does not carry Bower's own
-`STEPS.md` marker naming this book. **There is no override** — no flag, no
-environment variable, no config key. To adopt an existing repository, push a
-`STEPS.md` to it by hand first. Force-pushing is a generated repo's normal life,
-and the guard is what keeps that from being anyone else's problem.
+`status` answers the question between the other commands: what here is out of
+date? It compares the book against `bower.lock` and against a previously built
+repository, names the steps, tags, and files that drifted, and exits non-zero if
+any did. An unplanned book and an unbuilt repo are reported as such and are
+**not** drift, so it is safe in CI on a fresh checkout.
 
-`verify` writes each step's tree to a scratch directory outside the book — under
-the system temp directory by default, never the book's `target/`. Most books
-that teach Rust are themselves cargo workspaces, and a scratch package written
-inside one is a package cargo refuses to build; when that happens `verify` says
-so by name rather than reporting every true claim as false.
+`push` publishes a built repository — **and its rendered site** — to the `github`
+remote its `bower.toml` declares. A book that names a `site_branch` ships its
+HTML there in the same command, so code and pages cannot drift apart. It
+**reports and changes nothing** unless given `--execute`, and it refuses to
+force-push over any repository that does not carry Bower's own `STEPS.md` marker
+naming this book. **There is no override** — no flag, no environment variable,
+no config key. To adopt an existing repository, push a `STEPS.md` to it by hand
+first.
 
 The whole sequence has a name:
 
@@ -136,7 +131,7 @@ make ship-hello-execute   # the same, then actually push
 ```
 
 Two targets rather than one flag, so `--execute` is written down in exactly one
-place and a force-push has to be asked for by name.
+place.
 
 ### Releases
 
@@ -151,24 +146,17 @@ assets = "published"       # book-relative; where the epub and PDF are rendered
 ```
 
 `push` then hangs a GitHub release off `v0.1.0` and attaches every `.pdf` and
-`.epub` directly inside that directory — not recursively, because the render's
-own scratch folders live under the same roof. Re-shipping the same edition
-replaces the files rather than failing, which is safe precisely because both
-artifacts are byte-reproducible: an unchanged book uploads identical bytes.
+`.epub` directly inside that directory — not recursively, since the render's own
+scratch folders live under the same roof. Re-shipping the same edition replaces
+the files rather than failing, which is safe because both artifacts are
+byte-reproducible.
 
 Half-configured is an error, not a silence. `assets` without a `version`, or an
-`assets` directory holding neither format, refuses the push and says which —
-a book whose downloads quietly did not ship would look published and not be.
+`assets` directory holding neither format, refuses the push and says which.
 
 The release is decided locally and published last, after the repository and the
-site are really there: a release pointing at a tag nobody can fetch is worse
-than no release at all.
-
-`status` answers the question between the other commands: what here is out of
-date? It compares the book against `bower.lock` and against a previously built
-repository, names the steps, tags, and files that drifted, and exits non-zero
-if any did. A book nobody has planned and a repo nobody has built are reported
-as such and are **not** drift, so it is safe in CI on a fresh checkout.
+site are really there — a release pointing at an unfetchable tag is worse than
+no release.
 
 ## Rendering the book
 
@@ -178,23 +166,22 @@ make epub      # epub, via pandoc
 make pdf       # PDF, via pandoc + typst
 ```
 
-Both go through `bower publish --target …`, which folds the book into one
-*render plan* and hands it to a renderer. The two targets share a single
-display-marker engine and differ in exactly one rule: mdBook HTML keeps Rust's
-expandable hidden lines, and an epub — which has no toggle anywhere — collapses
-each elided span to `// ⋯ 9 lines elided — full file: <url>`.
+All three go through `bower publish --target …`, which folds the book into one
+*render plan* and hands it to a renderer. They share a single display-marker
+engine and differ in exactly one rule: mdBook HTML keeps Rust's expandable
+hidden lines, and epub — which has no toggle — collapses each elided span to
+`// ⋯ 9 lines elided — full file: <url>`.
 
-Three targets, one engine. `html` needs `mdbook-bower` on `PATH` — the book's
-`book.toml` declares `[preprocessor.bower]`, so without it the build **fails**
-rather than quietly rendering a book whose directives were never applied.
-`epub` needs `pandoc`; `pdf` needs `pandoc` and `typst`. Every tool is checked,
-by name and with its install command, before anything is written.
+`html` needs `mdbook-bower` on `PATH`; the book's `book.toml` declares
+`[preprocessor.bower]`, so without it the build **fails** rather than rendering a
+book whose directives were never applied. `epub` needs `pandoc`; `pdf` needs
+`pandoc` and `typst`. Every tool is checked, by name and with its install
+command, before anything is written.
 
-The PDF is **byte-identical across runs**, because its timestamp is pinned from
-the same `bower.toml` epoch that already makes commit SHAs reproducible.
-`books/hello-playbook/template.typ` sets its typography, and any font it names
-is checked against `typst fonts` first — a silently substituted font is how a
-missing glyph reaches a reader.
+The PDF is **byte-identical across runs**: its timestamp is pinned from the same
+`bower.toml` epoch that makes commit SHAs reproducible.
+`books/hello-playbook/template.typ` sets its typography, and any font it names is
+checked against `typst fonts` first, so no font is silently substituted.
 
 ### Covers
 
@@ -203,15 +190,15 @@ as `template.typ` is:
 
 | File | What it is |
 |---|---|
-| `cover.svg` | The title band. Required — no `cover.svg`, no cover, and the book publishes as it always did. |
+| `cover.svg` | The title band. Required — no `cover.svg`, no cover. |
 | `cover.png` / `.jpg` | Artwork, stacked below the band. Optional; without it the band fills the page. |
 
-`publish::compose_cover` stacks them into **one** 1600×2400 SVG, with the
-artwork embedded as a `data:` URI so the result is self-contained. Both
-renderers get those same bytes — pandoc as `--epub-cover-image`, Typst as a
-full-bleed first page — which is what stops the epub and the PDF from showing
-different covers. The composition is a pure function, so it is tested with no
-renderer installed, and it is deterministic, so the PDF stays byte-identical.
+`publish::compose_cover` stacks them into **one** 1600×2400 SVG, with the artwork
+embedded as a `data:` URI so the result is self-contained. Both renderers get
+those same bytes — pandoc as `--epub-cover-image`, Typst as a full-bleed first
+page — so the epub and the PDF cannot show different covers. The composition is
+a pure function, so it is tested with no renderer installed, and deterministic,
+so the PDF stays byte-identical.
 
 ## License
 
