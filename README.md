@@ -52,7 +52,7 @@ standing up the real *Rust for Failers* book.
 
 ## Quick tour
 
-```rust
+````rust
 use bower_core::prelude::*;
 
 let book = BookSource::from_chapters(vec![Chapter::new(
@@ -71,7 +71,7 @@ let plan = plan(&book, &catalog)?;
 let step = &plan.repo("failers").unwrap().steps[0];
 assert_eq!(step.tag(), "step-001-ch01-hello");
 assert_eq!(step.tree.text("src/lib.rs").unwrap(), "pub fn hello() {}\n");
-```
+````
 
 ## Developing
 
