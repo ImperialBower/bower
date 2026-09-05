@@ -1111,6 +1111,7 @@ mod publish_tests {
                 blob: Some("https://x.invalid/blob/{tag}/{path}#L{start}-L{end}".to_string()),
                 tree: None,
                 commit: None,
+                checkout: None,
             },
         );
         m

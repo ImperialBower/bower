@@ -82,6 +82,10 @@ pub struct LinkTemplates {
     pub tree: Option<String>,
     /// The diff this step introduced: `https://…/commit/{tag}`
     pub commit: Option<String>,
+    /// The command that puts a clone at this step: `git checkout {tag}`.
+    /// Derived from `github`, not read from the file — a book with no remote
+    /// has no repository a reader could check out.
+    pub checkout: Option<String>,
 }
 
 /// Why a configuration could not be loaded. Every variant names the file, so a
@@ -169,6 +173,9 @@ impl BookConfig {
                 .repos
                 .into_iter()
                 .map(|(name, r)| {
+                    // Derived, not declared: the command is the same everywhere
+                    // git is, and it is only offerable once a remote exists.
+                    let checkout = r.github.as_ref().map(|_| "git checkout {tag}".to_string());
                     (
                         name,
                         RepoConfig {
@@ -183,6 +190,7 @@ impl BookConfig {
                                 blob: r.links.blob,
                                 tree: r.links.tree,
                                 commit: r.links.commit,
+                                checkout,
                             },
                         },
                     )
@@ -298,6 +306,32 @@ mod config_tests {
         assert!(repo.links.blob.as_ref().unwrap().contains("{tag}"));
         assert!(repo.links.tree.as_ref().unwrap().contains("{tag}"));
         assert!(repo.links.commit.as_ref().unwrap().contains("{tag}"));
+    }
+
+    const MINIMAL: &str = concat!(
+        "[book]\n",
+        "epoch = 2026-09-01T00:00:00Z\n\n",
+        "[identity]\n",
+        "name = \"N\"\n",
+        "email = \"e@example.invalid\"\n\n",
+    );
+
+    #[test]
+    fn config__a_repo_with_a_remote_gets_a_checkout_command() {
+        let text = format!("{MINIMAL}[repos.r]\ngithub = \"o/r\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            cfg.repos.get("r").unwrap().links.checkout.as_deref(),
+            Some("git checkout {tag}")
+        );
+    }
+
+    #[test]
+    fn config__a_repo_without_a_remote_gets_no_checkout_command() {
+        // Nobody can check out a repository that was never pushed.
+        let text = format!("{MINIMAL}[repos.r]\ncheck = \"cargo check\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        assert_eq!(cfg.repos.get("r").unwrap().links.checkout, None);
     }
 
     #[test]

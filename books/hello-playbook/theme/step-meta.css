@@ -8,3 +8,10 @@
     border-radius: 4px;
     background: var(--table-alternate-bg, rgba(127, 127, 127, 0.08));
 }
+
+/* The "check this step out locally" command bower prints below each fence.
+   Courier for the whole line, prompt included, so it reads as a terminal. */
+.step-checkout,
+.step-checkout code {
+    font-family: Courier, "Courier New", monospace;
+}
