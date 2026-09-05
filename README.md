@@ -12,7 +12,7 @@ This workspace is **Phases 1 to 4** of the [design spec](https://github.com/Impe
 (`bower-spec.md`, Draft 0.2): the kernel, its testkit, replay, verification, the
 `mdbook-bower` preprocessor, `status`, and `push`. Phase 5 — migration — is
 under way: *Rust for Failures* lives in `books/rust4failures/`, one chapter
-so far, and publishes to `folkengine/rust4failures`.
+so far, and publishes to `abstecker/rust4failures`.
 
 ## Crates
 

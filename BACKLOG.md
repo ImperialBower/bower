@@ -13,7 +13,7 @@
 
 - **Migration — *Rust for Failures*** (spec § 11 Phase 5). The book lives in
   `books/rust4failures/`, beside the sample, and publishes both its code and
-  its rendered site to `folkengine/rust4failures`. Chapter 1 is written and
+  its rendered site to `abstecker/rust4failures`. Chapter 1 is written and
   green: five steps, one of them a declared `compile_fail`, all five verified
   against a real compiler (`make failures`). Next is the chapter map — the
   teaching order over `pkcore`'s `DIARY.md`, which is deliberately not the

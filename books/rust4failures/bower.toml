@@ -6,7 +6,7 @@
 # The timestamp base for deterministic commit SHAs. Replay never reads a clock:
 # every commit's time is this epoch plus its step number, in minutes.
 epoch = 2026-09-05T00:00:00Z
-site = "https://folkengine.github.io/rust4failures"
+site = "https://abstecker.github.io/rust4failures"
 # The edition. `bower push` hangs a GitHub release off this and attaches every
 # `.pdf` and `.epub` in the repo's `assets` directory. A book that declares
 # `assets` must declare a version: a release has to be called something.
@@ -19,7 +19,7 @@ email = "bower@folkengine.example"
 # One repository receives both halves of this book: the generated code on the
 # default branch, and the rendered book on `site_branch`.
 [repos.rust4failures]
-github = "folkengine/rust4failures"
+github = "abstecker/rust4failures"
 site_branch = "gh-pages"
 assets = "published"
 template = "template"
@@ -30,6 +30,6 @@ check = "cargo check"
 verify = "cargo test"
 
 [repos.rust4failures.links]
-blob = "https://github.com/folkengine/rust4failures/blob/{tag}/{path}#L{start}-L{end}"
-tree = "https://github.com/folkengine/rust4failures/tree/{tag}"
-commit = "https://github.com/folkengine/rust4failures/commit/{tag}"
+blob = "https://github.com/abstecker/rust4failures/blob/{tag}/{path}#L{start}-L{end}"
+tree = "https://github.com/abstecker/rust4failures/tree/{tag}"
+commit = "https://github.com/abstecker/rust4failures/commit/{tag}"
