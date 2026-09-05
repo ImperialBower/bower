@@ -44,7 +44,7 @@ fn plan_for(target: Target) -> RenderPlan {
         .iter()
         .map(|(n, r)| (n.clone(), r.links.clone()))
         .collect();
-    render_plan(&book, &resolved, meta, target, &links)
+    render_plan(&book, &resolved, meta, target, &links, cfg.version.clone())
 }
 
 #[test]

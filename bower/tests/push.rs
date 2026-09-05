@@ -194,8 +194,18 @@ fn a_declared_edition_ships_its_downloads_and_the_dry_run_still_sends_nothing() 
     let root = scratch("release-book").join("hello-playbook");
     copy_dir(&book_root(), &root);
     let published = root.join("published");
+    // The copy brings the real book's `published/` with it, so emptying it is
+    // what makes the sentence above true rather than lucky. It used to be
+    // lucky: the fixture names collided with the rendered ones and overwrote
+    // them, and the day rendered artifacts started carrying their version the
+    // collision stopped happening and this test counted four assets.
+    let _ = std::fs::remove_dir_all(&published);
     std::fs::create_dir_all(&published).unwrap();
-    for name in ["hello-playbook.epub", "hello-playbook.pdf", "body.typ"] {
+    for name in [
+        "hello-playbook_0.1.0.epub",
+        "hello-playbook_0.1.0.pdf",
+        "body.typ",
+    ] {
         std::fs::write(published.join(name), "x").unwrap();
     }
     let dir = built("release-repo", &p, &cfg);

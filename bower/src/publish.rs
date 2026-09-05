@@ -470,6 +470,9 @@ pub struct RenderedChapter {
 pub struct RenderPlan {
     pub target: Target,
     pub meta: BookMeta,
+    /// The book's edition, from `bower.toml`'s `[book] version`. `None` is a
+    /// normal book; it names its artifacts without a version, as it always did.
+    pub version: Option<String>,
     pub chapters: Vec<RenderedChapter>,
 }
 
@@ -481,10 +484,12 @@ pub fn render_plan(
     meta: BookMeta,
     target: Target,
     links: &BTreeMap<String, LinkTemplates>,
+    version: Option<String>,
 ) -> RenderPlan {
     RenderPlan {
         target,
         meta,
+        version,
         chapters: book
             .chapters
             .iter()
@@ -556,6 +561,33 @@ fn need(tool: &str, install: &str) -> Result<(), PublishError> {
             install: install.to_string(),
         })
     }
+}
+
+/// What a rendered artifact is called: the book's slug, its version when it
+/// declares one, and the target's extension.
+///
+/// `Rust for Failures` at `0.1.0` becomes `rust-for-failures_0.1.0.epub`. A
+/// book with no `version` keeps the plain `hello-playbook.epub` — every book
+/// that existed before this did publishes under the name it always had.
+///
+/// The version is filtered rather than slugged: a dot separates a version's
+/// parts and must survive, while anything a filesystem or a URL would argue
+/// about is dropped.
+#[must_use]
+pub fn artifact_name(title: &str, version: Option<&str>, ext: &str) -> String {
+    let stem = slug(title);
+    match version.map(version_tag).filter(|v| !v.is_empty()) {
+        Some(v) => format!("{stem}_{v}.{ext}"),
+        None => format!("{stem}.{ext}"),
+    }
+}
+
+/// The filename-safe part of a version string.
+fn version_tag(version: &str) -> String {
+    version
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+        .collect()
 }
 
 /// A filename-safe form of a book's title: `Hello, Playbook` → `hello-playbook`.
@@ -635,7 +667,11 @@ impl Renderer for PandocRenderer {
         std::fs::create_dir_all(out).map_err(io(out))?;
         let inputs = write_chapters(&out.join(".chapters"), plan)?;
 
-        let artifact = out.join(format!("{}.epub", slug(&plan.meta.title)));
+        let artifact = out.join(artifact_name(
+            &plan.meta.title,
+            plan.version.as_deref(),
+            "epub",
+        ));
         let mut cmd = std::process::Command::new("pandoc");
         cmd.arg("--from")
             .arg("markdown")
@@ -931,7 +967,11 @@ impl Renderer for TypstRenderer {
         text.push_str(&std::fs::read_to_string(&body).map_err(io(&body))?);
         std::fs::write(&source, text).map_err(io(&source))?;
 
-        let artifact = out.join(format!("{}.pdf", slug(&plan.meta.title)));
+        let artifact = out.join(artifact_name(
+            &plan.meta.title,
+            plan.version.as_deref(),
+            "pdf",
+        ));
         let output = std::process::Command::new("typst")
             .arg("compile")
             // Phase 0 measured this: without it, two runs differ; with it, they
@@ -1147,7 +1187,7 @@ mod publish_tests {
         // missing.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Epub, &links());
+        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
 
         assert_eq!(rp.chapters.len(), book.chapters.len());
         let paths: Vec<&str> = rp.chapters.iter().map(|c| c.path.as_str()).collect();
@@ -1164,8 +1204,8 @@ mod publish_tests {
         // prevent.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let epub = render_plan(&book, &plan, meta.clone(), Target::Epub, &links());
-        let pdf = render_plan(&book, &plan, meta, Target::Pdf, &links());
+        let epub = render_plan(&book, &plan, meta.clone(), Target::Epub, &links(), None);
+        let pdf = render_plan(&book, &plan, meta, Target::Pdf, &links(), None);
 
         for (e, p) in epub.chapters.iter().zip(pdf.chapters.iter()) {
             assert_eq!(e.markdown, p.markdown, "{} differs between targets", e.path);
@@ -1177,8 +1217,8 @@ mod publish_tests {
         // The claim that there is one engine, made testable.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let html = render_plan(&book, &plan, meta.clone(), Target::Html, &links());
-        let epub = render_plan(&book, &plan, meta, Target::Epub, &links());
+        let html = render_plan(&book, &plan, meta.clone(), Target::Html, &links(), None);
+        let epub = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
 
         // Chapters without display markers render identically.
         assert_eq!(
@@ -1230,6 +1270,47 @@ mod publish_tests {
     }
 
     #[test]
+    fn artifact_name__carries_the_version() {
+        assert_eq!(
+            artifact_name("Rust for Failures", Some("0.1.0"), "epub"),
+            "rust-for-failures_0.1.0.epub"
+        );
+        assert_eq!(
+            artifact_name("Rust for Failures", Some("0.1.0"), "pdf"),
+            "rust-for-failures_0.1.0.pdf"
+        );
+    }
+
+    #[test]
+    fn artifact_name__a_book_without_a_version_keeps_its_old_name() {
+        // Every book that shipped before versioned filenames existed must
+        // publish under the name it always had.
+        assert_eq!(
+            artifact_name("Hello, Playbook", None, "epub"),
+            "hello-playbook.epub"
+        );
+    }
+
+    #[test]
+    fn artifact_name__a_version_of_pure_punctuation_is_no_version() {
+        // Filtering can empty a string. `book_..epub` would be the alternative.
+        assert_eq!(artifact_name("A Book", Some("///"), "pdf"), "a-book.pdf");
+    }
+
+    #[test]
+    fn artifact_name__keeps_a_version_readable() {
+        // Dots separate a version's parts and must survive; a space must not.
+        assert_eq!(
+            artifact_name("A Book", Some("1.2.3-rc.1"), "epub"),
+            "a-book_1.2.3-rc.1.epub"
+        );
+        assert_eq!(
+            artifact_name("A Book", Some("1.0 beta"), "epub"),
+            "a-book_1.0beta.epub"
+        );
+    }
+
+    #[test]
     fn slug__is_filename_safe() {
         assert_eq!(slug("Hello, Playbook"), "hello-playbook");
         assert_eq!(slug("Rust for Failures!"), "rust-for-failures");
@@ -1242,7 +1323,7 @@ mod publish_tests {
     fn fake__records_the_plan_it_was_given() {
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Epub, &links());
+        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
 
         let fake = FakeRenderer::new();
         fake.preflight().unwrap();
@@ -1454,7 +1535,7 @@ mod publish_tests {
         // Shared by pandoc and typst, so a bug here would misorder an epub too.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Pdf, &links());
+        let rp = render_plan(&book, &plan, meta, Target::Pdf, &links(), None);
 
         let dir = std::env::temp_dir().join("bower-write-chapters");
         let files = write_chapters(&dir, &rp).unwrap();

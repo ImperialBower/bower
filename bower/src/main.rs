@@ -577,7 +577,9 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
         .map(|(name, r)| (name.clone(), r.links.clone()))
         .collect();
 
-    let plan: RenderPlan = render_plan(&book, &resolved, meta, target, &links);
+    // The edition names the artifact: an `.epub` on a release page should say
+    // which edition it is without the page around it.
+    let plan: RenderPlan = render_plan(&book, &resolved, meta, target, &links, cfg.version.clone());
 
     // Every renderer is checked before anything is written, so a missing
     // binary costs nothing and says how to fix itself.
