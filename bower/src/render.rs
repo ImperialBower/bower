@@ -130,6 +130,14 @@ pub fn chapter(
         if k < lines.len() {
             out.push(lines[k].to_string());
         }
+        // Below the block, not above it: the reader who has just read the code
+        // is the one who wants it in front of them locally.
+        if let Some((repo, step, _)) = block
+            && let Some(line) = checkout_line(step, forge.get(repo))
+        {
+            out.push(String::new());
+            out.push(line);
+        }
         i = k + 1;
     }
 
@@ -304,6 +312,23 @@ pub fn footer(
     ))
 }
 
+/// The command that puts a local clone at this step, printed below the block.
+///
+/// Returns `None` when the repo declares no `checkout` template, which is what
+/// a repo with no `github` remote gets: a reader cannot check out a repository
+/// that was never pushed, and a command that fails is worse than no command.
+///
+/// The `$>` prompt sits *outside* the code span so that copying the span yields
+/// a command that runs, not one that starts with a prompt.
+///
+/// The `step-checkout` class is the whole of the tool's opinion about looks: a
+/// book's own theme decides the rest, exactly as `step-meta` already works.
+#[must_use]
+pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Option<String> {
+    let cmd = subst(links?.checkout.as_deref(), &step.tag(), None)?;
+    Some(format!("<span class=\"step-checkout\">$> `{cmd}`</span>"))
+}
+
 /// Fill `{tag}`, `{path}`, `{start}`, `{end}` in a template.
 ///
 /// Literal replacement, not a template engine: four placeholders do not justify
@@ -373,6 +398,7 @@ mod render_tests {
                 blob: Some("https://x.invalid/blob/{tag}/{path}#L{start}-L{end}".to_string()),
                 tree: Some("https://x.invalid/tree/{tag}".to_string()),
                 commit: Some("https://x.invalid/commit/{tag}".to_string()),
+                checkout: Some("git checkout {tag}".to_string()),
             },
         );
         m
@@ -670,6 +696,65 @@ mod render_tests {
         );
     }
 
+    #[test]
+    fn checkout__comes_after_the_closing_fence() {
+        // A reader who has just read the code is the one who wants it locally.
+        let out = chapter(
+            CH,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &github_links(),
+            Target::Html,
+        );
+        let cmd = out
+            .find("$> `git checkout step-001-first`")
+            .unwrap_or_else(|| panic!("no checkout line: {out}"));
+        let closing_fence = out.rfind("```").expect("closing fence");
+        assert!(
+            cmd > closing_fence,
+            "the command must follow the block: {out}"
+        );
+    }
+
+    #[test]
+    fn checkout__carries_a_class_a_book_can_style() {
+        // The tool names the line; the book's theme decides how it looks.
+        let out = chapter(
+            CH,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &github_links(),
+            Target::Html,
+        );
+        assert!(
+            out.contains("<span class=\"step-checkout\">$> `git checkout step-001-first`</span>"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn checkout__prompt_sits_outside_the_command() {
+        // `$>` inside the span would be copied along with the command.
+        let out = chapter(
+            CH,
+            "src/ch01.md",
+            &tiny_plan(CH),
+            &github_links(),
+            Target::Html,
+        );
+        assert!(
+            !out.contains("`$>"),
+            "the prompt must not be copyable: {out}"
+        );
+    }
+
+    #[test]
+    fn checkout__omitted_without_a_template() {
+        // A book with no remote has no repository a reader can check out.
+        let out = chapter(CH, "src/ch01.md", &tiny_plan(CH), &no_links(), Target::Html);
+        assert!(!out.contains("git checkout"), "{out}");
+    }
+
     const PROSE_CH: &str = concat!(
         "# One\n\n",
         "<!-- bower repo=\"r\" step=\"note\" op=\"none\" -->\n\n",
@@ -696,5 +781,7 @@ mod render_tests {
         assert!(!out.contains("<sub>"), "{out}");
         assert!(out.contains("<a id=\"step-note\"></a>"), "{out}");
         assert!(out.contains("Just narrative"), "{out}");
+        // No fence, so no code to check out either.
+        assert!(!out.contains("git checkout"), "{out}");
     }
 }
