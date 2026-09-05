@@ -40,14 +40,14 @@ pub mod prelude {
     //! The curated public front door: `use bower_core::prelude::*;` is the
     //! one import a consumer (or a doc test) needs.
 
+    pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
     pub use crate::directive::{Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
-    pub use crate::plan::{lock_text, plan, BookPlan, PlannedStep, PlayCell, RepoPlan};
+    pub use crate::plan::{BookPlan, PlannedStep, PlayCell, RepoPlan, lock_text, plan};
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
-    pub use crate::tree::{show_marker, FileBody, ShowMark, TreeState};
-    pub use crate::BowerError;
+    pub use crate::tree::{FileBody, ShowMark, TreeState, show_marker};
 }
 
 use crate::source::Location;
@@ -197,6 +197,9 @@ impl BowerError {
 }
 
 impl std::fmt::Display for BowerError {
+    // One arm per variant; splitting it would need a `_` arm and lose the
+    // exhaustiveness check that forces every new error to carry a message.
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::DirectiveParse { loc, reason } => {
@@ -230,19 +233,38 @@ impl std::fmt::Display for BowerError {
                 write!(f, "{loc}: blocks in step `{step}` disagree about the repo")
             }
             Self::ConflictingExpectInStep { loc, step } => {
-                write!(f, "{loc}: blocks in step `{step}` declare conflicting `expect` values")
+                write!(
+                    f,
+                    "{loc}: blocks in step `{step}` declare conflicting `expect` values"
+                )
             }
             Self::FileAlreadyExists { loc, step, file } => {
-                write!(f, "{loc}: step `{step}` creates `{file}`, which already exists")
+                write!(
+                    f,
+                    "{loc}: step `{step}` creates `{file}`, which already exists"
+                )
             }
             Self::FileNotCreated { loc, step, file } => {
-                write!(f, "{loc}: step `{step}` modifies `{file}`, which was never created")
+                write!(
+                    f,
+                    "{loc}: step `{step}` modifies `{file}`, which was never created"
+                )
             }
-            Self::RegionMissing { loc, step, file, region } => write!(
+            Self::RegionMissing {
+                loc,
+                step,
+                file,
+                region,
+            } => write!(
                 f,
                 "{loc}: step `{step}` targets region `{region}` in `{file}`, but its markers are not there"
             ),
-            Self::RegionUnbalanced { loc, step, file, region } => write!(
+            Self::RegionUnbalanced {
+                loc,
+                step,
+                file,
+                region,
+            } => write!(
                 f,
                 "{loc}: step `{step}`: region `{region}` in `{file}` has unbalanced begin/end markers"
             ),
@@ -265,7 +287,10 @@ impl std::fmt::Display for BowerError {
                 write!(f, "{loc}: `bower:show end` with no open span")
             }
             Self::UnknownShowSpan { loc, name } => {
-                write!(f, "{loc}: show=\"{name}\" names a span this block does not define")
+                write!(
+                    f,
+                    "{loc}: show=\"{name}\" names a span this block does not define"
+                )
             }
             Self::SpanNotInTree { loc, step, file } => write!(
                 f,
@@ -275,7 +300,10 @@ impl std::fmt::Display for BowerError {
                 write!(f, "{loc}: play cell has no preceding step to attach to")
             }
             Self::PlayCellUnknownStep { loc, step } => {
-                write!(f, "{loc}: play cell names step `{step}`, which does not exist")
+                write!(
+                    f,
+                    "{loc}: play cell names step `{step}`, which does not exist"
+                )
             }
             Self::PlayCellConflictingKeys { loc } => write!(
                 f,

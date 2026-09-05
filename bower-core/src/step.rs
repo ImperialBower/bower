@@ -123,15 +123,15 @@ fn merge_into(step: &mut Step, block: Block, errors: &mut Errors) {
             step.expect = e;
         }
     }
-    if step.blocks.iter().all(|b| b.msg.is_none()) {
-        if let Some(m) = &block.msg {
-            step.msg.clone_from(m);
-        }
+    if step.blocks.iter().all(|b| b.msg.is_none())
+        && let Some(m) = &block.msg
+    {
+        step.msg.clone_from(m);
     }
-    if let Some(a) = &block.after {
-        if !step.afters.contains(a) {
-            step.afters.push(a.clone());
-        }
+    if let Some(a) = &block.after
+        && !step.afters.contains(a)
+    {
+        step.afters.push(a.clone());
     }
     step.blocks.push(block);
 }
@@ -396,10 +396,12 @@ mod step_tests {
         b.after = Some("a".to_string());
         let steps = group(vec![a, b], &mut errors);
         let _ = order(&RepoName::new("failers"), steps, &mut errors);
-        assert!(errors
-            .0
-            .iter()
-            .any(|e| matches!(e, BowerError::OrderingCycle { .. })));
+        assert!(
+            errors
+                .0
+                .iter()
+                .any(|e| matches!(e, BowerError::OrderingCycle { .. }))
+        );
     }
 
     #[test]

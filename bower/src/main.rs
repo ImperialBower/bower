@@ -14,19 +14,19 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bower_core::prelude::{lock_text, plan, BookPlan, PlannedStep};
+use bower_core::prelude::{BookPlan, PlannedStep, lock_text, plan};
 use clap::{Parser, Subcommand};
 
 use bower::config::BookConfig;
 use bower::forge::{Forge, GitHubForge, Release};
 use bower::loader::BookLoader;
 use bower::publish::{
-    render_plan, BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target,
-    TypstRenderer,
+    BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target, TypstRenderer,
+    render_plan,
 };
-use bower::push::{plan_push, PushPlan};
-use bower::replay::{book_name, final_blobs, scaffolding, Replayer};
-use bower::status::{lock_drift, repo_drift, site_drift, StatusReport};
+use bower::push::{PushPlan, plan_push};
+use bower::replay::{Replayer, book_name, final_blobs, scaffolding};
+use bower::status::{StatusReport, lock_drift, repo_drift, site_drift};
 use bower::verify::{Verdict, Verifier};
 
 #[derive(Debug, Parser)]
@@ -327,10 +327,10 @@ fn run_verify(
         // plan makes a valid request fail on whichever repo happens to sort
         // first — so skip the repos that do not hold it, and let the check
         // below catch a name that no repo holds at all.
-        if let Some(id) = named_step {
-            if !repo.steps.iter().any(|s| s.id.0 == id) {
-                continue;
-            }
+        if let Some(id) = named_step
+            && !repo.steps.iter().any(|s| s.id.0 == id)
+        {
+            continue;
         }
         ran_any = true;
         let verifier = Verifier {

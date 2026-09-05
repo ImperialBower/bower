@@ -15,7 +15,7 @@ use std::process::Command;
 use bower_core::prelude::{Expect, Location, RepoPlan, StepId};
 
 use crate::config::BookConfig;
-use crate::materialize::{blobs_of, read_dir_recursive, write_tree_to_disk, Blobs};
+use crate::materialize::{Blobs, blobs_of, read_dir_recursive, write_tree_to_disk};
 
 /// What a book gets when it declares no commands of its own.
 const DEFAULT_CHECK: &str = "cargo check";
@@ -154,10 +154,10 @@ impl Verifier<'_> {
     ) -> Result<VerifyReport, VerifyError> {
         let repo_name = plan.repo.0.clone();
         let known = |id: &str| plan.steps.iter().any(|s| s.id.0 == id);
-        if let Some(id) = only.or(from) {
-            if !known(id) {
-                return Err(VerifyError::UnknownStep(id.to_string()));
-            }
+        if let Some(id) = only.or(from)
+            && !known(id)
+        {
+            return Err(VerifyError::UnknownStep(id.to_string()));
         }
         let start = from
             .and_then(|id| plan.steps.iter().position(|s| s.id.0 == id))

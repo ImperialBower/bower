@@ -352,34 +352,69 @@ pub fn valid() -> Vec<Fixture> {
     ]
 }
 
-/// Broken books, one per error family. The paired name states the
-/// [`BowerError`] variant the fixture must produce.
-#[must_use]
-pub fn broken() -> Vec<(&'static str, Fixture)> {
-    let single = |name: &'static str, text: &str| {
-        (
+/// A broken book that is one chapter of `text`, named for the
+/// [`BowerError`] variant it must produce.
+fn single(name: &'static str, text: &str) -> (&'static str, Fixture) {
+    (
+        name,
+        Fixture::new(
             name,
-            Fixture::new(
-                name,
-                BookSource::from_chapters(vec![chapter("bad.md", text)]),
-                failers(),
-            ),
-        )
-    };
-    let mut cases = vec![
-        single("UnknownRepo", "<!-- bower repo=\"typo\" file=\"a.rs\" -->\n```rust\nx\n```\n"),
-        single("MissingKey", "<!-- bower repo=\"failers\" -->\n```rust\nx\n```\n"),
-        single("UnknownKey", "<!-- bower repo=\"failers\" file=\"a.rs\" flavor=\"salt\" -->\n```rust\nx\n```\n"),
-        single("BadValue", "<!-- bower repo=\"failers\" file=\"a.rs\" op=\"explode\" -->\n```rust\nx\n```\n"),
-        single("DirectiveParse", "<!-- bower repo=\"failers file=\"a.rs\" -->\n```rust\nx\n```\n"),
-        single("DirectiveWithoutBlock", "<!-- bower repo=\"failers\" file=\"a.rs\" -->\nprose instead\n"),
-        single("UnclosedFence", "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nnever closes\n"),
-        single("IncludeMissing", "<!-- bower include=\"blocks/ghost.md\" -->\n"),
+            BookSource::from_chapters(vec![chapter("bad.md", text)]),
+            failers(),
+        ),
+    )
+}
+
+/// Errors raised while reading the book source: directives, fences, and
+/// the block library.
+fn broken_source() -> Vec<(&'static str, Fixture)> {
+    vec![
+        single(
+            "UnknownRepo",
+            "<!-- bower repo=\"typo\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "MissingKey",
+            "<!-- bower repo=\"failers\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "UnknownKey",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" flavor=\"salt\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "BadValue",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" op=\"explode\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "DirectiveParse",
+            "<!-- bower repo=\"failers file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "DirectiveWithoutBlock",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\nprose instead\n",
+        ),
+        single(
+            "UnclosedFence",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nnever closes\n",
+        ),
+        single(
+            "IncludeMissing",
+            "<!-- bower include=\"blocks/ghost.md\" -->\n",
+        ),
+    ]
+}
+
+/// Errors raised while folding steps into a tree, and while ordering them.
+fn broken_tree() -> Vec<(&'static str, Fixture)> {
+    vec![
         single(
             "FileAlreadyExists",
             "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\ny\n```\n",
         ),
-        single("FileNotCreated", "<!-- bower repo=\"failers\" file=\"a.rs\" op=\"append\" -->\n```rust\nx\n```\n"),
+        single(
+            "FileNotCreated",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" op=\"append\" -->\n```rust\nx\n```\n",
+        ),
         single(
             "RegionMissing",
             "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nplain\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" op=\"region\" region=\"ghost\" -->\n```rust\nx\n```\n",
@@ -396,11 +431,20 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
             "ConflictingExpectInStep",
             "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" expect=\"pass\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" step=\"s\" expect=\"test_fail\" -->\n```rust\ny\n```\n",
         ),
-        single("OrphanAfter", "<!-- bower repo=\"failers\" file=\"a.rs\" after=\"ghost\" -->\n```rust\nx\n```\n"),
+        single(
+            "OrphanAfter",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" after=\"ghost\" -->\n```rust\nx\n```\n",
+        ),
         single(
             "OrderingCycle",
             "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"a\" after=\"b\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" step=\"b\" after=\"a\" -->\n```rust\ny\n```\n",
         ),
+    ]
+}
+
+/// Errors raised by display spans, copied assets, and notebook play cells.
+fn broken_display() -> Vec<(&'static str, Fixture)> {
+    vec![
         single(
             "UnclosedShowSpan",
             "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\n// bower:show\nx\n```\n",
@@ -421,20 +465,28 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
             "AssetMissing",
             "<!-- bower repo=\"failers\" file=\"logo.png\" op=\"copy\" src=\"img/ghost.png\" -->\n",
         ),
-    ];
+        single(
+            "PlayCellUnbound",
+            "<!-- bower repo=\"failers\" notebook=\"play\" -->\n```python\nx\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "PlayCellUnknownStep",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" notebook=\"play\" step=\"ghost\" -->\n```python\nx\n```\n",
+        ),
+        single(
+            "PlayCellConflictingKeys",
+            "<!-- bower repo=\"failers\" notebook=\"play\" file=\"a.rs\" -->\n```python\nx\n```\n",
+        ),
+    ]
+}
 
-    cases.push(single(
-        "PlayCellUnbound",
-        "<!-- bower repo=\"failers\" notebook=\"play\" -->\n```python\nx\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
-    ));
-    cases.push(single(
-        "PlayCellUnknownStep",
-        "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" notebook=\"play\" step=\"ghost\" -->\n```python\nx\n```\n",
-    ));
-    cases.push(single(
-        "PlayCellConflictingKeys",
-        "<!-- bower repo=\"failers\" notebook=\"play\" file=\"a.rs\" -->\n```python\nx\n```\n",
-    ));
+/// Broken books, one per error family. The paired name states the
+/// [`BowerError`] variant the fixture must produce.
+#[must_use]
+pub fn broken() -> Vec<(&'static str, Fixture)> {
+    let mut cases = broken_source();
+    cases.extend(broken_tree());
+    cases.extend(broken_display());
 
     let mut malformed_include = BookSource::from_chapters(vec![chapter(
         "bad.md",
