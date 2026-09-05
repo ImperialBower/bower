@@ -503,16 +503,21 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
    plainly — `SignatureRef::time` is git's own time string, so the offset is
    pinned at `+0000` by hand rather than inherited from a machine. The kernel
    was unaffected, as predicted.
-2. **One book per repo of book-source, or one workspace holding both books?**
-   A single `books` workspace sharing templates and CI is the current lean.
+2. ~~**One book per repo of book-source, or one workspace holding both books?**~~
+   **Decided: one repo per book** (4 September 2026). Each book's *source*
+   (chapters, `bower.toml`, block library) lives in its own repo rather than
+   both books sharing this one. This does not change how a book's *generated*
+   code repos work — that was never in question — but it does mean M4 (§ 13)
+   can no longer assume both books' source sits in one workspace; see the
+   revised M4 text.
 3. ~~**Diagnostic snapshots for `compile_fail`**~~ **Decided: failure-only**
    (EPIC-02, 1 September 2026). `bower verify` asserts that the check command
    fails and captures its stderr for the failure report, but matches nothing
    against a stored pattern. Snapshots remain a plausible opt-in; nothing in the
    verifier's shape prevents adding them later, and no book has yet needed the
    stronger claim.
-4. **Should generated repos carry GitHub Actions** that re-verify on push, as a
-   public badge that every step passes? Cheap and on-message.
+4. ~~**Should generated repos carry GitHub Actions** that re-verify on push, as a
+   public badge that every step passes?~~ **Decided: yes** (4 September 2026).
 5. ~~**Crate naming on crates.io.**~~ **Checked 2 September 2026: all free.**
    `bower`, `bower-core`, `bower-testkit`, `bower-cli`, `imperial-bower`, and
    `mdbook-bower` all return 404 from the crates.io API — none is registered. No
@@ -521,8 +526,10 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
    reserved by this check; anyone could take them first. Reserving them is a
    separate, deliberate act of publishing.
 
-6. **Block library: core or extension?** (§ 14.3.) It starts as an extension;
-   promote it to core only if Scrivener authoring proves worth keeping.
+6. ~~**Block library: core or extension?**~~ (§ 14.3.) **Decided: core**
+   (4 September 2026). The `include` key is a first-class, recommended way to
+   write a block, not a fallback reached for only when Scrivener authoring
+   needs it — chapters may still mix inline and `include`d blocks freely.
 7. **Wheel distribution for notebooks** (§ 15.3): CI-built wheels attached to
    chapter-end tags, a per-book PyPI package, or build-on-install via maturin.
 8. **`expect` for play cells** — a Python cell that *should* raise, extending
@@ -569,11 +576,16 @@ plan on save and fails fast on annotation errors, `draft = true` chapters
 just a render plan over a subset of chapters, with its repo links pointing at
 the full generated repos.
 
-**M4 — the imprint.** Both books (and later ones) in one workspace: shared
-templates and CI, cross-book step links (*Controllability* citing a *Failers*
-step by id), a catalog page, and one `bower publish --all` that rebuilds every
-book, every repo, every target, and verifies the whole estate. At this rung
-Bower is a publishing system that happens to have started as a repo generator.
+**M4 — the imprint.** Each book keeps its own book-source repo (§ 12 Q2), so
+"the imprint" is a shared *template*, not a shared *workspace*: a common
+`bower.toml` starter and CI workflow that every book repo pulls in and can
+diverge from, cross-book step links (*Controllability* citing a *Failers* step
+by id, resolved across repos rather than within one), a catalog page built by
+reading every book repo it's told about, and one `bower publish --all`
+invocation that takes a list of book repos and rebuilds every book, every
+generated repo, every target, verifying the whole estate without requiring
+them to share a directory. At this rung Bower is a publishing system that
+happens to have started as a repo generator.
 
 What Bower does **not** aspire to: DRM, storefronts, or payment. Leanpub, Gumroad
 et al. remain the distribution channel; Bower's job ends at producing verified,
@@ -666,9 +678,9 @@ just a second room. What it buys:
   without duplication.
 
 Cost: one more level of indirection, and the drafting flow loses "the code is
-right there in the prose." Hence open question 6: it ships as an extension, and
-gets promoted to a core recommendation only if Scrivener authoring earns its
-keep in practice.
+right there in the prose." Open question 6 decided this as a core
+recommendation (4 September 2026), not a Scrivener-only fallback — chapters
+may still mix inline and `include`d blocks freely.
 
 ### 14.4 What stays true regardless of editor — and of target
 

@@ -37,18 +37,19 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 ## Open questions — decisions, not code
 
-From `bower-spec.md` § 12. Three are closed (gix, failure-only snapshots, crate
-names); these six are not.
+From `bower-spec.md` § 12. Six are closed (gix, failure-only snapshots, crate
+names, repo layout, repo CI, block library); these four are not.
 
 | # | Question |
 |---|---|
-| 2 | One repo per book, or one workspace holding both books? |
-| 4 | Should generated repos carry GitHub Actions that re-verify on push? |
-| 6 | Block library — core or extension? |
 | 7 | Wheel distribution for notebooks |
 | 8 | `expect` for play cells |
 | 9 | JupyterLite / pyodide |
 | 10 | `devenv.nix` — hand-authored per repo, or derived? |
+
+Decided 4 September 2026: **(2)** one repo per book, not a shared workspace;
+**(4)** yes, generated repos get GitHub Actions that re-verify on push; **(6)**
+the block library is core, not an extension — see `bower-spec.md` § 12.
 
 ## Recently fixed
 
