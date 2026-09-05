@@ -37,7 +37,7 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
-- [ ] `bower push` creates `gh-pages` but never enables GitHub Pages — the branch is published, `status` says `in sync`, and the reader gets a 404. Found on the first repo nobody had configured by hand
+- [ ] `bower push` creates `gh-pages` but never enables GitHub Pages, nor requests the one build that a first-time repo needs — the branch is published, `status` says `in sync`, and the reader gets a 404. Found on the first repo nobody had configured by hand
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 

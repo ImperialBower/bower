@@ -142,6 +142,18 @@
   is a success, not an error. The dry run should say `pages  will enable` so
   the one step that reaches outside git is visible before it happens.
 
+  **Enabling is not sufficient**, and this is the half that is easy to miss.
+  Pages builds on a *push* to its source branch. Bower pushes the branch and
+  only then could configure Pages, so the push that would have triggered the
+  build has already happened and no build is ever queued: `GET /pages` reports
+  the right `build_type` and the right `source.branch`, `builds` is `[]`, and
+  the URL 404s indefinitely. Verified 5 September 2026 on
+  `folkengine/rust4failures` — correct settings, zero builds, and a live site
+  one `POST /repos/{repo}/pages/builds` later. So the create path is: push the
+  branch, `PUT /pages`, then `POST /pages/builds` once. Subsequent pushes need
+  none of it, because by then a push to `gh-pages` is an event Pages listens
+  for.
+
   Two smaller things belong with it. `bower status` cannot currently tell
   "branch pushed" from "site served", so it says `in sync` about a 404; a
   `GET /repos/{repo}/pages` reading `status` and `source.branch` would let it
