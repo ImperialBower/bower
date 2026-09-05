@@ -1232,7 +1232,7 @@ mod publish_tests {
     #[test]
     fn slug__is_filename_safe() {
         assert_eq!(slug("Hello, Playbook"), "hello-playbook");
-        assert_eq!(slug("Rust for Failers!"), "rust-for-failers");
+        assert_eq!(slug("Rust for Failures!"), "rust-for-failures");
         assert_eq!(slug("  spaced  out  "), "spaced-out");
         // A title of pure punctuation would otherwise name a file `-`.
         assert_eq!(slug("!!!"), "book");

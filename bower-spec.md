@@ -7,7 +7,7 @@ Draft 0.2 · 31 August 2026 · ImperialBower
 
 ## 0. One-paragraph summary
 
-The books — *Rust for Failers: How Controlled Failing Is the Way to Build Solid
+The books — *Rust for Failures: How Controlled Failing Is the Way to Build Solid
 Systems* and *Controllability: The Craft of Building Observable Systems* — are the
 single source of truth. Code examples live in the book source as annotated fenced
 blocks. A Rust CLI (`bower`) parses the annotations, assembles a deterministic
@@ -17,7 +17,7 @@ it, with stable links in both directions: every code block in the rendered book
 links to the repo state after that step, and every generated commit links back to
 the exact section of the book that produced it. Edit an example in chapter 3 and
 rerun; the repo recreates itself with the change threaded through every subsequent
-commit. Because *Rust for Failers* is a book about controlled failing, steps can
+commit. Because *Rust for Failures* is a book about controlled failing, steps can
 declare an **expected failure** (`compile_fail`, `test_fail`) and the generator
 *verifies the failure happens* — the book's thesis, enforced by its own toolchain.
 Repos are the first output target; § 13 lays the road toward Bower as a complete
@@ -348,7 +348,7 @@ step's `expect`:
 | `test_fail` | Build succeeds, named test **fails** |
 | `none` | Step is skipped (prose-only steps, mid-refactor states) |
 
-This is the load-bearing feature for *Rust for Failers*: the book's controlled
+This is the load-bearing feature for *Rust for Failures*: the book's controlled
 failures are executable claims. A chapter that says "this won't compile, and
 here's what the compiler tells you" is verified in CI, and the day a new rustc
 changes the diagnostic, the build tells you before a reader does. For
@@ -367,7 +367,7 @@ sharing the file with anything else, or two region ops on the same region —
 distinct regions and appends compose fine), `region` before its markers exist,
 `replace` of a file never created, orphaned `after` references, two books
 claiming the same repo. Every error carries the chapter, line, and step id. The
-kernel's error enum *is* a chapter draft for *Rust for Failers*.
+kernel's error enum *is* a chapter draft for *Rust for Failures*.
 
 ---
 
@@ -432,7 +432,7 @@ should be built.
 ## 9. Worked example — validated against real pkcore material
 
 Taking the opening of `DIARY.md` ("EPIC: Display HandRank") as the first chapter
-of *Rust for Failers*, the annotation flow for three steps of the `Rank` story:
+of *Rust for Failures*, the annotation flow for three steps of the `Rank` story:
 
 **Step 1 — the enum (create).** One block, `file="src/rank.rs"`, visible lines
 show the enum; hidden `# `-lines carry the derives boilerplate if the prose
@@ -487,7 +487,7 @@ This is the phase that makes the tool worth having.
 **Phase 4 — surfaces.** `mdbook-bower` preprocessor (links + anchors +
 build-time validation), `push` with GitHub repo creation, `status` drift report.
 
-**Phase 5 — migration.** Stand up the *Rust for Failers* mdBook, move the
+**Phase 5 — migration.** Stand up the *Rust for Failures* mdBook, move the
 DIARY/doc-comment material chapter by chapter, generate `failers` for real.
 
 **Phase 6+ — publishing maturity and authoring bridges.** § 13 and § 14; each
@@ -579,7 +579,7 @@ the full generated repos.
 **M4 — the imprint.** Each book keeps its own book-source repo (§ 12 Q2), so
 "the imprint" is a shared *template*, not a shared *workspace*: a common
 `bower.toml` starter and CI workflow that every book repo pulls in and can
-diverge from, cross-book step links (*Controllability* citing a *Failers* step
+diverge from, cross-book step links (*Controllability* citing a *Failures* step
 by id, resolved across repos rather than within one), a catalog page built by
 reading every book repo it's told about, and one `bower publish --all`
 invocation that takes a list of book repos and rebuilds every book, every
@@ -741,7 +741,7 @@ ordinary blocks — `file="bindings/src/lib.rs"`, region ops, the works.
 This is deliberate teaching material, not overhead: wrapping a kernel for a
 scripting surface is the *Controllability* thesis made concrete (the
 observable, controllable surface of a domain kernel), and the wrapper's error
-mapping — Rust `Result` to Python exception — is a *Rust for Failers* chapter
+mapping — Rust `Result` to Python exception — is a *Rust for Failures* chapter
 waiting to happen. The bindings evolve step by step with everything else and
 are visible at every tag.
 

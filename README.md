@@ -11,7 +11,7 @@ page and code.
 This workspace is **Phases 1 to 4** of the [design spec](https://github.com/ImperialBower)
 (`bower-spec.md`, Draft 0.2): the kernel, its testkit, replay, verification, the
 `mdbook-bower` preprocessor, `status`, and `push`. Phase 5 is migration —
-standing up the real *Rust for Failers* book.
+standing up the real *Rust for Failures* book.
 
 ## Crates
 

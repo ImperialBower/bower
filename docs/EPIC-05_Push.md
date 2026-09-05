@@ -364,7 +364,7 @@ command named when absent.
 ## Dependencies
 
 - **Blocks:** spec § 11 Phase 5 (migration) only loosely — the real
-  *Rust for Failers* repos have to be published eventually, but the book can be
+  *Rust for Failures* repos have to be published eventually, but the book can be
   written and verified long before that.
 - **Built on:** EPIC-01 (tags, branch, `STEPS.md`), EPIC-04 (`repo_drift`).
 - **Related:** spec § 5.5, § 7, § 12 Q4 (should generated repos carry CI?).
