@@ -1152,6 +1152,7 @@ mod publish_tests {
                 tree: None,
                 commit: None,
                 checkout: None,
+                ..LinkTemplates::default()
             },
         );
         m

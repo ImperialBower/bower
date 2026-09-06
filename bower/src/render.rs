@@ -399,6 +399,7 @@ mod render_tests {
                 tree: Some("https://x.invalid/tree/{tag}".to_string()),
                 commit: Some("https://x.invalid/commit/{tag}".to_string()),
                 checkout: Some("git checkout {tag}".to_string()),
+                ..LinkTemplates::default()
             },
         );
         m

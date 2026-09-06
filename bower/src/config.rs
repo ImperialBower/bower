@@ -16,6 +16,12 @@ use serde::Deserialize;
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
+/// The verifier's default commands, and what the exercise box prints when a
+/// repo declares neither. One definition, so the box never names a command
+/// `bower verify` would not run.
+pub const DEFAULT_CHECK: &str = "cargo check";
+pub const DEFAULT_VERIFY: &str = "cargo test";
+
 /// The parsed `bower.toml`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BookConfig {
@@ -72,8 +78,9 @@ pub struct RepoConfig {
     pub links: LinkTemplates,
 }
 
-/// Forge URL templates. Keeping these as templates is what lets a book point at
-/// Codeberg or a self-hosted forge without a code change.
+/// Forge URL templates, and the reader commands derived from them. Keeping the
+/// URLs as templates is what lets a book point at Codeberg or a self-hosted
+/// forge without a code change.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LinkTemplates {
     /// The exact lines shown: `https://…/blob/{tag}/{path}#L{start}-L{end}`
@@ -86,6 +93,20 @@ pub struct LinkTemplates {
     /// Derived from `github`, not read from the file — a book with no remote
     /// has no repository a reader could check out.
     pub checkout: Option<String>,
+    /// Where a reader forks the repository. Declarable in `[links]`; derived
+    /// from `github` when absent.
+    pub fork: Option<String>,
+    /// The command that clones the upstream repository. Derived from
+    /// `github`; the reader's own fork is theirs to substitute. A field, not
+    /// the `Clone` method: `links.clone` is this command, `links.clone()` is
+    /// a copy of the struct.
+    pub clone: Option<String>,
+    /// The repo's check command with the verifier's default applied: what the
+    /// exercise box tells a reader to run after a `compile_fail` step.
+    pub check: Option<String>,
+    /// The repo's verify command, default applied: the command after every
+    /// other kind of step.
+    pub verify: Option<String>,
 }
 
 /// Why a configuration could not be loaded. Every variant names the file, so a
@@ -173,9 +194,26 @@ impl BookConfig {
                 .repos
                 .into_iter()
                 .map(|(name, r)| {
-                    // Derived, not declared: the command is the same everywhere
-                    // git is, and it is only offerable once a remote exists.
+                    // Derived, not declared: the commands are the same
+                    // everywhere git is, and only offerable once a remote
+                    // exists. `fork` alone may be declared, for forges whose
+                    // fork URL is not GitHub's.
                     let checkout = r.github.as_ref().map(|_| "git checkout {tag}".to_string());
+                    let fork = r.links.fork.clone().or_else(|| {
+                        r.github
+                            .as_ref()
+                            .map(|g| format!("https://github.com/{g}/fork"))
+                    });
+                    let clone = r
+                        .github
+                        .as_ref()
+                        .map(|g| format!("git clone https://github.com/{g}.git"));
+                    let check = Some(r.check.clone().unwrap_or_else(|| DEFAULT_CHECK.to_string()));
+                    let verify = Some(
+                        r.verify
+                            .clone()
+                            .unwrap_or_else(|| DEFAULT_VERIFY.to_string()),
+                    );
                     (
                         name,
                         RepoConfig {
@@ -191,6 +229,10 @@ impl BookConfig {
                                 tree: r.links.tree,
                                 commit: r.links.commit,
                                 checkout,
+                                fork,
+                                clone,
+                                check,
+                                verify,
                             },
                         },
                     )
@@ -266,6 +308,7 @@ struct WireLinks {
     blob: Option<String>,
     tree: Option<String>,
     commit: Option<String>,
+    fork: Option<String>,
 }
 
 #[cfg(test)]
@@ -332,6 +375,55 @@ mod config_tests {
         let text = format!("{MINIMAL}[repos.r]\ncheck = \"cargo check\"\n");
         let cfg = BookConfig::parse(&text).unwrap();
         assert_eq!(cfg.repos.get("r").unwrap().links.checkout, None);
+    }
+
+    #[test]
+    fn config__a_repo_with_a_remote_gets_fork_and_clone() {
+        let text = format!("{MINIMAL}[repos.r]\ngithub = \"o/r\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(links.fork.as_deref(), Some("https://github.com/o/r/fork"));
+        assert_eq!(
+            links.clone.as_deref(),
+            Some("git clone https://github.com/o/r.git")
+        );
+    }
+
+    #[test]
+    fn config__a_declared_fork_link_wins() {
+        let text = format!(
+            "{MINIMAL}[repos.r]\ngithub = \"o/r\"\n[repos.r.links]\nfork = \"https://forge.invalid/o/r/fork\"\n"
+        );
+        let cfg = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            cfg.repos.get("r").unwrap().links.fork.as_deref(),
+            Some("https://forge.invalid/o/r/fork")
+        );
+    }
+
+    #[test]
+    fn config__a_repo_without_a_remote_gets_no_fork_or_clone() {
+        let text = format!("{MINIMAL}[repos.r]\ncheck = \"cargo check\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(links.fork, None);
+        assert_eq!(links.clone, None);
+    }
+
+    #[test]
+    fn config__reader_commands_carry_the_verifier_defaults() {
+        // What the exercise box prints must be what `bower verify` runs.
+        let text = format!("{MINIMAL}[repos.r]\ngithub = \"o/r\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(links.check.as_deref(), Some(DEFAULT_CHECK));
+        assert_eq!(links.verify.as_deref(), Some(DEFAULT_VERIFY));
+
+        let text = format!("{MINIMAL}[repos.r]\ncheck = \"make check\"\nverify = \"make test\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(links.check.as_deref(), Some("make check"));
+        assert_eq!(links.verify.as_deref(), Some("make test"));
     }
 
     #[test]
