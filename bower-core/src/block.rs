@@ -303,7 +303,11 @@ fn resolve(
         repo,
         // Neither a play cell nor a block-form exercise applies to a tree;
         // Prose is the inert op.
-        op: if play || exercise_block { Op::Prose } else { op },
+        op: if play || exercise_block {
+            Op::Prose
+        } else {
+            op
+        },
         expect: directive.expect,
         hidden: directive.hidden.unwrap_or(true),
         file: directive.file,

@@ -44,7 +44,9 @@ pub mod prelude {
     pub use crate::block::{Block, BlockContent};
     pub use crate::directive::{Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
-    pub use crate::plan::{BookPlan, PlannedStep, PlayCell, RepoPlan, lock_text, plan};
+    pub use crate::plan::{
+        BookPlan, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan, lock_text, plan,
+    };
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
     pub use crate::tree::{FileBody, ShowMark, TreeState, show_marker};
