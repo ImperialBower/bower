@@ -19,9 +19,12 @@ what the book does next. The book already has everything this needs:
   broken state — a question with a known-good next move;
 - the step after it is, by the book's own structure, the answer.
 
-An **exercise** is the missing piece: the author says "this broken step is a
-question", optionally adds ideas to try, and Bower renders the box that tells
-the reader how to take the question home. Nothing new enters any repo tree.
+An **exercise** is the missing piece: the author says "stop here and try
+something", optionally adds ideas, and Bower renders the box that tells the
+reader how to take the question home. A broken step is the obvious place —
+"make it compile" — but an exercise can sit on **any** step: "do it with a
+lookup table", "make this faster", "add the missing test". Nothing new enters
+any repo tree.
 
 ## 2. Non-goals
 
@@ -31,10 +34,10 @@ Deliberately out, recorded in `BACKLOG.md` when this ships:
   submission flow. Generated repos already say "no PRs".
 - **Hidden solutions.** The answer is always the next step of the same repo, in
   book order. There is no separate solution block the book does not show.
-- **Exercises on passing steps.** "Make this faster" has no verifiable goal.
-  An exercise must sit on a declared failure.
-- **Verification changes.** The broken step is already verified to fail. The
-  exercise only tells the reader the same command `verify` ran.
+- **Verification changes.** Every step is already verified against its
+  `expect`. The exercise only tells the reader the same command `verify` ran.
+- **Grading.** Bower does not judge the reader's attempt. "Green" is the only
+  signal, and on a green step the task itself says what counts.
 
 ## 3. Authoring
 
@@ -71,8 +74,7 @@ empty body is allowed but pointless; the key form is shorter.
 ### 4.1 Types
 
 ```rust
-/// One "your turn" point, bound to a declared-failure step. Never part of
-/// any tree.
+/// One "your turn" point, bound to a step. Never part of any tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Exercise {
     pub loc: Location,
@@ -117,7 +119,6 @@ following the `PlayCell*` naming:
 
 | Variant | When |
 |---|---|
-| `ExerciseOnPassingStep { loc, step }` | The bound step's `expect` is `pass` or `none`. There is nothing to fix. |
 | `ExerciseUnbound { loc }` | A block form with no preceding step of its repo and no `step=`. |
 | `ExerciseUnknownStep { loc, step }` | A block form naming a step that does not exist. |
 | `ExerciseDuplicate { loc, step }` | A step already carries an exercise. Reported at the second one. |
@@ -166,13 +167,21 @@ Fork <owner>/<repo>, then:
 Green means you did it. The answer is the next step.
 ```
 
+The command and the two closing sentences follow the step's `expect`:
+
+| `expect` | Command | Closing lines |
+|---|---|---|
+| `compile_fail` | the repo's `check` | Green means you did it. The answer is the next step. |
+| `test_fail` | the repo's `verify` | Green means you did it. The answer is the next step. |
+| `pass` | the repo's `verify` | Keep it green. The next step shows one way. |
+| `none` | *(no command line)* | The next step shows one way. |
+
 - The fork line uses a new link template, `fork` (§ 7). No remote, no fork
   line; the clone line is dropped with it, the checkout and the command stay.
-- The command is the repo's `check` for `expect="compile_fail"` and its
-  `verify` for `expect="test_fail"`, read from `bower.toml` — the same
-  commands `verify` runs.
-- The closing line is the same on every target. In HTML "the next step" links
-  to the answer step's `#step-<id>` anchor.
+- `check` and `verify` are read from `bower.toml` — the same commands
+  `bower verify` runs.
+- The closing lines are the same on every target. In HTML "the next step"
+  links to the answer step's `#step-<id>` anchor.
 
 The box is a `<div class="step-exercise">` in HTML and a blockquote-shaped
 markdown block in epub and PDF, following the footer's precedent: the tool's
@@ -186,8 +195,11 @@ In HTML, every code block of the **answer step** is wrapped in
 Prose between the answer's blocks stays open; only fences fold. Footers fold
 with their block.
 
+The summary text follows the step: "Show the answer" after a broken step,
+"Show one way" after a green one.
+
 Epub and PDF have no toggle. They do not fold; the box's last line already
-says the answer is next. This mirrors the elided-span rule: HTML gets the
+says what is next. This mirrors the elided-span rule: HTML gets the
 toggle, print gets a note.
 
 ## 7. Configuration
@@ -212,7 +224,7 @@ Same shape as everything else in the workspace.
   form bound by position. The corpus's "every error variant has a fixture"
   assertion covers the new variants automatically.
 - **State coverage**: the report gains an `exercise × expect` axis and must
-  show both failure kinds exercised.
+  show all four `expect` values carrying an exercise.
 - **Kernel unit tests**: answer resolution, duplicate detection across a
   multi-block step, the lock text including the exercise.
 - **Preprocessor tests** (`bower/tests/preprocessor.rs`): the box appears
@@ -231,4 +243,3 @@ Added to `BACKLOG.md` when this ships:
 
 - Reader's answers — a per-exercise link to a Discussion or similar.
 - Hidden solutions — an answer the book does not print.
-- Exercises on passing steps.
