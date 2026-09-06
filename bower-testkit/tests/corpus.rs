@@ -39,6 +39,11 @@ fn corpus_state_coverage_is_complete() {
     corpus.extend(fixtures::broken().into_iter().map(|(_, f)| f));
     let report = CoverageReport::measure(&corpus);
     assert!(report.is_complete(), "coverage gaps:\n{report}");
+    // The exercise axis is a set of its own: an exercise on every `expect`.
+    assert!(
+        report.missing_exercise_expects().is_empty(),
+        "coverage gaps:\n{report}"
+    );
 }
 
 #[test]
@@ -164,6 +169,38 @@ fn notebook_play_binds_cells_to_steps() {
     // Play cells never touch trees, and the lock records them.
     assert!(rank.tree.text("src/rank.rs").unwrap().contains("enum Rank"));
     assert!(lock_text(&p).contains("play=2"));
+}
+
+#[test]
+fn exercise_forms_bind_both_forms_on_every_expect() {
+    let f = fixtures::exercise_forms();
+    let p = plan(&f.book, &f.catalog).unwrap();
+    let steps = &p.repo("failers").unwrap().steps;
+    let by_id = |id: &str| steps.iter().find(|s| s.id.0 == id).unwrap();
+
+    let broken = by_id("broken").exercise.as_ref().unwrap();
+    assert_eq!(broken.form, ExerciseForm::Key);
+    assert_eq!(broken.answer.0, "fixed");
+
+    // The positional block form binds to the step just built.
+    let fixed = by_id("fixed").exercise.as_ref().unwrap();
+    assert_eq!(fixed.form, ExerciseForm::Block);
+    assert_eq!(fixed.detail[0], "Parse text instead.");
+    assert_eq!(fixed.answer.0, "tested");
+
+    // The explicit `step=` block form reaches back past `green`.
+    let tested = by_id("tested").exercise.as_ref().unwrap();
+    assert_eq!(tested.task, "Make the test pass");
+    assert_eq!(tested.answer.0, "green");
+    assert!(by_id("green").exercise.is_none());
+
+    // A prose step can carry one too; its answer is whatever follows.
+    assert_eq!(by_id("narrated").exercise.as_ref().unwrap().answer.0, "end");
+    assert!(by_id("end").exercise.is_none());
+
+    let lock = lock_text(&p);
+    assert!(lock.contains("exercise form=key answer=fixed"), "{lock}");
+    assert!(lock.contains("exercise form=block answer=tested"), "{lock}");
 }
 
 #[test]

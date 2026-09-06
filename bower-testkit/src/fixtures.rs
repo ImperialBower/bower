@@ -336,6 +336,39 @@ pub fn notebook_play() -> Fixture {
     )
 }
 
+/// Every exercise form on every `expect`: a key form on a `compile_fail`
+/// step, a positional block form on a `pass` step, an explicitly bound block
+/// form on a `test_fail` step, and a key form on a prose (`none`) step. The
+/// last step carries none, because nothing follows it to be the answer.
+#[must_use]
+pub fn exercise_forms() -> Fixture {
+    Fixture::new(
+        "exercise_forms",
+        BookSource::from_chapters(vec![chapter(
+            "ch07-exercises.md",
+            concat!(
+                "# Your turn\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" step=\"broken\" expect=\"compile_fail\" exercise=\"Make this compile\" -->\n",
+                "```rust\npub fn answer() -> u32 { \"42\" }\n```\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"replace\" step=\"fixed\" -->\n",
+                "```rust\npub fn answer() -> u32 { 42 }\n```\n\n",
+                "<!-- bower repo=\"failers\" exercise=\"Do it without a literal\" -->\n",
+                "```markdown\nParse text instead.\n\n- `str::parse` is one way.\n```\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"append\" step=\"tested\" expect=\"test_fail\" -->\n",
+                "```rust\n#[test]\nfn answers() { assert_eq!(answer(), 41); }\n```\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"replace\" step=\"green\" -->\n",
+                "```rust\npub fn answer() -> u32 { 42 }\n#[test]\nfn answers() { assert_eq!(answer(), 42); }\n```\n\n",
+                "<!-- bower repo=\"failers\" exercise=\"Make the test pass\" step=\"tested\" -->\n",
+                "```markdown\nThe test is right. The function is not.\n```\n\n",
+                "<!-- bower repo=\"failers\" op=\"none\" step=\"narrated\" expect=\"none\" msg=\"docs: a refactor the book only describes\" exercise=\"Try the refactor yourself\" -->\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"append\" step=\"end\" -->\n",
+                "```rust\n// fin\n```\n",
+            ),
+        )]),
+        failers(),
+    )
+}
+
 /// Every valid fixture, for corpus-wide properties and the coverage report.
 #[must_use]
 pub fn valid() -> Vec<Fixture> {
@@ -348,6 +381,7 @@ pub fn valid() -> Vec<Fixture> {
         include_library(),
         self_hosting_chapter(),
         notebook_play(),
+        exercise_forms(),
         hello_playbook(),
     ]
 }
@@ -480,6 +514,33 @@ fn broken_display() -> Vec<(&'static str, Fixture)> {
     ]
 }
 
+/// Errors raised by exercises: binding, duplication, the missing answer, and
+/// the play-cell collision.
+fn broken_exercises() -> Vec<(&'static str, Fixture)> {
+    vec![
+        single(
+            "ExerciseUnbound",
+            "<!-- bower repo=\"failers\" exercise=\"Try\" -->\n```markdown\nx\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "ExerciseUnknownStep",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" exercise=\"Try\" step=\"ghost\" -->\n```markdown\nx\n```\n",
+        ),
+        single(
+            "ExerciseDuplicate",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"one\" exercise=\"First\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" exercise=\"Second\" -->\n```markdown\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" -->\n```rust\ny\n```\n",
+        ),
+        single(
+            "ExerciseWithoutAnswer",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" exercise=\"Try\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "ExerciseConflictingKeys",
+            "<!-- bower repo=\"failers\" notebook=\"play\" exercise=\"Try\" -->\n```python\nx\n```\n",
+        ),
+    ]
+}
+
 /// Broken books, one per error family. The paired name states the
 /// [`BowerError`] variant the fixture must produce.
 #[must_use]
@@ -487,6 +548,7 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
     let mut cases = broken_source();
     cases.extend(broken_tree());
     cases.extend(broken_display());
+    cases.extend(broken_exercises());
 
     let mut malformed_include = BookSource::from_chapters(vec![chapter(
         "bad.md",
