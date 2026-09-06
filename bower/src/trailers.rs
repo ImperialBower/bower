@@ -88,13 +88,18 @@ pub fn steps_md(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> String 
             Some(url) => format!("[{}]({url})", step.anchor.chapter),
             None => format!("`{}`", step.anchor.chapter),
         };
+        // The code side's pointer to the "your turn" points: a reader
+        // browsing the repo finds them without opening the book.
+        let subject = match &step.exercise {
+            Some(x) => format!("{} · exercise: {}", step.msg, x.task),
+            None => step.msg.clone(),
+        };
         let _ = writeln!(
             out,
-            "| {:03} | `{}` | {} | {} | {source} |",
+            "| {:03} | `{}` | {} | {subject} | {source} |",
             step.seq,
             step.tag(),
-            step.expect,
-            step.msg
+            step.expect
         );
     }
     out
@@ -136,6 +141,30 @@ mod trailer_tests {
 
     fn step_named(plan: &RepoPlan, id: &str) -> PlannedStep {
         plan.steps.iter().find(|s| s.id.0 == id).unwrap().clone()
+    }
+
+    #[test]
+    fn steps_md__marks_an_exercise_step() {
+        use bower_core::prelude::{BookSource, Chapter};
+        let book = BookSource::from_chapters(vec![Chapter::new(
+            "src/ch01.md",
+            concat!(
+                "<!-- bower repo=\"r\" step=\"broken\" file=\"a.rs\" expect=\"compile_fail\" msg=\"feat: broken\" exercise=\"Make this compile\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"r\" step=\"fixed\" file=\"a.rs\" op=\"replace\" msg=\"fix: fixed\" -->\n```rust\ny\n```\n",
+            ),
+        )]);
+        let p = plan(&book, &RepoCatalog::from_names(&["r"])).unwrap();
+        let md = steps_md(p.repo("r").unwrap(), "book", None);
+        assert!(
+            md.contains(
+                "| 001 | `step-001-broken` | compile_fail | feat: broken · exercise: Make this compile |"
+            ),
+            "{md}"
+        );
+        assert!(
+            md.contains("| 002 | `step-002-fixed` | pass | fix: fixed |"),
+            "{md}"
+        );
     }
 
     #[test]
