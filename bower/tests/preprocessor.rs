@@ -277,6 +277,27 @@ fn sample_book_footers_link_to_the_right_lines() {
     assert!(ch04.contains("step 011 of hello-playbook"), "{ch04}");
 }
 
+#[test]
+fn sample_book_renders_the_exercise_and_folds_its_answer() {
+    let ch04 = &rendered_chapters()[3];
+    assert!(ch04.contains("<div class=\"step-exercise\">"), "{ch04}");
+    assert!(ch04.contains("**Your turn: Make the test pass**"), "{ch04}");
+    assert!(
+        ch04.contains(
+            "Fork [the repository](https://github.com/abstecker/hello-playbook/fork), then:"
+        ),
+        "{ch04}"
+    );
+    assert!(
+        ch04.contains("git checkout step-011-test-that-fails\ncargo test\n```"),
+        "{ch04}"
+    );
+    assert!(ch04.contains("<summary>Show the answer</summary>"), "{ch04}");
+    let fold = ch04.find("<details class=\"step-answer\">").unwrap();
+    let fix = ch04.find("name.trim()").unwrap();
+    assert!(fold < fix, "the fold must precede the fix: {ch04}");
+}
+
 /// End to end through mdBook itself. Ignored: it needs `mdbook` installed and
 /// `mdbook-bower` on PATH. Run with:
 ///

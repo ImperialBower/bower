@@ -12,9 +12,10 @@
 009 greet-lib expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:10 files=src/lib.rs,src/main.rs
 010 greet-test expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:48 files=src/lib.rs
 011 test-that-fails expect=test_fail anchor=src/ch04-tests-and-failing-on-purpose.md:70 files=src/lib.rs
-012 test-that-passes expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:103 files=src/lib.rs
-013 wont-compile expect=compile_fail anchor=src/ch04-tests-and-failing-on-purpose.md:119 files=src/scratch.rs,src/lib.rs
-014 scratch-fixed expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:149 files=src/scratch.rs
+    exercise form=key answer=test-that-passes task="Make the test pass"
+012 test-that-passes expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:108 files=src/lib.rs
+013 wont-compile expect=compile_fail anchor=src/ch04-tests-and-failing-on-purpose.md:124 files=src/scratch.rs,src/lib.rs
+014 scratch-fixed expect=pass anchor=src/ch04-tests-and-failing-on-purpose.md:154 files=src/scratch.rs
 015 deny-toml expect=pass anchor=src/ch05-supply-chain.md:9 files=deny.toml
 016 security-scan expect=pass anchor=src/ch05-supply-chain.md:27 files=bin/security-scan
 017 gate-test-audit expect=pass anchor=src/ch05-supply-chain.md:45 files=Makefile

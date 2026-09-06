@@ -67,7 +67,7 @@ opens with a blank line, which is how the separating blank line gets there.
 
 ## A test that fails
 
-<!-- bower repo="hello-playbook" step="test-that-fails" file="src/lib.rs" op="region" region="tests" expect="test_fail" msg="test: greet should ignore stray whitespace (failing)" -->
+<!-- bower repo="hello-playbook" step="test-that-fails" file="src/lib.rs" op="region" region="tests" expect="test_fail" msg="test: greet should ignore stray whitespace (failing)" exercise="Make the test pass" -->
 
 ```rust
 #[cfg(test)]
@@ -97,6 +97,11 @@ repository it runs the tests at this step and treats a pass as the error.
 The `bower:show` markers decide what you just read. The block above contains the
 whole test module, because the repository needs the whole file — but only the
 new test was printed on the page. The markers never reach the repository.
+
+The `exercise` key is the third thing. It marks this step as a place to stop
+reading and start typing: the box under the code above tells you how to fork
+the repository, check out exactly this commit, and run the tests yourself. The
+next section is one answer, and it stays folded until you open it.
 
 ## The fix
 
