@@ -1,8 +1,8 @@
 # bower.lock — generated; review, don't edit
 
 [rust4failures]
-001 crate expect=pass anchor=src/ch03-rank.md:16 files=Cargo.toml,src/lib.rs
-002 rank-enum expect=pass anchor=src/ch03-rank.md:50 files=src/rank.rs,src/lib.rs
-003 from-char-broken expect=compile_fail anchor=src/ch03-rank.md:107 files=src/rank.rs
-004 from-char expect=pass anchor=src/ch03-rank.md:154 files=src/rank.rs
-005 from-char-tested expect=pass anchor=src/ch03-rank.md:190 files=Cargo.toml,src/rank.rs
+001 cargo-new expect=pass anchor=src/ch02-init.md:26 files=.gitignore,Cargo.toml,Cargo.lock,src/lib.rs
+002 rank-enum expect=pass anchor=src/ch03-rank.md:16 files=src/rank.rs,src/lib.rs
+003 from-char-broken expect=compile_fail anchor=src/ch03-rank.md:73 files=src/rank.rs
+004 from-char expect=pass anchor=src/ch03-rank.md:120 files=src/rank.rs
+005 from-char-tested expect=pass anchor=src/ch03-rank.md:156 files=Cargo.toml,src/rank.rs

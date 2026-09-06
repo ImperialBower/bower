@@ -7,15 +7,20 @@ I hate initial setup chapters in coding books. Just do the
 
 ------
 
+# EDITOR: This all may suck. Could just leave the top part. 
+
+------
+
 ANNOUNCER:
 > *Two programmers walk in, one walks out. Who will triumph...*
->
-	    💥💥EXPLOSIONS💥💥
-	    QUE [Gonna Fly Now aka Rocky Theme](https://www.youtube.com/watch?v=_YYmfM2TfUA)
->
+
+`     `💥💥EXPLOSIONS💥💥</br>
+`     `QUEUE [Gonna Fly Now aka Rocky Theme](https://www.youtube.com/watch?v=_YYmfM2TfUA)
+
 > *the naive young developer trying to thrive in our cruel technocratic society...*
->
-			QUE [Flight of the Concords' Robots](https://youtu.be/2IPAOxrH7Ro?t=86)
+
+`     `💥💥LASER SHOW💥💥</br>
+`     `QUEUE [Flight of the Concords' Robots](https://youtu.be/2IPAOxrH7Ro?t=86)
 >
 > *or Broboto, the Soulless Savage AI Robot, trained by Silicon Valley, hellbent on terminating anyone who dares to clutch a keyboard?*
 
@@ -378,6 +383,83 @@ I LOVE LOVE LOVE how Rust handles documentation. One of the biggest challenges i
 Thanks to GitHub [Actions](https://github.com/features/actions) you can automate all of those features so that they run every time you push up code so that everyone is always on the same page.
 
 **MORAL:** *Automate the stupid stuff.*
+
+-----
+
+## Let's see how CoPilot did.
+
+Wow, CoPilot fixed every test. Six of the GitHub continuous integration gates passed. The problem
+is, that there are seven. _[Sad trombone sound](https://www.youtube.com/shorts/9inOVXhe14U)_
+
+[CoPilot couldn't fix the clippy lints](https://github.com/folkengine/wsk_CoPilot2/actions/runs/31438082328/job/93617372018?pr=1#step:4:2):
+
+```shell
+Run cargo clippy -- -Dclippy::all -Dclippy::pedantic
+  cargo clippy -- -Dclippy::all -Dclippy::pedantic
+  shell: /usr/bin/bash -e {0}
+  env:
+    RUSTFLAGS: -Dwarnings
+    CARGO_HOME: /home/runner/.cargo
+    CARGO_INCREMENTAL: 0
+    CARGO_TERM_COLOR: always
+    Checking worlds_simplest_kata v0.1.2 (/home/runner/work/rust_worlds_simplest_kata/rust_worlds_simplest_kata)
+error: this method could have a `#[must_use]` attribute
+  --> src/lib.rs:18:12
+   |
+18 |     pub fn hello(name: String) -> String {
+   |            ^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#must_use_candidate
+   = note: `-D clippy::must-use-candidate` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::must_use_candidate)]`
+help: add the attribute
+   |
+18 ~     #[must_use]
+19 ~     pub fn hello(name: String) -> String {
+   |
+
+error: this argument is passed by value, but not consumed in the function body
+  --> src/lib.rs:18:24
+   |
+18 |     pub fn hello(name: String) -> String {
+   |                        ^^^^^^ help: consider changing the type to: `&str`
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#needless_pass_by_value
+   = note: `-D clippy::needless-pass-by-value` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::needless_pass_by_value)]`
+
+error: variables can be used directly in the `format!` string
+  --> src/lib.rs:19:9
+   |
+19 |         format!("Hello, {}!", name)
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#uninlined_format_args
+   = note: `-D clippy::uninlined-format-args` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::uninlined_format_args)]`
+help: change this to
+   |
+19 -         format!("Hello, {}!", name)
+19 +         format!("Hello, {name}!")
+   |
+
+error: this method could have a `#[must_use]` attribute
+  --> src/lib.rs:22:12
+   |
+22 |     pub fn hello_world() -> String {
+   |            ^^^^^^^^^^^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#must_use_candidate
+help: add the attribute
+   |
+22 ~     #[must_use]
+23 ~     pub fn hello_world() -> String {
+   |
+
+error: could not compile `worlds_simplest_kata` (lib) due to 4 previous errors
+Error: Process completed with exit code 101.
+```
+
 
 [^1]: GitHub actions have become an [attack vector ](https://medium.com/@simardeep.oberoi/unveiling-github-actions-vulnerabilities-a-comprehensive-technical-guide-to-attack-vectors-and-6a26a83e9fb2)of late, so always be careful about what you run.
 [^2]:   [Michael Sambol](https://www.youtube.com/@MichaelSambol) - [Heaps: Intro in 3 minutes](https://www.youtube.com/watch?v=0wPlzMU-k00)

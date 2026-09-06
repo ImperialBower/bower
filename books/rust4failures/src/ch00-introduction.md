@@ -77,6 +77,21 @@ automate away the gaps... repeat until no longer needed... walk away smiling. I'
 of developers who could code me under the table, and I'm greatful for how much I've learned from them.
 But there's only one Christoph, and I'm Christoph, mother-fucker. 
 
+## Why Poker?
+
+My father's side of the family are all into card games, especially bridge. As someone who 
+enjoys the occasional poker tournament, I became interested in what they call Game Theory
+Optimal (GTO) style of play. Often, pros will pay hundreds of dollars for good solver tools, 
+but I thought that it would be more fun to write my own. 
+
+Poker is a nice fixed domain that allows us to explore things in depth. It's a fun way to
+visually show code in action. 
+
+NOTE: Gambling addiction is one of the plagues of our times. I am not a gembler. I just
+like to plunk down a few hundreds every now and then on a tournament. More often, I am
+watching WSOP tournaments and shows on Poker Go. Please be careful. This code is not designed
+to encourage you to gamble. 
+
 ## Why Rust?
 
 TBH, this is a bet. For a long time I've felt like the domain surface of complex software systems is much too wide, 

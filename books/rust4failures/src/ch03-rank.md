@@ -11,40 +11,6 @@ can check it out. You can run `cargo check` inside it and watch it fail.
 That is the argument of this whole book. A failure you have never seen is a
 failure you do not understand. So we are going to look at them.
 
-## A crate with room to grow
-
-<!-- bower repo="rust4failures" step="crate" file="Cargo.toml" msg="feat: a crate that builds" -->
-
-```toml
-[package]
-name = "failures"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.85"
-license = "MIT OR Apache-2.0"
-
-[dependencies]
-
-# bower:begin dev-dependencies
-# bower:end dev-dependencies
-```
-
-The two comment lines at the bottom are a *region marker*. They mark a hole that
-a later step fills, and they are stripped out before the file reaches the
-repository. The test framework arrives there at the end of this chapter.
-
-<!-- bower repo="rust4failures" step="crate" file="src/lib.rs" -->
-
-```rust
-//! A poker library, built one controlled failure at a time.
-
-// bower:begin mods
-// bower:end mods
-```
-
-Both blocks carry `step="crate"`, so they land in one commit. A manifest with no
-crate root is not a state of the project anyone would want to check out.
-
 ## The rank itself
 
 <!-- bower repo="rust4failures" step="rank-enum" file="src/rank.rs" msg="feat: the Rank enum" -->

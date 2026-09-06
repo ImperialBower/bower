@@ -10,7 +10,7 @@ site = "https://abstecker.github.io/rust4failures"
 # The edition. `bower push` hangs a GitHub release off this and attaches every
 # `.pdf` and `.epub` in the repo's `assets` directory. A book that declares
 # `assets` must declare a version: a release has to be called something.
-version = "0.1.0"
+version = "0.1.1"
 
 [identity]
 name = "folkengine"
