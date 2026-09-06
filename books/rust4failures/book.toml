@@ -16,3 +16,13 @@ command = "mdbook-bower"
 [output.html]
 default-theme = "ayu"
 additional-css = ["theme/step-meta.css"]
+
+# No "Run this code" button. mdBook offers one on every Rust block, which
+# sends the snippet to play.rust-lang.org wrapped in its own `fn main()`.
+# That is the wrong answer twice over here: a block is a fragment of a file
+# the sandbox never sees, and a `compile_fail` or `test_fail` step is
+# *supposed* to break — the sandbox would report some other error instead of
+# the one the chapter teaches. Readers run the real thing, in a real clone,
+# with the command the exercise box prints.
+[output.html.playground]
+runnable = false
