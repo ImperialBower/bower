@@ -44,7 +44,9 @@ pub mod prelude {
     pub use crate::block::{Block, BlockContent};
     pub use crate::directive::{Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
-    pub use crate::plan::{BookPlan, PlannedStep, PlayCell, RepoPlan, lock_text, plan};
+    pub use crate::plan::{
+        BookPlan, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan, lock_text, plan,
+    };
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
     pub use crate::tree::{FileBody, ShowMark, TreeState, show_marker};
@@ -158,6 +160,19 @@ pub enum BowerError {
     /// `region`, `src`, `paths`) — a category confusion the kernel refuses:
     /// play cells never touch a repo tree.
     PlayCellConflictingKeys { loc: Location },
+    /// A block-form exercise has no preceding step of its repo to attach
+    /// to, and names none explicitly.
+    ExerciseUnbound { loc: Location },
+    /// A block-form exercise names a step that does not exist.
+    ExerciseUnknownStep { loc: Location, step: String },
+    /// A step already carries an exercise; reported at the second one.
+    ExerciseDuplicate { loc: Location, step: String },
+    /// The exercise's step is the last of its repo: nothing follows it to
+    /// be the answer.
+    ExerciseWithoutAnswer { loc: Location, step: String },
+    /// A play cell also declares `exercise=`. A cell is one thing or the
+    /// other.
+    ExerciseConflictingKeys { loc: Location },
 }
 
 impl BowerError {
@@ -190,7 +205,12 @@ impl BowerError {
             | Self::SpanNotInTree { loc, .. }
             | Self::PlayCellUnbound { loc }
             | Self::PlayCellUnknownStep { loc, .. }
-            | Self::PlayCellConflictingKeys { loc } => Some(loc),
+            | Self::PlayCellConflictingKeys { loc }
+            | Self::ExerciseUnbound { loc }
+            | Self::ExerciseUnknownStep { loc, .. }
+            | Self::ExerciseDuplicate { loc, .. }
+            | Self::ExerciseWithoutAnswer { loc, .. }
+            | Self::ExerciseConflictingKeys { loc } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -309,6 +329,25 @@ impl std::fmt::Display for BowerError {
                 f,
                 "{loc}: play cell carries tree-affecting keys; a notebook cell never touches the repo"
             ),
+            Self::ExerciseUnbound { loc } => {
+                write!(f, "{loc}: exercise has no preceding step to attach to")
+            }
+            Self::ExerciseUnknownStep { loc, step } => {
+                write!(
+                    f,
+                    "{loc}: exercise names step `{step}`, which does not exist"
+                )
+            }
+            Self::ExerciseDuplicate { loc, step } => {
+                write!(f, "{loc}: step `{step}` already carries an exercise")
+            }
+            Self::ExerciseWithoutAnswer { loc, step } => write!(
+                f,
+                "{loc}: step `{step}` is the last of its repo; no next step can be the answer"
+            ),
+            Self::ExerciseConflictingKeys { loc } => {
+                write!(f, "{loc}: a play cell cannot also be an exercise")
+            }
         }
     }
 }

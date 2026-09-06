@@ -32,11 +32,13 @@ pub enum Mechanism {
     AfterConstraint,
     /// A `notebook="play"` cell (§ 15).
     PlayCell,
+    /// An `exercise="…"` in either form.
+    Exercise,
 }
 
 impl Mechanism {
     #[must_use]
-    pub fn all() -> [Mechanism; 9] {
+    pub fn all() -> [Mechanism; 10] {
         [
             Self::HiddenLines,
             Self::Regions,
@@ -47,6 +49,7 @@ impl Mechanism {
             Self::MultiRepo,
             Self::AfterConstraint,
             Self::PlayCell,
+            Self::Exercise,
         ]
     }
 }
@@ -63,6 +66,7 @@ impl std::fmt::Display for Mechanism {
             Self::MultiRepo => "multi-repo",
             Self::AfterConstraint => "after-constraint",
             Self::PlayCell => "play-cell",
+            Self::Exercise => "exercise",
         };
         write!(f, "{s}")
     }
@@ -74,6 +78,9 @@ pub struct CoverageReport {
     pub ops: BTreeSet<String>,
     pub expects: BTreeSet<String>,
     pub mechanisms: BTreeSet<String>,
+    /// The `expect` values that carry an exercise somewhere in the corpus —
+    /// the exercise × expect axis of the spec.
+    pub exercise_expects: BTreeSet<String>,
 }
 
 impl CoverageReport {
@@ -95,8 +102,13 @@ impl CoverageReport {
         let mut repos: BTreeSet<&str> = BTreeSet::new();
         let mut step_ids: Vec<&str> = Vec::new();
         for b in &blocks {
-            if b.play {
-                self.mechanisms.insert(Mechanism::PlayCell.to_string());
+            if b.exercise.is_some() {
+                self.mechanisms.insert(Mechanism::Exercise.to_string());
+            }
+            if b.play || b.exercise_block {
+                if b.play {
+                    self.mechanisms.insert(Mechanism::PlayCell.to_string());
+                }
                 repos.insert(&b.repo.0);
                 continue;
             }
@@ -142,6 +154,15 @@ impl CoverageReport {
         if !fixture.book.library.is_empty() {
             self.mechanisms.insert(Mechanism::Include.to_string());
         }
+        // Which `expect` an exercise sits on is a plan-time fact: the block
+        // form learns its step only when bound.
+        if let Ok(p) = plan(&fixture.book, &fixture.catalog) {
+            for s in p.repos.iter().flat_map(|r| r.steps.iter()) {
+                if s.exercise.is_some() {
+                    self.exercise_expects.insert(s.expect.to_string());
+                }
+            }
+        }
     }
 
     /// Ops the corpus never exercises.
@@ -174,13 +195,24 @@ impl CoverageReport {
             .collect()
     }
 
+    /// Expectations no exercise in the corpus sits on.
+    #[must_use]
+    pub fn missing_exercise_expects(&self) -> Vec<String> {
+        Expect::all()
+            .iter()
+            .map(ToString::to_string)
+            .filter(|e| !self.exercise_expects.contains(e))
+            .collect()
+    }
+
     /// Full coverage means every op, expect, and mechanism appears at
-    /// least once across the corpus.
+    /// least once across the corpus, and an exercise sits on every expect.
     #[must_use]
     pub fn is_complete(&self) -> bool {
         self.missing_ops().is_empty()
             && self.missing_expects().is_empty()
             && self.missing_mechanisms().is_empty()
+            && self.missing_exercise_expects().is_empty()
     }
 }
 
@@ -206,6 +238,15 @@ impl std::fmt::Display for CoverageReport {
             f,
             "{}",
             line("mechanisms", &self.mechanisms, &self.missing_mechanisms())
+        )?;
+        writeln!(
+            f,
+            "{}",
+            line(
+                "exercise × expect",
+                &self.exercise_expects,
+                &self.missing_exercise_expects()
+            )
         )
     }
 }

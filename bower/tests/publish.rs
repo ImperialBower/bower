@@ -83,6 +83,17 @@ fn html_plan_keeps_the_toggle() {
 }
 
 #[test]
+fn epub_plan_carries_the_exercise_without_a_toggle() {
+    let ch4 = &plan_for(Target::Epub).chapters[3].markdown;
+    assert!(ch4.contains("> **Your turn: Make the test pass**"), "{ch4}");
+    assert!(!ch4.contains("<details"), "{ch4}");
+    assert!(!ch4.contains("step-exercise"), "{ch4}");
+
+    let html = &plan_for(Target::Html).chapters[3].markdown;
+    assert!(html.contains("<details class=\"step-answer\">"), "{html}");
+}
+
+#[test]
 fn both_targets_carry_every_chapter_and_its_metadata() {
     for target in [Target::Html, Target::Epub] {
         let p = plan_for(target);

@@ -201,6 +201,29 @@ page — so the epub and the PDF cannot show different covers. The composition i
 a pure function, so it is tested with no renderer installed, and deterministic,
 so the PDF stays byte-identical.
 
+### Exercises
+
+A step can be a place to stop reading and start typing. Put `exercise="Make
+this compile"` on a step's directive, or give the exercise its own directive
+with a fenced markdown body of ideas right after the step:
+
+`````markdown
+<!-- bower repo="rust4failures" exercise="Make this compile" -->
+````markdown
+Every `char` needs an answer, not just the card ones.
+
+- Try a lookup table instead of a `match`.
+````
+`````
+
+The rendered box names the fork link, the clone and checkout commands, and the
+command to run — `check` after a `compile_fail`, `verify` otherwise, the same
+ones `bower verify` runs. The next step is the answer: in HTML its code folds
+behind "Show the answer" (or "Show one way" after a green step); epub and PDF
+print it with a note. An exercise can sit on any step but the last, and a step
+carries at most one. Design:
+`docs/superpowers/specs/2026-09-06-exercises-design.md`.
+
 ## License
 
 MIT OR Apache-2.0.

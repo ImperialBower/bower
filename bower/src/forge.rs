@@ -945,7 +945,7 @@ fn remote_head(dir: &Path, url: &str, branch: &str) -> Option<String> {
 /// a push to a URL has none — git answers `stale info` and refuses. That made
 /// every push after a repository's first one fail, which is the only kind that
 /// matters: a generated repo is republished every time the book changes. The
-/// lease therefore carries the value [`remote_head`] read. It is still a lease:
+/// lease therefore carries the value `remote_head` read. It is still a lease:
 /// a remote that moved between the read and the push is still refused.
 ///
 /// A branch that is not there yet needs no force and has nothing to protect.

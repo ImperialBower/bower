@@ -276,6 +276,8 @@ mod display_tests {
             },
             seq_in_book: 0,
             play: false,
+            exercise: None,
+            exercise_block: false,
         }
     }
 

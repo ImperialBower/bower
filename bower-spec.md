@@ -133,6 +133,7 @@ Full key set:
 | `show` | no | all marked | Named display span(s) to render from this block (see § 3.4) |
 | `include` | no | — | Pull block content from the block library instead of inline (see § 14.3) |
 | `notebook` | no | — | `play`: a live notebook cell, not repo content (see § 15) |
+| `exercise` | no | — | A "your turn" task on this step. Alone, with no tree keys, it is a block-form exercise whose fence is the detail. See `docs/superpowers/specs/2026-09-06-exercises-design.md` |
 
 *`file` is not required for `op="delete"` steps declared with `paths=[…]`, nor
 for pure-narrative steps (`op="none"`) that exist only to carry a commit message

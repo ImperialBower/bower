@@ -23,3 +23,21 @@
 .step-checkout code {
     font-family: Courier, "Courier New", monospace;
 }
+
+/* The "your turn" box bower prints after a step that carries an exercise.
+   Same left edge as .step-meta and .step-checkout, so the three read as one
+   column of things-about-this-step. */
+.step-exercise {
+    margin: 0.5em 0 1em 1.5em;
+    padding: 0.4em 1em;
+    border-left: 4px solid var(--links, #4183c4);
+    background: var(--table-alternate-bg, rgba(127, 127, 127, 0.08));
+}
+
+/* The fold over an answer step's code. The summary is all a reader sees
+   until they choose to see more. */
+.step-answer > summary {
+    cursor: pointer;
+    font-weight: bold;
+    margin: 0.5em 0;
+}

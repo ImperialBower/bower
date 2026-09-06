@@ -45,6 +45,12 @@ pub struct Block {
     /// `notebook="play"`: a live notebook cell (§ 15). Play blocks never
     /// join steps or touch trees; [`crate::plan`] binds them to steps.
     pub play: bool,
+    /// `exercise="…"`: the task text, on either form.
+    pub exercise: Option<String>,
+    /// The block form: an `exercise` directive with no tree keys, whose fence
+    /// is the exercise's detail. Like a play cell it never joins a step or
+    /// touches a tree; [`crate::plan`] binds it.
+    pub exercise_block: bool,
 }
 
 /// Extract every annotated block from the book, in document order.
@@ -184,6 +190,16 @@ fn capture_block(
     (None, lines.len())
 }
 
+/// Does the directive say anything about a repo tree? Play cells and
+/// block-form exercises must not; every other directive must.
+fn carries_tree_keys(d: &Directive) -> bool {
+    d.op.is_some()
+        || d.file.is_some()
+        || d.region.is_some()
+        || d.src.is_some()
+        || !d.paths.is_empty()
+}
+
 /// Merge include defaults, validate keys against the catalog and the op's
 /// requirements, and produce a [`Block`] — or report why not.
 #[allow(clippy::too_many_arguments)] // internal seam; the tuple would be worse
@@ -231,19 +247,26 @@ fn resolve(
     };
 
     let play = directive.notebook.is_some();
+    let tree_keys = carries_tree_keys(&directive);
+    let exercise_block = directive.exercise.is_some() && !tree_keys && !play;
     let op = directive.op.unwrap_or_default();
 
     if play {
         // A play cell is a notebook concern: it needs its code block and
-        // must not carry anything that would touch a repo tree.
-        if directive.op.is_some()
-            || directive.file.is_some()
-            || directive.region.is_some()
-            || directive.src.is_some()
-            || !directive.paths.is_empty()
-        {
+        // must not carry anything that would touch a repo tree — nor be an
+        // exercise, which is a different kind of aside.
+        if tree_keys {
             errors.push(BowerError::PlayCellConflictingKeys { loc: loc.clone() });
         }
+        if directive.exercise.is_some() {
+            errors.push(BowerError::ExerciseConflictingKeys { loc: loc.clone() });
+        }
+        if content.is_none() {
+            errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
+        }
+    } else if exercise_block {
+        // The fence *is* the exercise's detail. Without one there is nothing
+        // the key form would not have said shorter.
         if content.is_none() {
             errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
         }
@@ -278,8 +301,13 @@ fn resolve(
     Some(Block {
         loc: loc.clone(),
         repo,
-        // A play cell never applies to a tree; Prose is the inert op.
-        op: if play { Op::Prose } else { op },
+        // Neither a play cell nor a block-form exercise applies to a tree;
+        // Prose is the inert op.
+        op: if play || exercise_block {
+            Op::Prose
+        } else {
+            op
+        },
         expect: directive.expect,
         hidden: directive.hidden.unwrap_or(true),
         file: directive.file,
@@ -295,6 +323,8 @@ fn resolve(
         content: content.unwrap_or_default(),
         seq_in_book,
         play,
+        exercise: directive.exercise,
+        exercise_block,
     })
 }
 
@@ -414,6 +444,57 @@ mod block_tests {
         let (blocks, errors) = extract(&src, &catalog());
         assert!(errors.is_empty(), "{errors}");
         assert_eq!(blocks[0].op, Op::Prose);
+    }
+
+    #[test]
+    fn extract__exercise_key_rides_on_a_tree_block() {
+        let src = book(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" expect=\"compile_fail\" exercise=\"Make this compile\" -->\n```rust\nx\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(errors.is_empty(), "{errors}");
+        let b = &blocks[0];
+        assert_eq!(b.exercise.as_deref(), Some("Make this compile"));
+        assert!(!b.exercise_block);
+        assert_eq!(b.op, Op::Create);
+    }
+
+    #[test]
+    fn extract__exercise_without_tree_keys_is_the_block_form() {
+        let src = book(
+            "<!-- bower repo=\"failers\" exercise=\"Try a lookup table\" -->\n```markdown\n- one idea\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(errors.is_empty(), "{errors}");
+        let b = &blocks[0];
+        assert!(b.exercise_block);
+        assert_eq!(b.exercise.as_deref(), Some("Try a lookup table"));
+        assert_eq!(b.op, Op::Prose);
+        assert_eq!(b.content.lines, vec!["- one idea".to_string()]);
+    }
+
+    #[test]
+    fn extract__block_form_needs_its_fence() {
+        let src = book("<!-- bower repo=\"failers\" exercise=\"Try it\" -->\nprose instead\n");
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(blocks.is_empty());
+        assert!(matches!(
+            errors.0[0],
+            BowerError::DirectiveWithoutBlock { .. }
+        ));
+    }
+
+    #[test]
+    fn extract__a_play_cell_cannot_also_be_an_exercise() {
+        let src = book(
+            "<!-- bower repo=\"failers\" notebook=\"play\" exercise=\"Try it\" -->\n```python\nx\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(blocks.is_empty());
+        assert!(matches!(
+            errors.0[0],
+            BowerError::ExerciseConflictingKeys { .. }
+        ));
     }
 
     #[test]

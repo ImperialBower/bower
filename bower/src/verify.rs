@@ -14,12 +14,8 @@ use std::process::Command;
 
 use bower_core::prelude::{Expect, Location, RepoPlan, StepId};
 
-use crate::config::BookConfig;
+use crate::config::{BookConfig, DEFAULT_CHECK, DEFAULT_VERIFY};
 use crate::materialize::{Blobs, blobs_of, read_dir_recursive, write_tree_to_disk};
-
-/// What a book gets when it declares no commands of its own.
-const DEFAULT_CHECK: &str = "cargo check";
-const DEFAULT_VERIFY: &str = "cargo test";
 
 /// Where `bower verify` writes its scratch trees when `--work` is not given.
 ///

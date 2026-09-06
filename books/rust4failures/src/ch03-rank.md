@@ -112,6 +112,16 @@ replays this book it runs `cargo check` at this step and treats a *successful*
 build as the error. The failure is not an accident that survived into print. It
 is an asserted fact about this commit.
 
+<!-- bower repo="rust4failures" exercise="Make this compile" -->
+```markdown
+The compiler has named every character it is not told about. Each one needs an
+answer — not just the thirteen on a card.
+
+- The smallest fix is one more arm. Which pattern, and what does it return?
+- Could `'z'` be an *error* instead of a rank? What would `from` have to
+  become for that to be true?
+```
+
 ## Answering the question
 
 The compiler asked what happens to a `'z'`. `BLANK` is the answer, and the whole
