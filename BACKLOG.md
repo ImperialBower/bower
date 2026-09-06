@@ -37,6 +37,8 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
+- [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2)
+- [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2)
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 

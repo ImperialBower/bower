@@ -77,7 +77,13 @@ empty body is allowed but pointless; the key form is shorter.
 /// One "your turn" point, bound to a step. Never part of any tree.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Exercise {
+    /// The directive that declared it — where errors point.
     pub loc: Location,
+    /// Key form or block form. Decides where the box renders (§ 6).
+    pub form: ExerciseForm,
+    /// Where the box renders: the block form's own directive, or the
+    /// key form's step's last block in book order.
+    pub at: Location,
     /// The `exercise="…"` value: one imperative line.
     pub task: String,
     /// The block form's fenced body, verbatim markdown lines. Empty for
@@ -85,6 +91,12 @@ pub struct Exercise {
     pub detail: Vec<String>,
     /// The step that carries the answer: the next step of the same repo.
     pub answer: StepId,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExerciseForm {
+    Key,
+    Block,
 }
 ```
 
@@ -146,10 +158,11 @@ tag names are stable as long as step ids are, and an exercise is not a step.
 ## 6. Rendering
 
 One render plan, every target, as today (`bower publish`, `render.rs`). The
-exercise box is emitted **under the step's footer**, after the last block of
-the step in document order — so the key form and the block form land in the
-same place, and the block form's own fence is consumed (it never renders as a
-code block).
+exercise box renders at `Exercise::at`: for the **key form**, after the step's
+last block in book order (below its checkout line); for the **block form**,
+where the author wrote it — its directive and fence are consumed and the box
+takes their place. In the common case (block form right after the step) the
+two land in the same spot.
 
 ### 6.1 The box
 
@@ -176,10 +189,13 @@ The command and the two closing sentences follow the step's `expect`:
 | `pass` | the repo's `verify` | Keep it green. The next step shows one way. |
 | `none` | *(no command line)* | The next step shows one way. |
 
-- The fork line uses a new link template, `fork` (§ 7). No remote, no fork
-  line; the clone line is dropped with it, the checkout and the command stay.
-- `check` and `verify` are read from `bower.toml` — the same commands
-  `bower verify` runs.
+- The fork line uses a new link template, `fork` (§ 7). A repo with no
+  remote has nothing a reader can fork, clone, or check out — today it gets
+  no checkout line under its blocks either. Its box keeps the task, the
+  detail, and the closing lines, and omits the whole "Fork … then:" part.
+- `check` and `verify` are the same commands `bower verify` runs, defaults
+  included: a repo that declares neither still says `cargo check` and
+  `cargo test`.
 - The closing lines are the same on every target. In HTML "the next step"
   links to the answer step's `#step-<id>` anchor.
 
@@ -204,16 +220,24 @@ toggle, print gets a note.
 
 ## 7. Configuration
 
-`[repos.<name>.links]` gains `fork`. Defaulted from `github` exactly as
-`checkout` is (`config.rs`):
+`[repos.<name>.links]` gains `fork`, declarable or derived from `github`
+exactly as `checkout` is (`config.rs`):
 
 ```toml
 [repos.rust4failures.links]
 fork = "https://github.com/abstecker/rust4failures/fork"   # derived when absent
 ```
 
-The clone line prints the reader's fork, which Bower cannot know, so it prints
-the upstream clone URL with a `# your fork` comment — honest and copyable.
+`LinkTemplates` — already home to the derived `checkout` command — also
+carries three more reader commands, never declared in the file: `clone`
+(`git clone https://github.com/<github>.git`, derived), and `check` and
+`verify` (the repo's own, with the verifier's defaults applied). The
+verifier's `DEFAULT_CHECK` / `DEFAULT_VERIFY` move to `config.rs` so there is
+one definition.
+
+The clone line prints the upstream URL with an `# or your fork` comment —
+Bower cannot know the reader's fork, and an honest copyable line beats a
+placeholder.
 
 ## 8. Tests
 

@@ -292,7 +292,10 @@ fn sample_book_renders_the_exercise_and_folds_its_answer() {
         ch04.contains("git checkout step-011-test-that-fails\ncargo test\n```"),
         "{ch04}"
     );
-    assert!(ch04.contains("<summary>Show the answer</summary>"), "{ch04}");
+    assert!(
+        ch04.contains("<summary>Show the answer</summary>"),
+        "{ch04}"
+    );
     let fold = ch04.find("<details class=\"step-answer\">").unwrap();
     let fix = ch04.find("name.trim()").unwrap();
     assert!(fold < fix, "the fold must precede the fix: {ch04}");
