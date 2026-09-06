@@ -307,6 +307,8 @@ mod step_tests {
             content: BlockContent::default(),
             seq_in_book: seq,
             play: false,
+            exercise: None,
+            exercise_block: false,
         }
     }
 

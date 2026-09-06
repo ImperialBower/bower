@@ -152,6 +152,10 @@ pub struct Directive {
     pub notebook: Option<String>,
     /// `paths="a,b"` — multi-file `op="delete"`.
     pub paths: Vec<String>,
+    /// `exercise="…"` — a "your turn" task on this step (the key form), or,
+    /// with no tree keys at all, a block-form exercise whose fence is the
+    /// detail. See `docs/superpowers/specs/2026-09-06-exercises-design.md`.
+    pub exercise: Option<String>,
 }
 
 impl Directive {
@@ -221,6 +225,7 @@ impl Directive {
                 "show" => d.show = Some(value),
                 "include" => d.include = Some(value),
                 "after" => d.after = Some(value),
+                "exercise" => d.exercise = Some(value),
                 "notebook" => {
                     if value == "play" {
                         d.notebook = Some(value);
@@ -273,6 +278,7 @@ impl Directive {
             include: None, // an include never chains to another include
             after: self.after.clone().or_else(|| defaults.after.clone()),
             notebook: self.notebook.clone().or_else(|| defaults.notebook.clone()),
+            exercise: self.exercise.clone().or_else(|| defaults.exercise.clone()),
             paths: if self.paths.is_empty() {
                 defaults.paths.clone()
             } else {
@@ -379,6 +385,16 @@ mod directive_tests {
         assert_eq!(d.expect, Some(Expect::CompileFail));
         assert_eq!(d.hidden, Some(false));
         assert_eq!(d.after.as_deref(), Some("init"));
+    }
+
+    #[test]
+    fn parse__exercise_is_a_plain_string_key() {
+        let d = Directive::parse(
+            "<!-- bower repo=\"failers\" exercise=\"Make this compile\" -->",
+            &loc(),
+        )
+        .unwrap();
+        assert_eq!(d.exercise.as_deref(), Some("Make this compile"));
     }
 
     #[test]
