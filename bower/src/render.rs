@@ -11,7 +11,8 @@
 use std::collections::BTreeMap;
 
 use bower_core::prelude::{
-    BlockDisplay, BookPlan, Directive, LineRange, PlannedStep, ShowMark, show_marker,
+    BlockDisplay, BookPlan, Directive, Exercise, ExerciseForm, Expect, LineRange, PlannedStep,
+    ShowMark, StepId, show_marker,
 };
 
 use crate::config::LinkTemplates;
@@ -28,6 +29,8 @@ pub fn chapter(
 ) -> String {
     let anchors = anchors_by_line(plan, chapter_path);
     let blocks = blocks_by_line(plan, chapter_path);
+    let exercises = exercises_by_line(plan, chapter_path);
+    let folds = folds_by_line(plan, chapter_path);
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut i = 0;
@@ -74,6 +77,12 @@ pub fn chapter(
         }
         i += 1; // the directive itself never reaches the page
 
+        let entry = exercises.get(&directive_line);
+        if let Some(next) = push_block_box(&mut out, entry, forge, target, &lines, i) {
+            i = next;
+            continue;
+        }
+
         // A fence may follow, after blank lines. `op="none"` and `op="delete"`
         // directives have none, and prose simply resumes.
         let mut j = i;
@@ -81,8 +90,12 @@ pub fn chapter(
             j += 1;
         }
         let Some(width) = fence_width(lines.get(j).copied().unwrap_or_default()) else {
+            push_key_box(&mut out, entry, forge, target);
             continue;
         };
+
+        let fold = fold_label(&folds, directive_line, target);
+        open_fold(&mut out, fold);
 
         // The header belongs right above the fence: a reader deciding whether
         // a block is worth reading wants the file and step before the code,
@@ -138,6 +151,8 @@ pub fn chapter(
             out.push(String::new());
             out.push(line);
         }
+        close_fold(&mut out, fold);
+        push_key_box(&mut out, entry, forge, target);
         i = k + 1;
     }
 
@@ -329,6 +344,201 @@ pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Optio
     Some(format!("<span class=\"step-checkout\">$> `{cmd}`</span>"))
 }
 
+/// The "your turn" box for a step's exercise (spec § 6.1), as markdown lines.
+///
+/// One text for every target; only the wrapping differs. HTML gets a `<div>`
+/// with a class the book's theme styles — the tool's whole opinion about
+/// looks, as with `step-meta`. Epub and PDF have no stylesheet of ours, so
+/// they get a blockquote, which every renderer draws as an aside.
+///
+/// The commands need a remote: a repo nobody can clone gets the task, the
+/// detail, and the closing line, and no command that would fail.
+#[must_use]
+pub fn exercise_box(
+    step: &PlannedStep,
+    exercise: &Exercise,
+    links: Option<&LinkTemplates>,
+    target: Target,
+) -> Vec<String> {
+    let mut body: Vec<String> = vec![format!("**Your turn: {}**", exercise.task)];
+    if !exercise.detail.is_empty() {
+        body.push(String::new());
+        body.extend(exercise.detail.iter().cloned());
+    }
+
+    if let Some(l) = links
+        && let Some(clone) = l.clone.as_deref()
+        && let Some(checkout) = subst(l.checkout.as_deref(), &step.tag(), None)
+    {
+        body.push(String::new());
+        body.push(match l.fork.as_deref() {
+            Some(url) => format!("Fork [the repository]({url}), then:"),
+            None => "Clone the repository, then:".to_string(),
+        });
+        body.push(String::new());
+        body.push("```console".to_string());
+        body.push(format!("{clone}   # or your fork"));
+        body.push(checkout);
+        if let Some(cmd) = reader_command(step.expect, l) {
+            body.push(cmd.to_string());
+        }
+        body.push("```".to_string());
+    }
+
+    body.push(String::new());
+    body.push(closing_line(step.expect, &exercise.answer, target));
+    wrap_box(body, target)
+}
+
+/// Which of the repo's two commands a reader runs after this step: `check`
+/// after a `compile_fail`, `verify` after anything with tests to run, nothing
+/// after a step the verifier skips.
+fn reader_command(expect: Expect, links: &LinkTemplates) -> Option<&str> {
+    match expect {
+        Expect::CompileFail => links.check.as_deref(),
+        Expect::TestFail | Expect::Pass => links.verify.as_deref(),
+        Expect::Skip => None,
+    }
+}
+
+/// The last line: what green means, and where the next step is. A broken
+/// step has an answer; a green one has one way among many. Only HTML has an
+/// anchor to link.
+fn closing_line(expect: Expect, answer: &StepId, target: Target) -> String {
+    let (lower, upper) = match target {
+        Target::Html => (
+            format!("[the next step](#step-{answer})"),
+            format!("[The next step](#step-{answer})"),
+        ),
+        Target::Epub | Target::Pdf => ("the next step".to_string(), "The next step".to_string()),
+    };
+    match expect {
+        Expect::CompileFail | Expect::TestFail => {
+            format!("Green means you did it. The answer is {lower}.")
+        }
+        Expect::Pass => format!("Keep it green. {upper} shows one way."),
+        Expect::Skip => format!("{upper} shows one way."),
+    }
+}
+
+/// HTML: a `<div>` the theme styles, blank-line separated so the markdown
+/// inside still renders (`CommonMark` ends an HTML block at a blank line).
+/// Everything else: a blockquote.
+fn wrap_box(body: Vec<String>, target: Target) -> Vec<String> {
+    match target {
+        Target::Html => {
+            let mut out = vec!["<div class=\"step-exercise\">".to_string(), String::new()];
+            out.extend(body);
+            out.push(String::new());
+            out.push("</div>".to_string());
+            out
+        }
+        Target::Epub | Target::Pdf => body
+            .into_iter()
+            .map(|l| {
+                if l.is_empty() {
+                    ">".to_string()
+                } else {
+                    format!("> {l}")
+                }
+            })
+            .collect(),
+    }
+}
+
+/// The toggle's label over an answer step's blocks: a broken step has an
+/// answer, a green one has one way.
+fn answer_summary(expect: Expect) -> &'static str {
+    match expect {
+        Expect::CompileFail | Expect::TestFail => "Show the answer",
+        Expect::Pass | Expect::Skip => "Show one way",
+    }
+}
+
+/// Print a key-form box below whatever the step's last block left on the
+/// page — a fence and its checkout line, or nothing at all for a prose step.
+fn push_key_box(
+    out: &mut Vec<String>,
+    entry: Option<&(String, &PlannedStep, &Exercise)>,
+    forge: &BTreeMap<String, LinkTemplates>,
+    target: Target,
+) {
+    if let Some((repo, step, x)) = entry
+        && x.form == ExerciseForm::Key
+    {
+        out.push(String::new());
+        out.extend(exercise_box(step, x, forge.get(repo), target));
+        out.push(String::new());
+    }
+}
+
+/// A block-form exercise: its fence is the box's detail, not code. Print the
+/// box where the author put the directive and return where scanning resumes,
+/// past the fence that never renders. `None` for every other directive.
+fn push_block_box(
+    out: &mut Vec<String>,
+    entry: Option<&(String, &PlannedStep, &Exercise)>,
+    forge: &BTreeMap<String, LinkTemplates>,
+    target: Target,
+    lines: &[&str],
+    from: usize,
+) -> Option<usize> {
+    let (repo, step, x) = entry?;
+    if x.form != ExerciseForm::Block {
+        return None;
+    }
+    out.extend(exercise_box(step, x, forge.get(repo), target));
+    out.push(String::new());
+    Some(skip_directive_fence(lines, from))
+}
+
+/// An answer step's code folds shut in HTML; the reader opens it after
+/// trying. Print has no toggle anywhere, so it prints.
+fn fold_label(
+    folds: &BTreeMap<usize, &'static str>,
+    directive_line: usize,
+    target: Target,
+) -> Option<&'static str> {
+    target
+        .has_hidden_lines()
+        .then(|| folds.get(&directive_line).copied())
+        .flatten()
+}
+
+/// Open the fold above a block, when this block is an answer's.
+fn open_fold(out: &mut Vec<String>, label: Option<&str>) {
+    if let Some(label) = label {
+        out.push("<details class=\"step-answer\">".to_string());
+        out.push(format!("<summary>{label}</summary>"));
+        out.push(String::new());
+    }
+}
+
+/// Close the fold below a block and its checkout line.
+fn close_fold(out: &mut Vec<String>, label: Option<&str>) {
+    if label.is_some() {
+        out.push(String::new());
+        out.push("</details>".to_string());
+    }
+}
+
+/// From just past a directive, the index just past the fence that follows it
+/// (blank lines between allowed). A directive with no fence yields `from`.
+fn skip_directive_fence(lines: &[&str], from: usize) -> usize {
+    let mut j = from;
+    while j < lines.len() && lines[j].trim().is_empty() {
+        j += 1;
+    }
+    let Some(width) = lines.get(j).and_then(|l| fence_width(l)) else {
+        return from;
+    };
+    let mut k = j + 1;
+    while k < lines.len() && fence_width(lines[k]).is_none_or(|w| w < width) {
+        k += 1;
+    }
+    (k + 1).min(lines.len())
+}
+
 /// Fill `{tag}`, `{path}`, `{start}`, `{end}` in a template.
 ///
 /// Literal replacement, not a template engine: four placeholders do not justify
@@ -374,6 +584,46 @@ fn anchors_by_line(plan: &BookPlan, chapter_path: &str) -> BTreeMap<usize, Strin
         for step in &repo.steps {
             if step.anchor.chapter == chapter_path {
                 out.insert(step.anchor.line, step.id.0.clone());
+            }
+        }
+    }
+    out
+}
+
+/// Line number → the exercise that renders there, with its step and repo.
+/// Keyed by [`Exercise::at`]: the block form's own directive, or the key
+/// form's last block.
+fn exercises_by_line<'a>(
+    plan: &'a BookPlan,
+    chapter_path: &str,
+) -> BTreeMap<usize, (String, &'a PlannedStep, &'a Exercise)> {
+    let mut out = BTreeMap::new();
+    for repo in &plan.repos {
+        for step in &repo.steps {
+            if let Some(x) = &step.exercise
+                && x.at.chapter == chapter_path
+            {
+                out.insert(x.at.line, (repo.repo.0.clone(), step, x));
+            }
+        }
+    }
+    out
+}
+
+/// Line number → the fold's label, for every block of a step that is some
+/// exercise's answer.
+fn folds_by_line(plan: &BookPlan, chapter_path: &str) -> BTreeMap<usize, &'static str> {
+    let mut out = BTreeMap::new();
+    for repo in &plan.repos {
+        for step in &repo.steps {
+            let Some(x) = &step.exercise else { continue };
+            let Some(answer) = repo.steps.iter().find(|s| s.id == x.answer) else {
+                continue;
+            };
+            for display in &answer.displays {
+                if display.loc.chapter == chapter_path {
+                    out.insert(display.loc.line, answer_summary(step.expect));
+                }
             }
         }
     }
@@ -784,5 +1034,183 @@ mod render_tests {
         assert!(out.contains("Just narrative"), "{out}");
         // No fence, so no code to check out either.
         assert!(!out.contains("git checkout"), "{out}");
+    }
+
+    const EXERCISE_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"broken\" file=\"src/lib.rs\" expect=\"compile_fail\" exercise=\"Make this compile\" -->\n\n",
+        "```rust\n",
+        "fn x() -> u32 { \"42\" }\n",
+        "```\n\n",
+        "Between.\n\n",
+        "<!-- bower repo=\"r\" step=\"fixed\" file=\"src/lib.rs\" op=\"replace\" -->\n\n",
+        "```rust\n",
+        "fn x() -> u32 { 42 }\n",
+        "```\n\n",
+        "<!-- bower repo=\"r\" exercise=\"Do it without a literal\" -->\n",
+        "```markdown\n",
+        "Parse it instead.\n",
+        "```\n\n",
+        "<!-- bower repo=\"r\" step=\"last\" file=\"src/lib.rs\" op=\"append\" -->\n\n",
+        "```rust\n",
+        "// fin\n",
+        "```\n",
+    );
+
+    fn exercise_links() -> BTreeMap<String, LinkTemplates> {
+        let mut m = github_links();
+        let l = m.get_mut("r").unwrap();
+        l.fork = Some("https://x.invalid/fork".to_string());
+        l.clone = Some("git clone https://x.invalid/r.git".to_string());
+        l.check = Some("cargo check".to_string());
+        l.verify = Some("cargo test".to_string());
+        m
+    }
+
+    fn render_exercise(target: Target, links: &BTreeMap<String, LinkTemplates>) -> String {
+        chapter(
+            EXERCISE_CH,
+            "src/ch01.md",
+            &tiny_plan(EXERCISE_CH),
+            links,
+            target,
+        )
+    }
+
+    #[test]
+    fn exercise__key_form_box_follows_the_checkout_line() {
+        let out = render_exercise(Target::Html, &exercise_links());
+        let checkout = out
+            .find("$> `git checkout step-001-broken`")
+            .expect("checkout");
+        let bx = out.find("**Your turn: Make this compile**").expect("box");
+        let between = out.find("Between.").expect("prose");
+        assert!(checkout < bx && bx < between, "{out}");
+    }
+
+    #[test]
+    fn exercise__box_names_fork_clone_checkout_and_the_check_command() {
+        let out = render_exercise(Target::Html, &exercise_links());
+        assert!(
+            out.contains("Fork [the repository](https://x.invalid/fork), then:"),
+            "{out}"
+        );
+        assert!(
+            out.contains(
+                "```console\ngit clone https://x.invalid/r.git   # or your fork\ngit checkout step-001-broken\ncargo check\n```"
+            ),
+            "{out}"
+        );
+        assert!(
+            out.contains("Green means you did it. The answer is [the next step](#step-fixed)."),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn exercise__block_form_replaces_its_fence_and_says_one_way() {
+        let out = render_exercise(Target::Html, &exercise_links());
+        assert!(
+            !out.contains("```markdown"),
+            "the detail fence must not render as code: {out}"
+        );
+        assert!(
+            out.contains("**Your turn: Do it without a literal**\n\nParse it instead.\n"),
+            "{out}"
+        );
+        // A green step: `verify`, and one way rather than the answer.
+        assert!(
+            out.contains("git checkout step-002-fixed\ncargo test\n```"),
+            "{out}"
+        );
+        assert!(
+            out.contains("Keep it green. [The next step](#step-last) shows one way."),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn exercise__html_folds_the_answer_step_and_not_the_question() {
+        let out = render_exercise(Target::Html, &exercise_links());
+        assert_eq!(
+            out.matches("<details class=\"step-answer\">").count(),
+            2,
+            "fixed and last are both answers: {out}"
+        );
+        assert_eq!(out.matches("</details>").count(), 2, "{out}");
+        assert!(out.contains("<summary>Show the answer</summary>"), "{out}");
+        assert!(out.contains("<summary>Show one way</summary>"), "{out}");
+        let fold = out.find("<details").unwrap();
+        let broken = out.find("fn x() -> u32 { \"42\" }").unwrap();
+        let fixed = out.find("fn x() -> u32 { 42 }").unwrap();
+        assert!(broken < fold && fold < fixed, "{out}");
+        // The fold closes after the block's checkout line, before the box.
+        let close = out.find("</details>").unwrap();
+        let fixed_checkout = out.find("$> `git checkout step-002-fixed`").unwrap();
+        let second_box = out.find("**Your turn: Do it without a literal**").unwrap();
+        assert!(fixed_checkout < close && close < second_box, "{out}");
+    }
+
+    #[test]
+    fn exercise__epub_is_a_blockquote_with_no_toggle_or_anchor_link() {
+        let out = render_exercise(Target::Epub, &exercise_links());
+        assert!(!out.contains("<details"), "{out}");
+        assert!(!out.contains("<div class=\"step-exercise\">"), "{out}");
+        assert!(out.contains("> **Your turn: Make this compile**"), "{out}");
+        assert!(
+            out.contains("> Green means you did it. The answer is the next step."),
+            "{out}"
+        );
+        assert!(!out.contains("#step-fixed"), "{out}");
+    }
+
+    #[test]
+    fn exercise__without_a_remote_keeps_the_task_and_drops_the_commands() {
+        let out = render_exercise(Target::Html, &no_links());
+        assert!(out.contains("**Your turn: Make this compile**"), "{out}");
+        assert!(!out.contains("Fork"), "{out}");
+        assert!(!out.contains("git clone"), "{out}");
+        assert!(!out.contains("cargo check"), "{out}");
+        assert!(out.contains("Green means you did it."), "{out}");
+    }
+
+    #[test]
+    fn exercise__html_box_is_a_div_the_theme_styles() {
+        let out = render_exercise(Target::Html, &exercise_links());
+        assert!(
+            out.contains("<div class=\"step-exercise\">\n\n**Your turn"),
+            "{out}"
+        );
+        assert!(out.contains("\n\n</div>"), "{out}");
+    }
+
+    const PROSE_EXERCISE_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"note\" op=\"none\" expect=\"none\" exercise=\"Try the refactor\" -->\n\n",
+        "Just narrative.\n\n",
+        "<!-- bower repo=\"r\" step=\"code\" file=\"src/lib.rs\" -->\n\n",
+        "```rust\nfn y() {}\n```\n",
+    );
+
+    #[test]
+    fn exercise__on_a_prose_step_renders_with_no_command_line() {
+        let out = chapter(
+            PROSE_EXERCISE_CH,
+            "src/ch01.md",
+            &tiny_plan(PROSE_EXERCISE_CH),
+            &exercise_links(),
+            Target::Html,
+        );
+        let bx = out.find("**Your turn: Try the refactor**").expect("box");
+        let prose = out.find("Just narrative.").unwrap();
+        assert!(bx < prose, "{out}");
+        assert!(
+            out.contains("git checkout step-001-note\n```"),
+            "no command after the checkout on a skipped step: {out}"
+        );
+        assert!(
+            out.contains("[The next step](#step-code) shows one way."),
+            "{out}"
+        );
     }
 }
