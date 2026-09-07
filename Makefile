@@ -1,8 +1,11 @@
-.PHONY: default help clean fmt build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
+.PHONY: default help check-dependencies clean fmt build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
 default: ayce
 
 help:  ## self-documenting: every target has a '## comment' printed here
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-16s %s\n", $$1, $$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  make %-20s %s\n", $$1, $$2}'
+
+check-dependencies: ## assert every external tool this repo needs is installed
+	./bin/check-dependencies
 
 clean: ## remove build artifacts
 	cargo clean
@@ -29,12 +32,14 @@ security-scan: ## dependency vulnerability scan
 docs: ## build docs, fail on warnings
 	RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
 
-ayce: clean fmt build test lint security-scan docs ## all-you-can-eat: full pre-push sweep
+ayce: check-dependencies clean fmt build test lint security-scan docs ## all-you-can-eat: full pre-push sweep
 
 # ---------------------------------------------------------------------------
-# Extra targets. The seven above are the contract and never change; these are
-# this project's own invariants, folded into `build` and `lint` so that a plain
-# `make ayce` runs them without altering `ayce`'s prerequisite list.
+# Extra targets. The seven contract targets above never change; these are this
+# project's own invariants, folded into `build` and `lint` so that a plain
+# `make ayce` runs them without altering the contract. `check-dependencies` is
+# the exception: it is a gate rather than a step, and runs first so a missing
+# tool is named in a second instead of surfacing as a test failure minutes in.
 # ---------------------------------------------------------------------------
 
 purity: ## assert bower-core still has zero dependencies

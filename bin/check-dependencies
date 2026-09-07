@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# One definition of "what this repo needs installed". The Makefile calls this;
+# so will CI. A missing tool should be named here, once, with the command that
+# installs it — not discovered as a test failure three minutes into `make ayce`.
+set -uo pipefail
+
+# name | install command | what it is for
+required=(
+	"cargo|https://rustup.rs|the toolchain itself"
+	"git|xcode-select --install|bower drives git directly: build, verify, status, push"
+	"pandoc|brew install pandoc|the epub, and the first half of the PDF pipeline"
+	"typst|brew install typst|the PDF, and the font check in the publish tests"
+	"cargo-audit|cargo install cargo-audit|make security-scan"
+	"cargo-deny|cargo install cargo-deny|make security-scan"
+)
+
+# Not needed by `make ayce`, so a warning rather than a failure.
+optional=(
+	"mdbook|cargo install mdbook|make book, and the #[ignore]d lanes in make slow"
+	"gh|brew install gh|make ship-hello, make ship-failures"
+)
+
+missing=0
+
+report() {
+	local tier=$1 entry
+	shift
+	for entry in "$@"; do
+		local tool=${entry%%|*} rest=${entry#*|}
+		local install=${rest%%|*} what=${rest#*|}
+		local path
+		if path=$(command -v "$tool"); then
+			printf '  ok       %-12s %s\n' "$tool" "$path"
+		elif [ "$tier" = required ]; then
+			printf '  MISSING  %-12s %s   (%s)\n' "$tool" "$install" "$what"
+			missing=$((missing + 1))
+		else
+			printf '  absent   %-12s %s   (%s)\n' "$tool" "$install" "$what"
+		fi
+	done
+}
+
+echo "required:"
+report required "${required[@]}"
+echo "optional:"
+report optional "${optional[@]}"
+
+if [ "$missing" -ne 0 ]; then
+	echo
+	echo "check-dependencies: $missing required tool(s) missing; install them and re-run"
+	exit 1
+fi
+
+echo
+echo "check-dependencies: everything required is installed"
