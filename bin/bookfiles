@@ -5,8 +5,8 @@
 # their fenced blocks. This walks those markers in reading order and answers two
 # questions: which steps does a repo have, and which files does a step write.
 #
-#   bookfiles <repo>          list the steps, in book order
-#   bookfiles <repo> <step>   list the files that step writes, in book order
+#   bookfiles <repo>          list the steps, sorted
+#   bookfiles <repo> <step>   list the files that step writes, sorted
 set -euo pipefail
 
 readonly PROG=${0##*/}
@@ -21,7 +21,7 @@ usage: $PROG <repo> [step]
   $PROG rust4failures         list the steps in the rust4failures book
   $PROG rust4failures kata    list the files the "kata" step writes
 
-Reads the <!-- bower … --> markers under $BOOKS in chapter order.
+Reads the <!-- bower … --> markers under $BOOKS. Output is sorted.
 USAGE
 }
 
@@ -37,8 +37,8 @@ attr() {
     if [[ $line =~ $key=\"([^\"]*)\" ]]; then printf '%s' "${BASH_REMATCH[1]}"; fi
 }
 
-# The chapters of one book, in reading order. SUMMARY.md is the order mdBook
-# itself uses; without one, fall back to sorted names so the answer stays stable.
+# The chapters of one book. SUMMARY.md is the list mdBook itself builds from, so
+# it decides which files count as part of the book; without one, take every .md.
 chapters() {
     local src=$1
     local summary=$src/SUMMARY.md
@@ -54,7 +54,7 @@ chapters() {
     fi
 }
 
-# Every marker for one repo, in reading order, one per line.
+# Every marker for one repo, one per line.
 markers() {
     local repo=$1 src chapter line
     [[ -d $BOOKS ]] || die "no books directory at $BOOKS"
@@ -98,8 +98,7 @@ main() {
     ((found)) || die "no book markers for repo \"$repo\""
     ((${#out[@]})) || die "no files for step \"$want\" in repo \"$repo\""
 
-    # First occurrence wins, so the reading order survives the de-duplication.
-    printf '%s\n' "${out[@]}" | awk '!seen[$0]++'
+    printf '%s\n' "${out[@]}" | sort -u
 }
 
 main "$@"

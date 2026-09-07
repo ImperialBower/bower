@@ -1,6 +1,8 @@
 # Summary
 
 - [Introduction](ch00-introduction.md)
-- [Hell in a Cell](ch01-hell_in_a_cell.md)
-- [Init](ch02-init.md)
-- [Rank, and the match that would not compile](ch03-rank.md)
+- [The World's Simplest Kata](ch01-worlds_simplest_kata.md)
+
+[//]: # (- [Init]&#40;ch02-init.md&#41;)
+
+[//]: # (- [Rank, and the match that would not compile]&#40;ch03-rank.md&#41;)

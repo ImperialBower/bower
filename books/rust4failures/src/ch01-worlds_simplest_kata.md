@@ -2,466 +2,459 @@
 
 ## TL;DR
 
-I hate initial setup chapters in coding books. Just do the 
-[The World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata) to make sure you have everything setup correctly.
+Do the [World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata) to make
+sure you have all your tools setup correctly.
 
-------
+------- 
 
-# EDITOR: This all may suck. Could just leave the top part. 
+I hate initial setup chapters in coding books. Instead, let's start our project's codebase
+with a really messed up version based on my [World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata). It's designed
+to show you many of the different ways that Rust code can fail continuous integration tools
+like GitHub Actions. 
 
-------
-
-ANNOUNCER:
-> *Two programmers walk in, one walks out. Who will triumph...*
-
-`     `💥💥EXPLOSIONS💥💥</br>
-`     `QUEUE [Gonna Fly Now aka Rocky Theme](https://www.youtube.com/watch?v=_YYmfM2TfUA)
-
-> *the naive young developer trying to thrive in our cruel technocratic society...*
-
-`     `💥💥LASER SHOW💥💥</br>
-`     `QUEUE [Flight of the Concords' Robots](https://youtu.be/2IPAOxrH7Ro?t=86)
->
-> *or Broboto, the Soulless Savage AI Robot, trained by Silicon Valley, hellbent on terminating anyone who dares to clutch a keyboard?*
-
-Sure, every sociopathic CEO on the planet is trying to replace you with AI, but can they? These programming streets are hard, and the defects don't play by [Marquess of Queensberry Rules](https://en.wikipedia.org/wiki/Marquess_of_Queensberry_Rules). Right now hundreds of thousands of clueless users and vapid script kiddies are foaming at the mouth to do incredibly stupid and cringeworthy things to any program released into the wild.
-
-Are you going to run back to mommy's safe warehouse job or are you going to step to it and take on the AI horde? Do you have what it takes? Do you have the intestinal fortitude to enter the
-
-```txt
-██╗  ██╗███████╗██╗     ██╗         ██╗███╗   ██╗     █████╗ 
-██║  ██║██╔════╝██║     ██║         ██║████╗  ██║    ██╔══██╗
-███████║█████╗  ██║     ██║         ██║██╔██╗ ██║    ███████║
-██╔══██║██╔══╝  ██║     ██║         ██║██║╚██╗██║    ██╔══██║
-██║  ██║███████╗███████╗███████╗    ██║██║ ╚████║    ██║  ██║
-╚═╝  ╚═╝╚══════╝╚══════╝╚══════╝    ╚═╝╚═╝  ╚═══╝    ╚═╝  ╚═╝
-                                                             
- ██████╗███████╗██╗     ██╗   ██████╗                        
-██╔════╝██╔════╝██║     ██║   ╚════██╗                       
-██║     █████╗  ██║     ██║     ▄███╔╝                       
-██║     ██╔══╝  ██║     ██║     ▀▀══╝                        
-╚██████╗███████╗███████╗███████╗██╗                          
- ╚═════╝╚══════╝╚══════╝╚══════╝╚═╝                             
-```
-## The Cell
-
-You and your AI opponent will be locked into a Cell of the [Rust](https://www.rust-lang.org/) programming language. Why Rust? Because it's difficult, and cruel, and the programmers who code in it are all assholes, and naturally, since I am an asshole, it is my favorite language. *Seriously, because of it's strict nature it's the perfect antidote to the AI vibe sludge coming out these days.*
-
-The problem is simple: Hello, World!. Yes, [Hello, motherfucking World!](https://en.wikipedia.org/wiki/%22Hello,_World!%22_program). The most overused programming exercise on the planet; Beaten to death so hard that it's the turned into the finest McRib worthy [pink slime](https://en.wikipedia.org/wiki/Pink_slime).
-### The Opposition
-
-Your opponent is CoPilot. Yes, CoPilot; Sam Altman's & Satya Nadella's purloined AI love child currently infesting every Microsoft based application it can sink it's binary claws into. *Oh my, how did I ever use Notepad before CoPilot? Thank you! Thank you!!! I'll never had to worry about how to end a sentence again!*
-
-GitHub has added an adorable new feature: you can now get code reviews from CoPilot. So, I've taken the error littered original version of the [kata](https://github.com/devplaybooks/rust_worlds_simplest_kata), and ran it through a CoPilot code review, to see how well it can do.
-
-## Let us go!
-
-Here's your mission:
-
-- Fork the  [The World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata) repo.
--
-- Make the [failing GitHub Actions](https://github.com/devplaybooks/rust_worlds_simplest_kata/actions) green.
-
------
-
-Here's were you should stop and try to work through it yourself. If you're still having issues
-here's a walkthrough of me getting things to work:
-
-Step 1: Install Rust
-
-➔ TL;DR GOTO [rustup.rs](https://rustup.rs/). Do what it says.
-
-Rust has the best ecosystem for a programming language in the world. If you've banged your head against the wall trying to get a grip on how to manage Python projects, or lost yourself in a sea of gcc compiler flags, Rust will seem like a cool ocean's breeze.
-
-- Install [rustup](https://rustup.rs/).
-- run `rustup install`
-
-You should see something like this:
+Here are the files for our initial commit:
 
 ```shell
-$> rustc --version
-rustc 1.97.1 (8bab26f4f 2026-07-14
+.github/workflows/CI.yaml
+.gitignore
+Cargo.lock
+Cargo.toml
+LICENSE-APACHE
+LICENSE-MIT
+src/lib.rs
 ```
 
-## Step 2: Fork it
+## Cargo.toml
 
-IF you have a github account:
-fork the repo
-enable GitHub Actions for your fork.[^1]
-ELSE if *brah, I don't mess with those giganto corporations, man*:
-download the code onto your machine.
+<!-- bower repo="rust4failures" step="kata" file="Cargo.toml" msg="init" -->
 
-## Question: Does it build?
+We start with `Cargo.toml`, the manifest file that defines the key elements of our Rust project. You can see a breakdown
+of the entries in [The Cargo Book](https://doc.rust-lang.org/cargo/reference/manifest.html).
+
+```toml
+[package]
+name = "rust4failures"
+description = "Poker library."
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.72.1"
+authors = ["electronicpanopticon <gaoler@electronicpanopticon.com>", "Readers"]
+license = "MIT OR Apache-2.0"
+keywords = ["rust", "book", "poker", "wasm"]
+
+[dependencies]
+
+[dev-dependencies]
+
+[lints.clippy]
+pedantic = "warn"
+```
+
+Up next is `Cargo.lock`. It's autogenerated when you run `cargo build`. Don't
+touch it. We are committing it. 
+
+<!-- bower repo="rust4failures" step="kata" file="Cargo.lock" msg="init" -->
+
+```toml
+# This file is automatically @generated by Cargo.
+# It is not intended for manual editing.
+version = 4
+
+[[package]]
+name = "rust4failures"
+version = "0.0.1"
+```
+
+### Linting
+
+One thing that I want to call out is this line `pedantic = "warn"` under `lints.clippy`. I love linters
+on my projects, and add them whenever I can. It's best to use them from the start, since the longer
+you wait, the more you have to clean up when you add it. 
+
+Rust's [Clippy linter](https://doc.rust-lang.org/clippy/index.html) is the best in the business. And
+since I'm insane, I like to [dial it up to 11](https://en.wikipedia.org/wiki/Up_to_eleven) with the 
+[pedantic setting](https://doc.rust-lang.org/clippy/lints.html#pedantic). 
+![Spinal_Tap_-_Up_to_Eleven.jpg](images/Spinal_Tap_-_Up_to_Eleven.jpg)
+
+> 💡LESSON: Linters are a powerful way to keep your code clean, and catch basic coding issues. 
+
+## .gitignore
+
+The files that we [don't want to commit in git](https://git-scm.com/docs/gitignore):
+
+<!-- bower repo="rust4failures" step="kata" file=".gitignore" msg="init" -->
+
+```console
+/target
+```
+
+## GitHub Actions
+
+This is our traffic cop. There are many different ways to setup continuous integration, but
+[GitHub Actions](https://docs.github.com/en/actions) are one of my favorites. I'd recommend
+that you check out the entire file for our CI guardrails. For now, I've highlighted two sections:
+`on` and the `test` job. On tells us that we are checking everything every time there's a push
+or a pull request. After a while, that may be too much, and we can dial it down, but for now
+it's good. 
+
+<!-- bower repo="rust4failures" step="kata" file=".github/workflows/CI.yaml" msg="init" -->
+
+```yaml
+name: CI
+
+# bower:show
+on:
+  push:
+  pull_request:
+# bower:show end
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: -Dwarnings
+
+# bower:show
+jobs:
+  test:
+    name: Rust ${{matrix.rust}}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, 1.98.1]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{matrix.rust}}
+      - run: cargo test --all
+        # bower:show end
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: clippy
+      - run: cargo clippy -- -Dclippy::all -Dclippy::pedantic
+
+  fmt:
+    name: Fmt
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  doc:
+    name: Doc
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: stable
+          components: rust-docs
+      - run: cargo doc --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+
+```
+
+## Licenses
+
+We're using [Rust's standard combination](https://rust-lang.org/policies/licenses/) of 
+[MIT](https://opensource.org/license/MIT) and
+[Apache-2.0](https://www.apache.org/licenses/LICENSE-2.0) licenses. 
+
+<!-- bower repo="rust4failures" step="kata" file="LICENSE-MIT" msg="init" -->
+
+```markdown
+# bower:show
+The MIT License (MIT)
+
+Copyright (c) 2026 ImperialBower
+# bower:show end
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+<!-- bower repo="rust4failures" step="kata" file="LICENSE-APACHE" msg="init" -->
+
+```markdown
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+# bower:show
+   Copyright 2026 ImperialBower
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+# bower:show end
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
+## lib.rs
+
+Now down to business. This is a simple `Hello, World` example. It's all going to be gone in a 
+bit, but it's a good way to kick the tires on how we are ensuring quality in this project.
+
+<!-- bower repo="rust4failures" step="kata" file="src/lib.rs" msg="init" -->
 
 ```rust
-$> cargo build
-`/Users/flubble/src/github.com/devplaybooks/rust_worlds_simplest_kata/Cargo.toml`
-
-Caused by:
-  rust-version 1.72.1 is incompatible with the version (1.85.0) required by the specified edition (2024)
-```
-
-It's insane how good the Rust compiler is at spelling out exactly what the problem is. The `Cargo.toml` file says `edition = "2024"` but the Rist versions is set to `1.72.1`. Let's bump it up to what we're running, version `1.97.1`:
-
-```diff
-diff --git a/Cargo.toml b/Cargo.toml
-index 7220334..26bb72e 100644
---- a/Cargo.toml
-+++ b/Cargo.toml
-@@ -3,7 +3,7 @@ name = "worlds_simplest_kata"
- version = "0.1.2"
- authors = ["electronicpanopticon <gaoler@electronicpanopticon.com>"]
- edition = "2024"
--rust-version = "1.72.1"
-+rust-version = "1.97.1"
- description = "A kata to learn how to fix basic issues with rust code."
- repository = "https://github.com/devplaybooks/rust_worlds_simplest_kata"
- license = "GPL-3"
-```
-### Step 4: Does it build now?
-
-Let's see how we're doing:
-
-```rust
-$> cargo build 
-   Compiling worlds_simplest_kata v0.1.2 (/Users/christoph/src/github.com/abstecker/worlds_simplest_kata_no_actions)
-error[E0308]: mismatched types
-  --> src/lib.rs:23:9
-   |
-22 |     pub fn  hello__world() -> &'static str {
-   |                               ------------ expected `&'static str` because of return type
-23 |         Hello::hello("wirld!".to_string())
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&str`, found `String`
-   |
-help: consider borrowing here
-   |
-23 |         &Hello::hello("wirld!".to_string())
-   |         +
-
-For more information about this error, try `rustc --explain E0308`.
-error: could not compile `worlds_simplest_kata` (lib) due to 1 previous error
-```
-
-Rust strings still terrify me. I feel like I am a lot better at dealing with them then when I first started out, but still... damn do they call out all of my deficiencies as a developer. My php, perl coding early ass didn't know shit... didn't learn shit... was just making it up as I went along... *ASIDE: I still am.*
-
-Basically, a [String](https://doc.rust-lang.org/std/string/struct.String.html) is is stored in the heap[^2] of your program. It's like that extra suitcase you take on a trip so that you can fit in silly nick knacks you collect along your way. A [str primitive type](https://doc.rust-lang.org/std/primitive.str.html), on the other hand, is something that you can borrow, but not buy. It's like that key to the gas station restroom, chained to an old license plate. You can borrow it, but it's not yours.
-
-In this case, the `hello__world` function is returning `&'static str`; what's called a string literal. It's a string that's burned into your program, and will exist unti it ends. It's like that tattoo you got that one night, in that place were no one can see it... you know the one.
-
------
-
-I can see three paths forward. Here's the simplest. I have a static function that's trying to return a static str, that insteads returning the results of a function that returns a String.
-
-> Patient: *Doc, it hurts when I hold my arm like that.*
-> Doctor: *Well don't hold arm like that.*
-
-So, let's do what it says:
-
-```rust
-pub fn  hello__world() -> &'static str {  
-    "Hello, world!"  
-}
-```
-
-Now we're returning a pure String literal. Let's see how it does.
-
-```shell
-$> cargo build                                                                                                                                             ─╯
-warning: method `hello__world` should have a snake case name
-  --> src/lib.rs:22:13
-   |
-22 |     pub fn  hello__world() -> &'static str {
-   |             ^^^^^^^^^^^^ help: convert the identifier to snake case: `hello_world`
-   |
-   = note: `#[warn(non_snake_case)]` (part of `#[warn(nonstandard_style)]`) on by default
-
-warning: `worlds_simplest_kata` (lib) generated 1 warning
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.00s
-```
-
-It builds, but with a warning. First, ret's get rid of that warning, and remove the dunder, or double underscore, from the `hello__world()` function.
-
-> Did you know that a double underscore in some programmering circles is called a dunder? I learned that while attending one of the [Central Ohio Python User's Group](http://cohpy.org/) meetings. In python code you will see functions named [____init____ ](https://www.geeksforgeeks.org/python/__init__-in-python/), and they would call them "dunder inits."
-
-Here's the update to the function that matches the recomentation from error message as close as possible:
-
-```rust
-pub fn hello_world() -> &'static str {  
-   "Hello, world!"  
-}
-```
-Let's see how that does.
-```bash
-$> cargo build
-   Compiling worlds_simplest_kata v0.1.2 (/Users/christoph/src/github.com/devplaybooks/rust_worlds_simplest_kata)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.00s
-```
-Nice... it builds fine.
-```shell
-cargo run
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running `target/debug/worlds_simplest_kata`
-Hello, world!
-```
-And it runs without a problem.
-
-Let's see if the tests are green:
-
-```bash
-$> cargo test
-Compiling worlds_simplest_kata v0.1.2 (/Users/christoph/src/github.com/devplaybooks/rust_worlds_simplest_kata)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.15s
-     Running unittests src/lib.rs (target/debug/deps/worlds_simplest_kata-c6a62a2629fcb368)
-
-running 1 test
-test tests::hello_world ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running unittests src/main.rs (target/debug/deps/worlds_simplest_kata-cfecd8ab1322d86e)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-```
-yes, but...
-
-```bash
-   Doc-tests worlds_simplest_kata
-running 1 test
-test src/lib.rs - Hello (line 10) ... FAILED
-failures:
----- src/lib.rs - Hello (line 10) stdout ----
-Test executable failed (exit status: 101).
-
-stderr:
-
-thread 'main' (876041) panicked at /var/folders/yc/zz4hyvrx0rzc5tdpkjgrkmy00000gn/T/rustdoctestCeSnEA/doctest_bundle_2024.rs:9:1:
-assertion `left == right` failed
-  left: "Hello, everyone."
- right: "Hello,  everyone!"
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-failures:
-    src/lib.rs - Hello (line 10)
-
-test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
-
-all doctests ran in 0.69s; merged doctests compilation took 0.36s
-error: doctest failed, to rerun pass `--doc`
-```
-This is a failure in the test that is written inside the documentation for the code.
-
-I love Rust's [documentation tests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html). One on the biggest challenges in keeping software up to date is the documentation. Changes will be made to the code, but everyone's in such a hurry, that they forget to keep the documentation up to date as well. Often, you will hear from developers that it's just better to just forget it, since it's often less than useless.
-
-With doctests, not only do you ensure that you have up to date documentation, but you also provide examples to your users that you know are correct.
-
-And, as is the case most of the time, the compiler spells out the problem. There's an extra space in the value returned from the `hello()` function.
-
-Take 3:
-
-```bash
-$> cargo test
-...
- left: "Hello, everyone."
-right: "Hello, everyone!"
-```
-Almost... Let's fix the punctuation.
-
-```bash
-cargo test
-   Compiling worlds_simplest_kata v0.1.2 (/Users/christoph/src/github.com/devplaybooks/rust_worlds_simplest_kata)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
-     Running unittests src/lib.rs (target/debug/deps/worlds_simplest_kata-c6a62a2629fcb368)
-
-running 1 test
-test tests::hello_world ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-     Running unittests src/main.rs (target/debug/deps/worlds_simplest_kata-cfecd8ab1322d86e)
-
-running 0 tests
-
-test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-   Doc-tests worlds_simplest_kata
-
-running 1 test
-test src/lib.rs - Hello (line 10) ... ok
-
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
-
-all doctests ran in 0.61s; merged doctests compilation took 0.29s
-```
-Boom! We are green. Ship it!
-```bash
-$> git add .
-$> git commit -m "Fixed failing tests, and compilation errors"
-[bookwalker_fix1_static 7be5b8a] Fixed failing tests, and compilation errors
- 1 file changed, 2 insertions(+), 2 deletions(-)
- $> git push
- ...
-```
-
-Let's see
-
-
-```bash
-
-```
-
-There are, however, other ways...
-
-...
-
-...
-
-...
-
-TAKE 2:
-
-
-
-
-Looking at the error, it's clear that they are mixing up the trwo
-
-If you want to see a a microcosm that contains almost everything maddening about Rust, this file is it. Strings in Rust are pure pain.
-
-Nope. We've still got a problem, and this one is the
-and it points to what is probably the hardest thing to understand about Rust programming: strings. Rust pulls no punches. If you come from a scripting background like JavaScript or Python, Rust strings are going to seem like pain incarnate. Unlike most other languages, Rust puts it all out there. Strings aren't easy.
-
-Resources:
-
-- [Strings - Rust by Example](https://doc.rust-lang.org/rust-by-example/std/str.html)
-
-
-#### Question #2 Do the unit tests pass?
-
-This is the [Rubicon](https://en.wikipedia.org/wiki/Crossing_the_Rubicon) when it comes to builds. It is essential that a team keep their unit tests green, aka passing. Once you turn this check off because you "don't have time" you might as well turn in your keyboard and let the AI take over.
-
-One of the key types of tests for any running system are what's called regression tests. [Wikipedia defines it](https://en.wikipedia.org/wiki/Regression_testing) like this:
-
-> **Regression testing** (rarely, _non-regression testing_[[1]](https://en.wikipedia.org/wiki/Regression_testing#cite_note-1)) is re-running [functional](https://en.wikipedia.org/wiki/Functional_testing "Functional testing") and [non-functional tests](https://en.wikipedia.org/wiki/Non-functional_testing "Non-functional testing") to ensure that previously developed and tested software still performs as expected after a change.[[2]](https://en.wikipedia.org/wiki/Regression_testing#cite_note-2) If not, that would be called a _[regression](https://en.wikipedia.org/wiki/Software_regression "Software regression")_.
-
-*OLD MAN VOICE:* Back in my day we had what were called Quality Assurance Engineers. These were people who went through your code to make sure that the things you promised to deliver  actually were, and that you didn't break any of the existing functionality to do so.
-
-Good coverage from unit tests translates into an army of automated regression testers ready to descend upon your code at the push of a button.
-
-> *And for the record, Quality Assurance is still an essential role in any software worth its salt. But with unit tests, they can spend their time doing what's called exploratory testing. The big flaw in unit tests are that they're a self fulfilling prophecy. You can only test the things you think of. A good QA dev can bring down a site in ways that [many would call unnatural](https://www.youtube.com/watch?v=GqcSXt1CQOQ).*
->
-> STORY TIME: I was leading a team at a small rust belt financial institution. The consulting practice I was working for at the time  brought in a QA by the name of Paul Oaks. When we were ready to test out the front end of our application, he sat down and typed in an address. The site instantly self destructed. It took him less than one minute to destroy our application.
->
-> So, I'm like, how the F' did you do that? Paul collected bizarre addresses that he knew would crap out at a lot of commercial address validation services. **RESPECT YOUR QA.**
-
-#### Question #3 Do all the [Clippy](https://doc.rust-lang.org/clippy/) lints pass?
-
-No, not that [Clippy]... Rust's linter Clippy.
-
-Linting is a form of static code analysis that checks that you're not making certain kinks of programming decisions that make your code hard to maintain. Large codebases will generally establish a common set of linting configurations so that everyone is on the same page.
-
-Linting is one of the great ways to keep a codebase clean, and consistent. It's easy to miss simple, stupid things in the rush to get things out the door. A good linter that's tied to a continuous integration tool like [GitHub Actions](https://github.com/features/actions) or [Jenkins](https://www.jenkins.io/)
-
-For this kata, I've configured the linting at the top of the [src/lib.rs](https://github.com/devplaybooks/rust_worlds_simplest_kata/blob/main/src/lib.rs) file:
-
-```rust
-#![warn(clippy::pedantic)]  
-  
 pub struct Hello;
+
+/// The [Helo] project is a simple hello world program. It comes with two methods:
+///
+/// 1. `hello` - This method takes a `String` and returns `Hello, {name}!`.
+/// 2. `hello_world` - A default method that returns `Hello, world!`.
+///
+/// ```
+/// use worlds_simplest_kata::Hello;
+///
+/// let hello = Hello::hello("everyone".to_string());
+/// assert_eq!("Hello, everyone.", hello);
+///
+/// ```
+impl Hello {
+    pub fn hello(name: String) -> String {
+        format!("Hello,  {}!", name)
+    }
+
+    pub fn  hello__world() -> &'static str {
+        Hello::hello("wirld!".to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hello_world() {
+        assert_eq!("Hello, world!", Hello::hello__world());
+    }
+}
 ```
-
-#### Question #4  Is the code properly [formatted](https://github.com/rust-lang/rustfmt) ?
-
-The [fmt](https://github.com/rust-lang/rustfmt) check seems like a trivial one, but in large teams a difference of formatting can cause havoc on a large pull request.
-
-#### Question #5 Do all the [Rustdoc lints] pass?
-
-I LOVE LOVE LOVE how Rust handles documentation. One of the biggest challenges in writing software is keeping its documentation up to date. Code samples quickly become wrong, and rushed developers are rarely given enough time to make sure that the docs are up to date, especially within an organization with a predominance of what I call "neck breathers."
-
-[Rustdoc lints](https://doc.rust-lang.org/rustdoc/lints.html) and [doc tests](https://doc.rust-lang.org/rustdoc/write-documentation/documentation-tests.html) eliminate almost all of this problem by catching references to code blocks that don't exist, and example code that doesn't compile or pass tests. This is HUGE! One of the biggest standoffs between developers and stakeholders is documentation. Stakeholders demand it, and devs point out that it is out of date as soon as it ships. Doc tests eliminate that issue. The linters check that you are pointing to the correct places in the code, and the compiler makes sure that any exxamples you include work against the actual codebase.
-
-Thanks to GitHub [Actions](https://github.com/features/actions) you can automate all of those features so that they run every time you push up code so that everyone is always on the same page.
-
-**MORAL:** *Automate the stupid stuff.*
-
------
-
-## Let's see how CoPilot did.
-
-Wow, CoPilot fixed every test. Six of the GitHub continuous integration gates passed. The problem
-is, that there are seven. _[Sad trombone sound](https://www.youtube.com/shorts/9inOVXhe14U)_
-
-[CoPilot couldn't fix the clippy lints](https://github.com/folkengine/wsk_CoPilot2/actions/runs/31438082328/job/93617372018?pr=1#step:4:2):
-
-```shell
-Run cargo clippy -- -Dclippy::all -Dclippy::pedantic
-  cargo clippy -- -Dclippy::all -Dclippy::pedantic
-  shell: /usr/bin/bash -e {0}
-  env:
-    RUSTFLAGS: -Dwarnings
-    CARGO_HOME: /home/runner/.cargo
-    CARGO_INCREMENTAL: 0
-    CARGO_TERM_COLOR: always
-    Checking worlds_simplest_kata v0.1.2 (/home/runner/work/rust_worlds_simplest_kata/rust_worlds_simplest_kata)
-error: this method could have a `#[must_use]` attribute
-  --> src/lib.rs:18:12
-   |
-18 |     pub fn hello(name: String) -> String {
-   |            ^^^^^
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#must_use_candidate
-   = note: `-D clippy::must-use-candidate` implied by `-D warnings`
-   = help: to override `-D warnings` add `#[allow(clippy::must_use_candidate)]`
-help: add the attribute
-   |
-18 ~     #[must_use]
-19 ~     pub fn hello(name: String) -> String {
-   |
-
-error: this argument is passed by value, but not consumed in the function body
-  --> src/lib.rs:18:24
-   |
-18 |     pub fn hello(name: String) -> String {
-   |                        ^^^^^^ help: consider changing the type to: `&str`
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#needless_pass_by_value
-   = note: `-D clippy::needless-pass-by-value` implied by `-D warnings`
-   = help: to override `-D warnings` add `#[allow(clippy::needless_pass_by_value)]`
-
-error: variables can be used directly in the `format!` string
-  --> src/lib.rs:19:9
-   |
-19 |         format!("Hello, {}!", name)
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#uninlined_format_args
-   = note: `-D clippy::uninlined-format-args` implied by `-D warnings`
-   = help: to override `-D warnings` add `#[allow(clippy::uninlined_format_args)]`
-help: change this to
-   |
-19 -         format!("Hello, {}!", name)
-19 +         format!("Hello, {name}!")
-   |
-
-error: this method could have a `#[must_use]` attribute
-  --> src/lib.rs:22:12
-   |
-22 |     pub fn hello_world() -> String {
-   |            ^^^^^^^^^^^
-   |
-   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.97.0/index.html#must_use_candidate
-help: add the attribute
-   |
-22 ~     #[must_use]
-23 ~     pub fn hello_world() -> String {
-   |
-
-error: could not compile `worlds_simplest_kata` (lib) due to 4 previous errors
-Error: Process completed with exit code 101.
-```
-
-
-[^1]: GitHub actions have become an [attack vector ](https://medium.com/@simardeep.oberoi/unveiling-github-actions-vulnerabilities-a-comprehensive-technical-guide-to-attack-vectors-and-6a26a83e9fb2)of late, so always be careful about what you run.
-[^2]:   [Michael Sambol](https://www.youtube.com/@MichaelSambol) - [Heaps: Intro in 3 minutes](https://www.youtube.com/watch?v=0wPlzMU-k00)
-
-
