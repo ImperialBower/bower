@@ -2,3 +2,16 @@
 
 [rust4failures]
 001 kata expect=compile_fail anchor=src/ch01-worlds_simplest_kata.md:32 files=Cargo.toml,Cargo.lock,.gitignore,.github/workflows/CI.yaml,LICENSE-MIT,LICENSE-APACHE,src/lib.rs
+    exercise form=block answer=kata-compiles task="Make the kata compile"
+    | `hello` hands back an owned `String`. `hello__world` promises a borrowed
+    | `&'static str`. Both cannot be true, so one of the two has to move.
+    | 
+    | - The compiler suggests `&Hello::hello(…)`. Take the suggestion, run
+    |   `cargo check` again, and read what it says next.
+    | - The other direction changes the signature. Which one leaves the caller —
+    |   the test at the bottom of the file — still working?
+    | - Everything else in this file is still wrong: the doc test names a crate that
+    |   does not exist, the greeting has two spaces, the world is spelled `wirld`,
+    |   and the method has two underscores. Leave them. Compiling and being correct
+    |   are different jobs, and this one is compiling.
+002 kata-compiles expect=test_fail anchor=src/ch01-worlds_simplest_kata.md:503 files=src/lib.rs

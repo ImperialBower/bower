@@ -37,7 +37,7 @@ name = "rust4failures"
 description = "Poker library."
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.72.1"
+rust-version = "1.85"
 authors = ["electronicpanopticon <gaoler@electronicpanopticon.com>", "Readers"]
 license = "MIT OR Apache-2.0"
 keywords = ["rust", "book", "poker", "wasm"]
@@ -458,3 +458,101 @@ mod tests {
     }
 }
 ```
+
+## It does not compile
+
+Nothing above is a typo the eye catches. Run the checker and the compiler names
+one error, and only one:
+
+```console
+$ cargo check
+error[E0308]: mismatched types
+  --> src/lib.rs:21:9
+   |
+20 |     pub fn  hello__world() -> &'static str {
+   |                               ------------ expected `&'static str` because of return type
+21 |         Hello::hello("wirld!".to_string())
+   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&str`, found `String`
+```
+
+`expect="compile_fail"` on the `Cargo.toml` directive above declares that this
+step is supposed to be rejected. Bower checks that promise every time it
+replays the book: a *successful* build here is the error.
+
+<!-- bower repo="rust4failures" exercise="Make the kata compile" -->
+
+````markdown
+`hello` hands back an owned `String`. `hello__world` promises a borrowed
+`&'static str`. Both cannot be true, so one of the two has to move.
+
+- The compiler suggests `&Hello::hello(…)`. Take the suggestion, run
+  `cargo check` again, and read what it says next.
+- The other direction changes the signature. Which one leaves the caller —
+  the test at the bottom of the file — still working?
+- Everything else in this file is still wrong: the doc test names a crate that
+  does not exist, the greeting has two spaces, the world is spelled `wirld`,
+  and the method has two underscores. Leave them. Compiling and being correct
+  are different jobs, and this one is compiling.
+````
+
+## The one-line answer
+
+The signature moves, not the body. `hello__world` returns exactly what `hello`
+returns, and now it says so.
+
+<!-- bower repo="rust4failures" step="kata-compiles" file="src/lib.rs" op="replace" expect="test_fail" msg="fix: hello__world returns what hello returns" -->
+
+```rust
+pub struct Hello;
+
+/// The [Helo] project is a simple hello world program. It comes with two methods:
+///
+/// 1. `hello` - This method takes a `String` and returns `Hello, {name}!`.
+/// 2. `hello_world` - A default method that returns `Hello, world!`.
+///
+/// ```
+/// use worlds_simplest_kata::Hello;
+///
+/// let hello = Hello::hello("everyone".to_string());
+/// assert_eq!("Hello, everyone.", hello);
+///
+/// ```
+impl Hello {
+    pub fn hello(name: String) -> String {
+        format!("Hello,  {}!", name)
+    }
+
+    // bower:show
+    pub fn  hello__world() -> String {
+        Hello::hello("wirld!".to_string())
+    }
+    // bower:show end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hello_world() {
+        assert_eq!("Hello, world!", Hello::hello__world());
+    }
+}
+```
+
+One word. The block holds the whole file, because the repository needs the
+whole file, but only the method was printed on the page.
+
+`cargo check` is green. `cargo test` is not, which is why this step declares
+`expect="test_fail"`:
+
+```console
+$ cargo test
+thread 'tests::hello_world' panicked at src/lib.rs:31:9:
+assertion `left == right` failed
+  left: "Hello, world!"
+ right: "Hello,  wirld!!"
+```
+
+> 💡LESSON: "It compiles" is the first gate, not the last one. A green compiler
+> only means the code is well formed. The tests are what say it is right.
