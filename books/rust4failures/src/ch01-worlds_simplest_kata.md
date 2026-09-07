@@ -459,25 +459,7 @@ mod tests {
 }
 ```
 
-## It does not compile
-
-Nothing above is a typo the eye catches. Run the checker and the compiler names
-one error, and only one:
-
-```console
-$ cargo check
-error[E0308]: mismatched types
-  --> src/lib.rs:21:9
-   |
-20 |     pub fn  hello__world() -> &'static str {
-   |                               ------------ expected `&'static str` because of return type
-21 |         Hello::hello("wirld!".to_string())
-   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `&str`, found `String`
-```
-
-`expect="compile_fail"` on the `Cargo.toml` directive above declares that this
-step is supposed to be rejected. Bower checks that promise every time it
-replays the book: a *successful* build here is the error.
+> ✍Now it's your turn to 
 
 <!-- bower repo="rust4failures" exercise="Make the kata compile" -->
 
