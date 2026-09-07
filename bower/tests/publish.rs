@@ -18,7 +18,7 @@ use std::process::Command;
 
 use bower::config::BookConfig;
 use bower::loader::BookLoader;
-use bower::publish::{BookMeta, RenderPlan, Target, render_plan};
+use bower::publish::{BookMeta, RenderPlan, Target, book_assets, render_plan};
 use bower_core::prelude::plan;
 
 fn book_root() -> PathBuf {
@@ -44,7 +44,15 @@ fn plan_for(target: Target) -> RenderPlan {
         .iter()
         .map(|(n, r)| (n.clone(), r.links.clone()))
         .collect();
-    render_plan(&book, &resolved, meta, target, &links, cfg.version.clone())
+    render_plan(
+        &book,
+        &resolved,
+        meta,
+        target,
+        &links,
+        cfg.version.clone(),
+        book_assets(&book_root()),
+    )
 }
 
 #[test]

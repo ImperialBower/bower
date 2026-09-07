@@ -579,7 +579,15 @@ fn run_publish(book_root: &Path, cfg: &BookConfig, target: Target, out: &Path) -
 
     // The edition names the artifact: an `.epub` on a release page should say
     // which edition it is without the page around it.
-    let plan: RenderPlan = render_plan(&book, &resolved, meta, target, &links, cfg.version.clone());
+    let plan: RenderPlan = render_plan(
+        &book,
+        &resolved,
+        meta,
+        target,
+        &links,
+        cfg.version.clone(),
+        bower::publish::book_assets(book_root),
+    );
 
     // Every renderer is checked before anything is written, so a missing
     // binary costs nothing and says how to fix itself.

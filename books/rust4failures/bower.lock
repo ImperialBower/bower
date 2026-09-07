@@ -1,15 +1,4 @@
 # bower.lock — generated; review, don't edit
 
 [rust4failures]
-001 cargo-new expect=pass anchor=src/ch02-init.md:26 files=.gitignore,Cargo.toml,Cargo.lock,src/lib.rs
-002 rank-enum expect=pass anchor=src/ch03-rank.md:16 files=src/rank.rs,src/lib.rs
-003 from-char-broken expect=compile_fail anchor=src/ch03-rank.md:73 files=src/rank.rs
-    exercise form=block answer=from-char task="Make this compile"
-    | The compiler has named every character it is not told about. Each one needs an
-    | answer — not just the thirteen on a card.
-    | 
-    | - The smallest fix is one more arm. Which pattern, and what does it return?
-    | - Could `'z'` be an *error* instead of a rank? What would `from` have to
-    |   become for that to be true?
-004 from-char expect=pass anchor=src/ch03-rank.md:130 files=src/rank.rs
-005 from-char-tested expect=pass anchor=src/ch03-rank.md:166 files=Cargo.toml,src/rank.rs
+001 kata expect=compile_fail anchor=src/ch01-worlds_simplest_kata.md:32 files=Cargo.toml,Cargo.lock,.gitignore,.github/workflows/CI.yaml,LICENSE-MIT,LICENSE-APACHE,src/lib.rs

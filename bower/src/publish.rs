@@ -460,6 +460,21 @@ pub struct RenderedChapter {
     pub markdown: String,
 }
 
+/// A file beside the chapters that a chapter links but does not contain — an
+/// image, most of the time.
+///
+/// A path, not the bytes: [`RenderPlan`] stays pure, and a `Debug` of a book
+/// stays readable instead of printing a JPEG.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenderAsset {
+    /// Path relative to the book's `src/`, exactly as a chapter links it —
+    /// `images/spinal-tap.jpg`. The copy has to land at this same relative
+    /// path or the link still dangles.
+    pub rel: String,
+    /// Where to copy it from.
+    pub from: PathBuf,
+}
+
 /// A whole book, rendered for one target.
 ///
 /// Pure: no I/O, no renderer, nothing written. This is to publishing what
@@ -474,6 +489,10 @@ pub struct RenderPlan {
     /// normal book; it names its artifacts without a version, as it always did.
     pub version: Option<String>,
     pub chapters: Vec<RenderedChapter>,
+    /// Non-markdown files under the book's `src/`. mdBook copies these itself,
+    /// so the HTML target ignores them; pandoc and typst are handed only the
+    /// files bower writes, and would otherwise render a book with holes in it.
+    pub assets: Vec<RenderAsset>,
 }
 
 /// Fold a loaded book and its resolved plan into a render plan.
@@ -485,11 +504,13 @@ pub fn render_plan(
     target: Target,
     links: &BTreeMap<String, LinkTemplates>,
     version: Option<String>,
+    assets: Vec<RenderAsset>,
 ) -> RenderPlan {
     RenderPlan {
         target,
         meta,
         version,
+        assets,
         chapters: book
             .chapters
             .iter()
@@ -650,6 +671,87 @@ pub fn write_chapters(dir: &Path, plan: &RenderPlan) -> Result<Vec<PathBuf>, Pub
     Ok(out)
 }
 
+/// Every non-markdown file under a book's `src/`, sorted, book-`src`-relative.
+///
+/// mdBook already does this for the HTML target, which is why a missing image
+/// only ever showed up in the epub and the PDF. The rule is mdBook's rule:
+/// markdown is a chapter, anything else is a file to carry along. Guessing at
+/// a list of image extensions instead would drop the next `.svg` or `.csv` a
+/// chapter links, and drop it silently.
+#[must_use]
+pub fn book_assets(book_root: &Path) -> Vec<RenderAsset> {
+    let src = book_root.join("src");
+    let mut out = Vec::new();
+    collect_assets_into(&src, &src, &mut out);
+    out.sort_by(|a, b| a.rel.cmp(&b.rel));
+    out
+}
+
+/// Walk `dir`, recording every non-markdown file relative to `src`.
+///
+/// A directory that cannot be read is skipped rather than fatal: a book whose
+/// `src/` has no extra files at all is the normal case, and an unreadable
+/// subdirectory is not a reason to refuse to render the prose.
+fn collect_assets_into(src: &Path, dir: &Path, out: &mut Vec<RenderAsset>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        // Dotfiles are the renderers' own scratch, never book content.
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.starts_with('.'))
+        {
+            continue;
+        }
+        if path.is_dir() {
+            collect_assets_into(src, &path, out);
+        } else if !path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("md"))
+            && let Ok(rel) = path.strip_prefix(src)
+        {
+            // Slashes, not the platform separator: this string is compared
+            // against what a markdown link says, and a link says `/`.
+            let rel = rel
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
+            out.push(RenderAsset { rel, from: path });
+        }
+    }
+}
+
+/// Copy a plan's assets under `dir`, keeping their relative paths.
+///
+/// `dir` is whatever the external tool resolves links against, and the two
+/// tools disagree: typst resolves against the `.typ` it is compiling, pandoc
+/// against its `--resource-path`. Both are satisfied by the same mirror, put
+/// in a different place.
+///
+/// # Errors
+///
+/// Any filesystem failure while creating a directory or copying a file.
+pub fn copy_assets(dir: &Path, assets: &[RenderAsset]) -> Result<(), PublishError> {
+    for asset in assets {
+        let dest = dir.join(&asset.rel);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| PublishError::Read {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        std::fs::copy(&asset.from, &dest).map_err(|source| PublishError::Read {
+            path: asset.from.clone(),
+            source,
+        })?;
+    }
+    Ok(())
+}
+
 /// The epub, via pandoc.
 pub struct PandocRenderer;
 
@@ -665,7 +767,10 @@ impl Renderer for PandocRenderer {
         };
 
         std::fs::create_dir_all(out).map_err(io(out))?;
-        let inputs = write_chapters(&out.join(".chapters"), plan)?;
+        let chapters = out.join(".chapters");
+        let inputs = write_chapters(&chapters, plan)?;
+        // After `write_chapters`, which clears the directory first.
+        copy_assets(&chapters, &plan.assets)?;
 
         let artifact = out.join(artifact_name(
             &plan.meta.title,
@@ -692,6 +797,10 @@ impl Renderer for PandocRenderer {
             cover.write(&path)?;
             cmd.arg("--epub-cover-image").arg(&path);
         }
+        // Pandoc resolves an image path against its working directory, not
+        // against the chapter that links it. Without this the epub is built
+        // with a warning on stderr and a hole where the picture was.
+        cmd.arg("--resource-path").arg(&chapters);
         cmd.arg("-o").arg(&artifact).args(&inputs);
 
         let output = cmd.output().map_err(|e| PublishError::Failed {
@@ -908,6 +1017,9 @@ impl Renderer for TypstRenderer {
         std::fs::create_dir_all(out).map_err(io(out))?;
         let work = out.join(".typst");
         let inputs = write_chapters(&work.join("chapters"), plan)?;
+        // Beside `book.typ`, not beside the chapters: typst resolves an
+        // `image("images/x.jpg")` against the `.typ` file it is compiling.
+        copy_assets(&work, &plan.assets)?;
 
         // One `.typ` for the whole book: pandoc resolves cross-chapter links
         // and builds one document, which is what a PDF is.
@@ -1183,12 +1295,89 @@ mod publish_tests {
     }
 
     #[test]
+    fn book_assets__collects_every_non_markdown_file_under_src() {
+        // mdBook copies these itself for the HTML target. pandoc and typst get
+        // nothing unless bower hands it to them, and a missing image is a
+        // hard error in one and a silent hole in the other.
+        let root = std::env::temp_dir().join("bower-book-assets");
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("src");
+        std::fs::create_dir_all(src.join("images")).unwrap();
+        std::fs::write(src.join("SUMMARY.md"), "x").unwrap();
+        std::fs::write(src.join("ch01.md"), "x").unwrap();
+        std::fs::write(src.join("images").join("a.jpg"), b"jpg").unwrap();
+        std::fs::write(src.join("notes.csv"), "1,2").unwrap();
+
+        let found = book_assets(&root);
+        let rels: Vec<&str> = found.iter().map(|a| a.rel.as_str()).collect();
+        assert_eq!(
+            rels,
+            vec!["images/a.jpg", "notes.csv"],
+            "sorted, no markdown"
+        );
+        assert_eq!(found[0].from, src.join("images").join("a.jpg"));
+    }
+
+    #[test]
+    fn book_assets__a_book_without_a_src_directory_is_empty_not_a_panic() {
+        assert!(book_assets(Path::new("/no/such/book")).is_empty());
+    }
+
+    #[test]
+    fn copy_assets__mirrors_the_relative_layout_a_chapter_links() {
+        // The markdown says `images/a.jpg`. Typst resolves that against the
+        // `.typ` beside it, so flattening the copy into one directory would
+        // put the file on disk and still not be found.
+        let root = std::env::temp_dir().join("bower-copy-assets");
+        let _ = std::fs::remove_dir_all(&root);
+        let from = root.join("from");
+        std::fs::create_dir_all(&from).unwrap();
+        std::fs::write(from.join("a.jpg"), b"jpg").unwrap();
+
+        let dest = root.join("dest");
+        std::fs::create_dir_all(&dest).unwrap();
+        copy_assets(
+            &dest,
+            &[RenderAsset {
+                rel: "images/a.jpg".to_string(),
+                from: from.join("a.jpg"),
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(dest.join("images").join("a.jpg")).unwrap(),
+            b"jpg"
+        );
+    }
+
+    #[test]
+    fn render_plan__carries_the_assets_it_was_given() {
+        let (book, plan) = sample_plan();
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        let assets = vec![RenderAsset {
+            rel: "images/a.jpg".to_string(),
+            from: PathBuf::from("/tmp/a.jpg"),
+        }];
+        let rp = render_plan(
+            &book,
+            &plan,
+            meta,
+            Target::Pdf,
+            &links(),
+            None,
+            assets.clone(),
+        );
+        assert_eq!(rp.assets, assets);
+    }
+
+    #[test]
     fn render_plan__covers_every_chapter_in_reading_order() {
         // A chapter silently dropped from an epub is one nobody notices is
         // missing.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
+        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None, Vec::new());
 
         assert_eq!(rp.chapters.len(), book.chapters.len());
         let paths: Vec<&str> = rp.chapters.iter().map(|c| c.path.as_str()).collect();
@@ -1205,8 +1394,16 @@ mod publish_tests {
         // prevent.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let epub = render_plan(&book, &plan, meta.clone(), Target::Epub, &links(), None);
-        let pdf = render_plan(&book, &plan, meta, Target::Pdf, &links(), None);
+        let epub = render_plan(
+            &book,
+            &plan,
+            meta.clone(),
+            Target::Epub,
+            &links(),
+            None,
+            Vec::new(),
+        );
+        let pdf = render_plan(&book, &plan, meta, Target::Pdf, &links(), None, Vec::new());
 
         for (e, p) in epub.chapters.iter().zip(pdf.chapters.iter()) {
             assert_eq!(e.markdown, p.markdown, "{} differs between targets", e.path);
@@ -1218,8 +1415,16 @@ mod publish_tests {
         // The claim that there is one engine, made testable.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let html = render_plan(&book, &plan, meta.clone(), Target::Html, &links(), None);
-        let epub = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
+        let html = render_plan(
+            &book,
+            &plan,
+            meta.clone(),
+            Target::Html,
+            &links(),
+            None,
+            Vec::new(),
+        );
+        let epub = render_plan(&book, &plan, meta, Target::Epub, &links(), None, Vec::new());
 
         // Chapters without display markers render identically.
         assert_eq!(
@@ -1324,7 +1529,7 @@ mod publish_tests {
     fn fake__records_the_plan_it_was_given() {
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None);
+        let rp = render_plan(&book, &plan, meta, Target::Epub, &links(), None, Vec::new());
 
         let fake = FakeRenderer::new();
         fake.preflight().unwrap();
@@ -1536,7 +1741,7 @@ mod publish_tests {
         // Shared by pandoc and typst, so a bug here would misorder an epub too.
         let (book, plan) = sample_plan();
         let meta = BookMeta::load(&sample_root()).unwrap();
-        let rp = render_plan(&book, &plan, meta, Target::Pdf, &links(), None);
+        let rp = render_plan(&book, &plan, meta, Target::Pdf, &links(), None, Vec::new());
 
         let dir = std::env::temp_dir().join("bower-write-chapters");
         let files = write_chapters(&dir, &rp).unwrap();

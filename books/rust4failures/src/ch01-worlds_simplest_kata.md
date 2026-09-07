@@ -26,10 +26,10 @@ src/lib.rs
 
 ## Cargo.toml
 
-<!-- bower repo="rust4failures" step="kata" file="Cargo.toml" msg="init" -->
-
 We start with `Cargo.toml`, the manifest file that defines the key elements of our Rust project. You can see a breakdown
 of the entries in [The Cargo Book](https://doc.rust-lang.org/cargo/reference/manifest.html).
+
+<!-- bower repo="rust4failures" step="kata" file="Cargo.toml" expect="compile_fail" msg="init" -->
 
 ```toml
 [package]
