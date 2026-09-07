@@ -37,27 +37,54 @@ jobs:
   slow:
     name: ignored lanes
     runs-on: ubuntu-latest
+    env:
+      # Where the Libertinus step below puts its fonts. Typst scans the system
+      # directories anyway; naming the directory outright means the PDF lane
+      # does not depend on which directories those turn out to be. `bower`
+      # invokes typst as a child process, so it inherits this.
+      TYPST_FONT_PATHS: /usr/local/share/fonts/libertinus
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain
       - uses: Swatinem/rust-cache@v2
 
-      - name: install pandoc and the fonts books/hello-playbook/template.typ names
-        # Typst substitutes silently for a font it cannot see, and
-        # `check_fonts` refuses rather than let it: Libertinus Serif and
-        # DejaVu Sans Mono have to actually be installed for the PDF lane.
-        run: |
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends -y \
-            pandoc fonts-dejavu fonts-libertinus
-
       # mdbook is deliberately unpinned. `bower::mdbook` reads both the 0.4
       # and the 0.5 envelope key, and the `#[ignore]`d preprocessor test is
       # what proves it — pinning here would hide the next rename instead of
-      # reporting it.
+      # reporting it. Typst comes first so the font check below can ask the
+      # tool that will actually use the fonts.
       - uses: taiki-e/install-action@v2
         with:
           tool: typst,mdbook,cargo-audit,cargo-deny
+
+      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pandoc
+
+      - name: install the fonts books/hello-playbook/template.typ names
+        # Typst substitutes silently for a font it cannot see, and
+        # `publish::check_fonts` refuses rather than let it — so the faces the
+        # template names have to be on the machine, by those exact names.
+        #
+        # Ubuntu 24.04 ships no `fonts-libertinus` package — Debian has one,
+        # noble does not — so Libertinus comes from its own release, pinned to
+        # a version: a font that changes underneath the byte-identical PDF test
+        # is that test failing for a reason that has nothing to do with this
+        # repository. DejaVu Sans Mono is embedded in typst itself; it is
+        # installed here anyway, so pandoc and the epub see the same face.
+        run: |
+          sudo apt-get install --no-install-recommends -y fonts-dejavu unzip
+          curl -fsSL -o /tmp/libertinus.zip \
+            https://github.com/alerque/libertinus/releases/download/v7.051/Libertinus-7.051.zip
+          sudo mkdir -p /usr/local/share/fonts/libertinus
+          sudo unzip -qj /tmp/libertinus.zip 'Libertinus-7.051/static/OTF/*.otf' \
+            -d /usr/local/share/fonts/libertinus
+          sudo fc-cache -f
+
+      - name: the fonts the template names are the fonts typst can see
+        # The check `check_fonts` would make, made here, where the log says
+        # "the font is missing" instead of "the PDF lane failed".
+        run: |
+          typst fonts | grep -qx 'Libertinus Serif'
+          typst fonts | grep -qx 'DejaVu Sans Mono'
 
       # A gate, not a step: a missing tool is named in a second here instead of
       # surfacing as a test failure minutes in.
