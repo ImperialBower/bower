@@ -1,0 +1,95 @@
+# CI: the `make ayce` sweep, split into jobs.
+#
+# `make ayce` is one sequence on purpose — locally you want the whole pre-push
+# check, in order, from one command. CI wants the opposite: every lane at once,
+# so a rustfmt slip is reported in a minute instead of behind a five-minute
+# test run, and so a red X names which lane failed without opening the log.
+#
+# Each job therefore calls the Makefile target it mirrors rather than spelling
+# the command out again. When a target changes, CI changes with it. The one
+# exception is `fmt`: locally `make fmt` rewrites files, which CI must not do,
+# so CI calls `make fmt-check` — the same formatter, asked a question instead
+# of given an order.
+#
+# The lanes that need pandoc, typst and mdbook are not here; they are the
+# `#[ignore]`d tests, and they live in slow.yml.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Mondays, 06:30 UTC. Nothing here depends on a push: `cargo audit` reads
+    # an advisory database that moves on its own, and a commit that was green
+    # last week can be red this week without a line changing.
+    - cron: "30 6 * * 1"
+  workflow_dispatch:
+
+# A second push to a branch cancels the first: the older answer is about code
+# nobody is going to merge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml pins the channel and its components; touching
+      # rustup here is what makes it install that toolchain before cargo runs,
+      # so the version lives in exactly one file.
+      - run: rustup show active-toolchain
+      - run: make fmt-check
+
+  test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      # `make build` also asserts the CLI still builds without the
+      # preprocessor feature (`make minimal`).
+      - run: make build
+      - run: make test
+
+  lint:
+    name: clippy & purity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      # `make lint` is clippy at the pedantic end plus `make purity`, the
+      # assertion that bower-core still has zero dependencies.
+      - run: make lint
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+      - run: make docs
+
+  security:
+    name: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      # Prebuilt binaries: `cargo install` would spend minutes compiling two
+      # tools that are not this workspace's code.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit,cargo-deny
+      # ./bin/security-scan — the same script `make security-scan` runs.
+      - run: make security-scan

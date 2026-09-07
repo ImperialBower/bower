@@ -1,5 +1,8 @@
 # Bower
 
+[![CI](https://github.com/ImperialBower/bower/actions/workflows/ci.yml/badge.svg)](https://github.com/ImperialBower/bower/actions/workflows/ci.yml)
+[![slow](https://github.com/ImperialBower/bower/actions/workflows/slow.yml/badge.svg)](https://github.com/ImperialBower/bower/actions/workflows/slow.yml)
+
 **Book-driven repository generation and publishing.**
 
 In euchre, the right bower is the card that controls the game. Here the book is

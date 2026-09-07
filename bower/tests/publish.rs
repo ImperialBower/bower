@@ -18,7 +18,7 @@ use std::process::Command;
 
 use bower::config::BookConfig;
 use bower::loader::BookLoader;
-use bower::publish::{BookMeta, RenderPlan, Target, book_assets, render_plan};
+use bower::publish::{BookMeta, RenderPlan, Target, artifact_name, book_assets, render_plan};
 use bower_core::prelude::plan;
 
 fn book_root() -> PathBuf {
@@ -32,6 +32,17 @@ fn scratch(case: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("bower-publish-{case}"));
     let _ = std::fs::remove_dir_all(&dir);
     dir
+}
+
+/// What the book itself says a rendered artifact is called.
+///
+/// Asked of the plan rather than written out here: the name carries the book's
+/// version, so `hello-playbook.epub` became `hello-playbook_0.1.0.epub` the day
+/// `bower.toml` declared one — and a pasted-in name inside an `#[ignore]`d test
+/// reports that as a failure long after the change that caused it.
+fn artifact(target: Target, ext: &str) -> String {
+    let plan = plan_for(target);
+    artifact_name(&plan.meta.title, plan.version.as_deref(), ext)
 }
 
 fn plan_for(target: Target) -> RenderPlan {
@@ -155,7 +166,7 @@ fn publish_epub_produces_a_readable_book() {
         String::from_utf8_lossy(&result.stderr)
     );
 
-    let epub = out.join("hello-playbook.epub");
+    let epub = out.join(artifact(Target::Epub, "epub"));
     assert!(epub.exists(), "no epub was written");
 
     // An epub is a zip whose first entry is an uncompressed `mimetype`.
@@ -240,8 +251,9 @@ fn pdf_is_byte_identical_across_runs() {
         );
     }
 
-    let one = std::fs::read(a.join("hello-playbook.pdf")).unwrap();
-    let two = std::fs::read(b.join("hello-playbook.pdf")).unwrap();
+    let name = artifact(Target::Pdf, "pdf");
+    let one = std::fs::read(a.join(&name)).unwrap();
+    let two = std::fs::read(b.join(&name)).unwrap();
     assert!(one.starts_with(b"%PDF"), "not a pdf");
     assert_eq!(
         one, two,

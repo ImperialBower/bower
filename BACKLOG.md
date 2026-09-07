@@ -65,6 +65,23 @@ repository. See `bower-spec.md` § 12.
 
 ## Recently fixed
 
+- **A book could render with every directive still on the page.** mdBook 0.5
+  renamed the top-level key of the preprocessor envelope from `sections` to
+  `items`. `bower::mdbook` read only `sections`, so under 0.5 it found no
+  chapters, handed the book straight back, and mdBook reported a successful
+  build of a book whose directives had never been applied — no error anywhere,
+  on either side. Fixed 7 September 2026: both names are read, newest first,
+  and the 0.5 envelope shape is a unit test rather than a version to keep up
+  with. The `#[ignore]`d preprocessor test is what caught it, which is the
+  argument for running the slow lanes in CI.
+
+- **Two `#[ignore]`d publish tests had rotted.** They opened
+  `hello-playbook.epub` and `hello-playbook.pdf`; an artifact has carried the
+  book's version in its name since `[book] version` landed, so the files were
+  `hello-playbook_0.1.0.epub` and `.pdf` and the tests failed on the one thing
+  that had not gone wrong. Fixed 7 September 2026: they ask `artifact_name`
+  what the file is called instead of repeating the answer.
+
 - **A pushed site branch was not a served site.** `bower push` created and
   force-pushed `gh-pages` and stopped there, so on a repository nobody had
   configured by hand GitHub kept its `build_type: "workflow"` default, pointed
@@ -144,10 +161,11 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 297 passing, 0 failing (`make ayce` green from clean) |
+| Tests | 358 passing, 0 failing (`make ayce` green from clean) |
 | Slow lanes | 6 `#[ignore]`d, all green (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
 | Open GitHub issues | none |
 | `make ayce` | green: clean, fmt, build, test, lint, security-scan, docs |
+| CI | GitHub Actions: `ci.yml` (the `ayce` lanes, in parallel) on every push and PR; `slow.yml` (the `#[ignore]`d lanes, both books rendered) on `main`, weekly, and on demand |

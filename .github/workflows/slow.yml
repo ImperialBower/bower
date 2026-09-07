@@ -1,0 +1,76 @@
+# The lanes `make ayce` leaves out.
+#
+# `make slow` runs the `#[ignore]`d tests: the 20-step verification sweep (a
+# real compiler run per step), a real mdbook build through the preprocessor,
+# and the epub and PDF publish tests. They are ignored by default because they
+# are a tax on every `cargo test` — which makes CI, not a developer's laptop,
+# the right place to pay it.
+#
+# It is also the only lane that needs the tools outside the Rust toolchain, so
+# it starts by running ./bin/check-dependencies: when this job fails, the first
+# thing the log says is whether a tool was missing or a test was wrong.
+#
+# Not on pull requests: it is minutes of compiler runs, and the tools it needs
+# are installed fresh each time. It runs on main, on a weekly schedule — pandoc,
+# typst and mdbook move on their own, and a book that renders wrongly because a
+# tool changed under it is exactly what these tests exist to catch — and on
+# demand.
+
+name: slow
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Mondays, 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: slow-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  slow:
+    name: ignored lanes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain
+      - uses: Swatinem/rust-cache@v2
+
+      - name: install pandoc and the fonts books/hello-playbook/template.typ names
+        # Typst substitutes silently for a font it cannot see, and
+        # `check_fonts` refuses rather than let it: Libertinus Serif and
+        # DejaVu Sans Mono have to actually be installed for the PDF lane.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            pandoc fonts-dejavu fonts-libertinus
+
+      # mdbook is deliberately unpinned. `bower::mdbook` reads both the 0.4
+      # and the 0.5 envelope key, and the `#[ignore]`d preprocessor test is
+      # what proves it — pinning here would hide the next rename instead of
+      # reporting it.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: typst,mdbook,cargo-audit,cargo-deny
+
+      # A gate, not a step: a missing tool is named in a second here instead of
+      # surfacing as a test failure minutes in.
+      - run: make check-dependencies
+
+      - run: make slow
+
+      # The sample book, rendered through the preprocessor.
+      - run: make book
+
+      # The real book, planned, verified against this rustc, and checked for
+      # drift. `verify` compiles once per step, which is the point: the day a
+      # new compiler changes a diagnostic the book quotes, this is what says
+      # so. Nothing here touches a network — `make failures` stops before
+      # `push`, so publishing stays a decision someone makes at a terminal.
+      - run: make failures

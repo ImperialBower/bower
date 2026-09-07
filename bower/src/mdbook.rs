@@ -44,20 +44,43 @@ pub fn split(envelope: Value) -> Result<(Context, Value), String> {
     Ok((context, book))
 }
 
+/// What mdBook calls the book's top-level item array — which is two things.
+///
+/// mdBook 0.4 sends `sections`; 0.5 renamed it to `items`. Reading only one of
+/// the two fails silently, which is the worst way for this to fail: the
+/// preprocessor finds no chapters, hands the book back untouched, and mdBook
+/// reports a successful build of a book with every directive still on the
+/// page. Both names are read, newest first, so one binary works against either
+/// mdBook.
+const ITEM_KEYS: [&str; 2] = ["items", "sections"];
+
+/// The book's item array, under whichever name this mdBook used.
+fn book_items(book: &Value) -> Option<&Value> {
+    ITEM_KEYS.iter().find_map(|key| book.get(key))
+}
+
+/// The same array, to write through. Split from [`book_items`] because the key
+/// has to be chosen with the book borrowed immutably before it can be borrowed
+/// mutably to reach the array.
+fn book_items_mut(book: &mut Value) -> Option<&mut Value> {
+    let key = *ITEM_KEYS.iter().find(|key| book.get(*key).is_some())?;
+    book.get_mut(key)
+}
+
 /// Every chapter in the book, in reading order.
 ///
-/// A book is a tree: `sections` holds items, a `Chapter` item may hold
+/// A book is a tree: the item array holds items, a `Chapter` item may hold
 /// `sub_items`, and only `Chapter` items carry content. Separators and parts
 /// carry none and are skipped.
 #[must_use]
 pub fn chapters(book: &Value) -> Vec<&Value> {
     let mut out = Vec::new();
-    collect(book.get("sections"), &mut out);
+    collect(book_items(book), &mut out);
     out
 }
 
-fn collect<'a>(sections: Option<&'a Value>, out: &mut Vec<&'a Value>) {
-    let Some(Value::Array(items)) = sections else {
+fn collect<'a>(array: Option<&'a Value>, out: &mut Vec<&'a Value>) {
+    let Some(Value::Array(items)) = array else {
         return;
     };
     for item in items {
@@ -92,7 +115,7 @@ pub fn map_chapters<F>(book: &mut Value, mut f: F)
 where
     F: FnMut(&str, &str) -> String,
 {
-    if let Some(Value::Array(items)) = book.get_mut("sections") {
+    if let Some(Value::Array(items)) = book_items_mut(book) {
         walk(items, &mut f);
     }
 }
@@ -159,6 +182,34 @@ mod mdbook_tests {
                 ),
             ]
         })
+    }
+
+    /// The same book as mdBook 0.5 sends it: one key renamed, nothing else.
+    fn book_0_5() -> Value {
+        let items = book().get("sections").unwrap().clone();
+        serde_json::json!({ "items": items })
+    }
+
+    #[test]
+    fn mdbook__chapters_are_found_under_either_mdbook_s_key() {
+        // 0.4 says `sections`, 0.5 says `items`. Reading only one of them is
+        // silent — no chapters, book returned untouched, build "successful",
+        // directives on the page.
+        let paths = |b: &Value| -> Vec<String> {
+            chapters(b).iter().filter_map(|c| chapter_path(c)).collect()
+        };
+        assert_eq!(paths(&book_0_5()), paths(&book()));
+        assert_eq!(chapters(&book_0_5()).len(), 3);
+    }
+
+    #[test]
+    fn mdbook__map_chapters_rewrites_under_either_mdbook_s_key() {
+        let mut b = book_0_5();
+        map_chapters(&mut b, |path, text| format!("{path}|{text}"));
+        assert_eq!(
+            chapter_content(chapters(&b)[0]),
+            Some("src/ch01.md|# One\n")
+        );
     }
 
     #[test]

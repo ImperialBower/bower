@@ -1,4 +1,4 @@
-.PHONY: default help check-dependencies clean fmt build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
+.PHONY: default help check-dependencies clean fmt fmt-check build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
 default: ayce
 
 help:  ## self-documenting: every target has a '## comment' printed here
@@ -41,6 +41,9 @@ ayce: check-dependencies clean fmt build test lint security-scan docs ## all-you
 # the exception: it is a gate rather than a step, and runs first so a missing
 # tool is named in a second instead of surfacing as a test failure minutes in.
 # ---------------------------------------------------------------------------
+
+fmt-check: ## the same formatter as `fmt`, asked instead of told — for CI
+	cargo fmt --all --check
 
 purity: ## assert bower-core still has zero dependencies
 	@n=$$(cargo tree -p bower-core -e normal | wc -l | tr -d ' '); \
