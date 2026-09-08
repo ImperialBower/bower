@@ -1,7 +1,7 @@
 # Summary
 
 - [Introduction](ch00-introduction.md)
-- [The World's Simplest Kata](ch01-worlds_simplest_kata.md)
+- [Local Development](ch01-local_development.md)
 
 [//]: # (- [Init]&#40;ch02-init.md&#41;)
 

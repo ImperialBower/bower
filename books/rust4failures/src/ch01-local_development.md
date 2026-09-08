@@ -1,11 +1,93 @@
-# Hell in a Cell
+# The First Perspective
 
 ## TL;DR
 
-Do the [World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata) to make
-sure you have all your tools setup correctly.
+Taking our first look at our repository. Get the code to run locally, isolate the problems, and
+fix them.
 
 ------- 
+
+Software systems are all about perspectives. When I am exploring a problem, I like to start with
+mapping out the different perspectives that will be interacting with it. For example, let's take
+a game of chess. In this case, an blindfold chess exhibition match between the #1 player in the world,
+[Magnus Carlsen](https://en.chessbase.com/post/ice-barcelona-2026-exhibition), and the 
+#2 [Hikaru Nakamura](https://hikarunakamura.com/). 
+
+Take a minute, and try to picture all of there different perspectives that can exist on a simple, 
+15 minute game.
+
+Here's what I came up with:
+
+- Magnus while playing
+- Hikaru while playing
+- Each of the players coaching.
+- Each of the players past experiences playing each other.
+- The live, [play by play on Take Take Take](https://www.youtube.com/live/_gL44mmsLlI?t=5911s) by GM David Howell and WFM Maud Rødsmoen.
+- GothamChess aka Levy Rozman and GM Benjamin Bok doing play by play on [Hikaru's YouTube Channel](https://www.youtube.com/watch?v=UlwCgM5x9IM).
+- GothamChess aka Levy Rozman giving his famous brand of [analysis of the game](https://www.youtube.com/watch?v=1YXsf6cmY4Y) on his YouTube channel.
+- A [playable web version of the game](https://www.chess.com/events/ice-2026-fira-barcelona-event/01/Carlsen_Magnus-Nakamura_Hikaru) with analysis by Stockfish on Chess.com.
+- [Analysis of the game](https://en.chessbase.com/post/ice-barcelona-2026-exhibition) on the chess database Chessbase.
+- Some enlightening [reddit commentary](https://www.reddit.com/r/chess/comments/1qhz6i6/woah_didnt_even_know_ow_this_match_was_happening/).- 
+
+Every system has an innate set of perspectives in how people interact with it, and there is always
+going to be one that is foundational. For instance, in the above chess game, it might be argued that it's
+this:
+
+```txt
+[Event "ICE Barcelona Blindfold Exhibition"]
+[Site "Fira Barcelona, ESP"]
+[Date "2026.01.20"]
+[White "Carlsen, Magnus"]
+[Black "Nakamura, Hikaru"]
+[Result "1/2-1/2"]
+
+1. Nf3 d5 2. e3 Nf6 3. c4 e6 4. Nc3 b6 5. b3 Bb7 6. Bb2 Bd6 
+7. cxd5 exd5 8. Rc1 a6 9. Ne2 O-O 10. g3 Nbd7 11. Bg2 Re8 
+12. O-O Bf8 13. Qc2 c5 14. d4 a5 15. Rfd1 Rc8 16. dxc5 Nxc5
+17. Nc3 Qe7 18. Nd4 Nfe4 19. Qe2 g6 20. Ndb5 Rcd8 21. Na4 Bh6
+22. Bd4 Ba6 23. Bxc5 Nxc5 24. Nxc5 bxc5 25. Bxd5 Bxe3 
+26. fxe3 Rxd5 27. Rxd5 Qxe3+ 28. Qxe3 Rxe3 29. Rdd1 Bxb5
+30. Rxc5 Be2 31. Re1 Re6 32. Rxa5 Kf8 33. Kf2 Bg4
+34. Rxe6 Bxe6 35. Ke3 Ke7 36. Kd4 Kd6 37. Ra6+ Kc7 1/2-1/2
+```
+
+A simple, text representation of the game. But that's the final outcome, not the foundation. Could
+it be said that it's the very game itself? The pieces, on the board, governed by rules, passed
+down over generations. 
+
+For software developent, I maintain that the foundation is the software developer, and unfortunately, 
+probably the one that is least appreciated in modern enterprise. 
+Your perspective on creating systems is what matters most. Our goal is to make things as smooth
+as possible for you, or any other developer to work on something. In the case of this book, I've
+designed it so that you can walk in at any point, and start working on the next, at any time. I've
+tried to make it as easy possible for you to code along, making this an experience were you are 
+an essential part of the process. 
+
+As we go along, building our poker engine, we will be adding more and more perspectives, as our system
+matures. Right now there is only one: you... the developer. 
+
+It's my not so humber opinion, that how little companies consider this, is one of the most needless
+wastes of money in our industry. Case in point: 
+
+> _Story time. Y'all can skip these things. I wouldn't be a Baker if I didn't litter this book 
+> with stories._ 
+> 
+> It was my first day working on an engagement for a major clothing retailer.
+> 
+> _"So, what are you working on?"_
+> 
+> The question came from the gentleman sitting next to me on the open floor of their stunning 
+> corporate main office. _"Nothing. I don't access yet."_
+> 
+> He laughed. _"Oh, your signing bonus."_
+> 
+> _"My what?"_
+> 
+> _"Your signing bonus. Getting paid to do nothing... that's your signing bonus. Here it's around two weeks."_
+
+Over the years, I have see signing bonuses that have gone on for months. I would bet that there are many
+who's signing bonus lasts for years. 
+
 
 I hate initial setup chapters in coding books. Instead, let's start our project's codebase
 with a really messed up version based on my [World's Simplest Kata](https://github.com/devplaybooks/rust_worlds_simplest_kata). It's designed
