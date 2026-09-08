@@ -1454,6 +1454,7 @@ mod publish_tests {
     }
 
     #[test]
+    #[ignore = "needs pandoc on PATH"]
     fn tool_present__says_no_to_something_nobody_installs() {
         assert!(!tool_present("bower-no-such-tool-exists"));
         // pandoc is this repo's documented publishing dependency.
@@ -1684,6 +1685,7 @@ mod publish_tests {
     }
 
     #[test]
+    #[ignore = "needs pandoc and typst on PATH"]
     fn typst__preflight_names_both_tools() {
         // The failure a reader hits first: one of the two binaries missing.
         let r = TypstRenderer {
@@ -1714,6 +1716,7 @@ mod publish_tests {
     }
 
     #[test]
+    #[ignore = "needs typst on PATH"]
     fn check_fonts__refuses_a_face_nobody_has() {
         // Typst substitutes silently, which is how a missing glyph reaches a
         // reader. A template asking for a font nobody has must fail loudly.
@@ -1727,6 +1730,7 @@ mod publish_tests {
     }
 
     #[test]
+    #[ignore = "needs typst and the Libertinus/DejaVu fonts installed"]
     fn check_fonts__accepts_the_sample_books_template() {
         let template = sample_root().join("template.typ");
         let text = std::fs::read_to_string(&template).unwrap();

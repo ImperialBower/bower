@@ -62,6 +62,7 @@ slow: ## the #[ignore]d lanes: the 20-step verify sweep and a real mdbook build
 	cargo build -p bower --all-features
 	PATH="$(CURDIR)/target/debug:$$PATH" cargo test -p bower --test preprocessor -- --ignored
 	cargo test -p bower --test publish -- --ignored
+	cargo test -p bower --lib -- --ignored
 
 HELLO     := books/hello-playbook
 HELLO_OUT := target/hello-playbook
