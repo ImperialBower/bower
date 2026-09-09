@@ -1,0 +1,10 @@
+# Update Log
+
+## 2026-09-09
+
+* **Creation**: Scaffolded the bundle with `okf_init.py`.
+* **Creation**: Wrote the [domain model](/model/index.md) — directives, steps, ordering, plans, tree states, assembly, display markers, expectations, exercises, play cells, and errors — distilled from `bower-spec.md` §2–§6 and read against `bower-core/src/`.
+* **Creation**: Wrote the [architecture](/architecture/index.md) set — the pipeline, the domain-kernel pattern, the four crates, and the [invariants](/architecture/invariants.md) table naming the suite that proves each property.
+* **Creation**: Wrote the [command surface](/commands/index.md), [configuration](/config/index.md), [books](/books/index.md), and [operations](/operations/index.md).
+* **Creation**: Recorded six settled [decisions](/decisions/index.md) with their dates, and the [roadmap](/roadmap/index.md) for the four spec sections that are design rather than code.
+* **Note**: Recorded two documentation drifts found while writing. `README.md` documents the elision leader as `⋯`; the code emits ASCII `...` and pins it with a test. `BACKLOG.md` and `README.md` describe *Rust for Failures* as further along than its `bower.lock` (2 steps) shows.
