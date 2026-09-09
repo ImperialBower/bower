@@ -3,6 +3,8 @@
 Every project starts the same way: a manifest that names it, and one file that
 runs. Nothing else has earned its place yet.
 
+## Hi Jeffercodians!
+
 <!-- bower repo="hello-playbook" step="cargo-init" file="Cargo.toml" msg="feat: a package that builds" -->
 
 ```toml
