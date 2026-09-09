@@ -101,7 +101,7 @@ Caused by:
   rust-version 1.72.1 is incompatible with the version (1.85.0) required by the specified edition (2024)
 ```
 
-It's insane how good the Rust compiler is at spelling out exactly what the problem is. The `Cargo.toml` file says `edition = "2024"` but the Rist versions is set to `1.72.1`. Let's bump it up to what we're running, version `1.97.1`:
+It's insane how good the Rust compiler is at spelling out exactly what the problem is. The `../../../Cargo.toml` file says `edition = "2024"` but the Rist versions is set to `1.72.1`. Let's bump it up to what we're running, version `1.97.1`:
 
 ```diff
 diff --git a/Cargo.toml b/Cargo.toml

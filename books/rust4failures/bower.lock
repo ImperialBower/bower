@@ -1,5 +1,5 @@
 # bower.lock — generated; review, don't edit
 
 [rust4failures]
-001 kata expect=compile_fail anchor=src/ch01-worlds_simplest_kata.md:32 files=Cargo.toml,Cargo.lock,.github/workflows/CI.yaml,src/lib.rs
-002 kata-compiles expect=test_fail anchor=src/ch01-worlds_simplest_kata.md:239 files=src/lib.rs
+001 kata expect=compile_fail anchor=src/ch01-local_development.md:114 files=Cargo.toml,Cargo.lock,.github/workflows/CI.yaml,src/lib.rs
+002 kata-compiles expect=test_fail anchor=src/ch01-local_development.md:321 files=src/lib.rs
