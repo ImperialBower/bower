@@ -1,4 +1,4 @@
-.PHONY: default help check-dependencies clean fmt fmt-check build test lint security-scan docs ayce purity minimal slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
+.PHONY: default help check-dependencies clean fmt fmt-check build test lint security-scan docs ayce purity minimal plan slow book epub pdf ship-hello ship-hello-execute failures-book failures-epub failures-pdf failures ship-failures ship-failures-execute
 default: ayce
 
 help:  ## self-documenting: every target has a '## comment' printed here
@@ -18,6 +18,7 @@ fmt: ## format all sources
 build: ## compile/build
 	cargo build --workspace --all-features
 	@$(MAKE) --no-print-directory minimal
+	@$(MAKE) --no-print-directory plan
 
 test: ## run all tests
 	cargo test --workspace --all-features
@@ -56,6 +57,10 @@ purity: ## assert bower-core still has zero dependencies
 
 minimal: ## assert the CLI builds without the preprocessor feature
 	cargo build -p bower --no-default-features
+
+plan: ## regenerate the sample books' locks, so an edited chapter never leaves a stale anchor behind
+	cargo run -q -p bower -- --book books/hello-playbook plan
+	cargo run -q -p bower -- --book books/rust4failures plan
 
 slow: ## the #[ignore]d lanes: the 20-step verify sweep and a real mdbook build
 	cargo test -p bower --test verification -- --ignored

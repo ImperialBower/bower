@@ -1,8 +1,8 @@
 # bower.lock — generated; review, don't edit
 
 [hello-playbook]
-001 cargo-init expect=pass anchor=src/ch01-a-repo-that-builds.md:6 files=Cargo.toml,src/main.rs
-002 hello-runs expect=pass anchor=src/ch01-a-repo-that-builds.md:40 files=
+001 cargo-init expect=pass anchor=src/ch01-a-repo-that-builds.md:8 files=Cargo.toml,src/main.rs
+002 hello-runs expect=pass anchor=src/ch01-a-repo-that-builds.md:42 files=
 003 makefile expect=pass anchor=src/ch02-the-gate.md:8 files=Makefile
 004 make-help expect=pass anchor=src/ch02-the-gate.md:35 files=Makefile
 005 rustfmt expect=pass anchor=src/ch03-lints-and-format.md:9 files=rustfmt.toml
