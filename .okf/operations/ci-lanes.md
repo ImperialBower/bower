@@ -27,15 +27,29 @@ definition and a contributor's local sweep is the same sweep.
 
 # The slow lane
 
-`slow.yml` installs `typst`, `mdbook`, `cargo-audit`, `cargo-deny`, `pandoc`,
-and **Libertinus 7.051 pinned from a GitHub release** — Ubuntu 24.04 has no
-`fonts-libertinus` package. It sets `TYPST_FONT_PATHS`, asserts `typst fonts`
-can see `Libertinus Serif` and `DejaVu Sans Mono`, then runs
+`slow.yml` installs `mdbook`, `cargo-audit` and `cargo-deny` through
+`taiki-e/install-action`, `pandoc` through apt, `typst` from its own release
+(see below), and **Libertinus 7.051 pinned from a GitHub release** — Ubuntu
+24.04 has no `fonts-libertinus` package. It sets `TYPST_FONT_PATHS`, asserts
+`typst fonts` can see `Libertinus Serif` and `DejaVu Sans Mono`, then runs
 `make check-dependencies`, `make slow`, `make book`, and `make failures`.
 
 **`mdbook` is deliberately unpinned**, so that an envelope rename like mdBook
 0.4 → 0.5 is *reported* rather than hidden. See
 [the preprocessor](/architecture/mdbook-bower.md), which reads both shapes.
+
+# Why typst is installed by hand
+
+`taiki-e/install-action` has no `typst` entry, and its `cargo-binstall`
+fallback cannot stand in: **the `typst` crate on crates.io is the compiler
+*library* and ships no binary**, so binstall fails with `no binaries specified
+nor inferred`. The CLI exists only as a release artifact.
+
+The workflow therefore pulls
+`typst-x86_64-unknown-linux-musl.tar.xz` from the project's latest release and
+extracts the single binary into `/usr/local/bin`. It is unpinned for the same
+reason `mdbook` is, and installed *before* the font check so that check
+interrogates the tool that will actually render the PDF.
 
 # What is `#[ignore]`d, and why
 

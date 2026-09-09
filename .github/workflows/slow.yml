@@ -51,11 +51,25 @@ jobs:
       # mdbook is deliberately unpinned. `bower::mdbook` reads both the 0.4
       # and the 0.5 envelope key, and the `#[ignore]`d preprocessor test is
       # what proves it — pinning here would hide the next rename instead of
-      # reporting it. Typst comes first so the font check below can ask the
-      # tool that will actually use the fonts.
+      # reporting it.
       - uses: taiki-e/install-action@v2
         with:
-          tool: typst,mdbook,cargo-audit,cargo-deny
+          tool: mdbook,cargo-audit,cargo-deny
+
+      # Typst is not in install-action's tool list, and its cargo-binstall
+      # fallback cannot stand in: the `typst` crate on crates.io is the
+      # compiler *library* and ships no binary, so binstall fails with "no
+      # binaries specified nor inferred". The CLI only exists as a release
+      # artifact, so take it from there. Unpinned, for the same reason mdbook
+      # is — this lane exists to notice a tool moving under the book. It is
+      # installed before the font check below, so that check asks the tool
+      # that will actually use the fonts.
+      - name: install typst
+        run: |
+          curl -fsSL https://github.com/typst/typst/releases/latest/download/typst-x86_64-unknown-linux-musl.tar.xz \
+            | sudo tar -xJf - --strip-components=1 -C /usr/local/bin \
+                typst-x86_64-unknown-linux-musl/typst
+          typst --version
 
       - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pandoc
 

@@ -2,6 +2,8 @@
 
 ## 2026-09-09
 
+* **Update**: `slow.yml` now installs typst from its own GitHub release rather than through `taiki-e/install-action`, which has no typst entry and whose cargo-binstall fallback fails because the crates.io `typst` crate is the compiler library and ships no binary. Recorded in [CI lanes](/operations/ci-lanes.md).
+
 * **Creation**: Scaffolded the bundle with `okf_init.py`.
 * **Creation**: Wrote the [domain model](/model/index.md) — directives, steps, ordering, plans, tree states, assembly, display markers, expectations, exercises, play cells, and errors — distilled from `bower-spec.md` §2–§6 and read against `bower-core/src/`.
 * **Creation**: Wrote the [architecture](/architecture/index.md) set — the pipeline, the domain-kernel pattern, the four crates, and the [invariants](/architecture/invariants.md) table naming the suite that proves each property.
