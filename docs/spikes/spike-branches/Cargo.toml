@@ -1,0 +1,12 @@
+[package]
+name = "bower-spike-branches"
+version = "0.0.1"
+edition = "2021"
+description = "Spike: branches, merges, and pull requests as plan-time values in Bower. Zero dependencies; replay shells out to git plumbing."
+publish = false
+
+# Standalone on purpose: not a member of the bower workspace, so `make ayce`
+# never sees it. Delete once EPIC-09 Phase 0 lands (EPIC-09 § Open questions 6).
+[workspace]
+
+[dependencies]

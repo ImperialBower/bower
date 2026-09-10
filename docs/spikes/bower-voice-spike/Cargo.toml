@@ -8,7 +8,7 @@ description = "Spike: the Bower voice kernel — cues, cast, script, breakdown, 
 publish = false
 
 # Standalone on purpose: not a member of the bower workspace, so `make ayce`
-# never sees it. Promote by moving the modules into `bower-voice/` (EPIC-09).
+# never sees it. Promote by moving the modules into `bower-voice/` (EPIC-10).
 [workspace]
 
 [dependencies]

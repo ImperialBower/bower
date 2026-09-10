@@ -1,6 +1,6 @@
 # Backlog
 
-> Refreshed 3 September 2026. Eight EPICs closed: replay, verification, the
+> Refreshed 10 September 2026. Eight EPICs closed: replay, verification, the
 > mdBook preprocessor, status, push, publish (html + epub), PDF via Typst, and
 > the site branch. Since then, three unnumbered pieces of work landed on top:
 > covers, a verify defect fix, and releases. `hello-playbook` is live at
@@ -10,6 +10,11 @@
 > forges](docs/DESIGN_Forges.md) — one Forgejo container per book, so a
 > generated repo, its releases, its site, and its CI can exist with GitHub
 > out of the loop.
+> Filed 10 September 2026: two EPICs with spikes behind them —
+> [EPIC-09 Branches](docs/EPIC-09_Branches.md) and
+> [EPIC-10 Voice](docs/EPIC-10_Voice.md) — a Jupyter proof of concept for
+> `--target ipynb`, and [a concept doc of 23 enhancement
+> ideas](docs/bower-ideas.md), folded in below under § Ideas.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
@@ -23,15 +28,52 @@
   teaching order over `pkcore`'s `DIARY.md`, which is deliberately not the
   order the work was done in. Nothing has been pushed to GitHub yet.
 
-## Next up — unwritten EPICs
+## Next up — not started
 
 | Work | Source | Note |
 |---|---|---|
-| **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
+| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | History with a shape: four directive keys (`branch=`, `from=`, `merge=`, `pr=`) put steps on a branch, merge it, and declare a pull request. A merge is a fold; a conflict is a plan-time `MergeConflict`; parents are plan values, so replay stays byte-identical. Five phases (kernel → replay/status → render → push/PRs → book), all Planned. Spike at `docs/spikes/spike-branches/` — 16 tests. Six open questions (§ Open questions). Absorbs idea A6. PR state on a forge is Phase 3's last inch — the Forges design would be its first real test target. |
+| **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. A Python proof of concept at `docs/spikes/bower-jupyter/bower-ipynb-poc/` renders one chapter to a notebook and verifies it headless, against the `pkcore.py` wheel, not a book-grown `bindings/` crate. It exercises the three play-cell plan errors and `expect="raises"` (open question 8). |
 | **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 | **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
-| **Voice** | [`docs/EPIC-09_Voice.md`](docs/EPIC-09_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
+| **Voice** | [`docs/EPIC-10_Voice.md`](docs/EPIC-10_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
+
+## Ideas — not yet EPICs
+
+From [`docs/bower-ideas.md`](docs/bower-ideas.md) (concept doc 0.1, 10
+September 2026). Nothing there is a commitment. Its admission rule: every idea
+is a pure function of what the kernel already computes, or adds at most one
+annotation key. The doc was drafted as if only Phase 1 were built. Read its
+"Attaches to" column against what has shipped since.
+
+Its ranked shortlist, mapped onto this backlog:
+
+| Rank | Idea | Where it lands here |
+|---|---|---|
+| 1 | **A1** captured diagnostics — `<!-- bower output … -->`, `verify --record`, drift fails the build | Closes the *stderr snapshots* gap below and retires spec Q3. The doc's recommended first move. |
+| 2 | **A9** generated back matter — the failure index (by rustc error code), step, file and play indices | Wants A1 first. "A weekend once A1 exists." |
+| 3 | **A4 + A5** exercises (`exercise=`, `solution=`) and `bower follow`, the reader's CLI | A4 half closes the *hidden solution* gap below. A5 is the seed of C3 (classroom). |
+| 4 | **A3** the scrubber — a step slider over each repo's tree, with a "written by" gutter | The project's first front-end code. |
+| 5 | **A6** verified alternate branches | **Now [EPIC-09](docs/EPIC-09_Branches.md).** EPIC-09 answers the doc's Part F Q2: one plan per repo, branches carried on `RepoPlan`. |
+| 6 | **B1 + B3 + C4** step permalinks and DOIs, errata feeds, the verification receipt | Belong to **Editions** above. |
+| 7 | **B4** living vs frozen edition — a per-step toolchain board | Belongs to **Editions**. Wants parallel verification (gap below). |
+| 8 | **A2** wasm components in the browser | Answers open question 9 by going around pyodide. |
+| 9–14 | B5 slides and workshops, B2 verified translations, C1 + C2 other authors and a PR bot, C3 classroom, A7/A8/B6/B7/C5/C7, C6 hosted | Wait for their trigger (a talk date, a translator, a second author). A8 is half done: the PDF and epub ship, the margin tags and QR codes do not. |
+
+The doc's Part F carries eight open questions of its own. Q7 is the big one:
+is Bower-for-others a goal, or a side effect?
+
+## Spikes
+
+Throwaway code that settled a design before an EPIC was written. None is a
+workspace member, so `make ayce` never sees them.
+
+| Spike | Behind | State |
+|---|---|---|
+| [`docs/spikes/spike-branches/`](docs/spikes/spike-branches/) | EPIC-09 | 16 tests green. Delete after EPIC-09 Phase 0 (EPIC-09 Q6). |
+| [`docs/spikes/bower-voice-spike/`](docs/spikes/bower-voice-spike/) | EPIC-10 | 41 tests green. Promoted, not copied, into `bower-voice/` in Phase 1. |
+| [`docs/spikes/bower-jupyter/bower-ipynb-poc/`](docs/spikes/bower-jupyter/bower-ipynb-poc/) | `--target ipynb` | Python and Docker. Not run in this refresh — it needs `pkcore.py` and Jupyter. |
 
 ## Known gaps
 
@@ -40,11 +82,11 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
 - [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_branch_args` is the first piece pulled out into something testable
-- [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only)
+- [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only) — idea A1 reopens this as visible book content
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
 - [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2)
-- [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2)
+- [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — idea A4 half answers this: it collapses the solution, but the solution is still a step
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 
@@ -56,8 +98,8 @@ names, repo layout, repo CI, block library); these four are not.
 | # | Question |
 |---|---|
 | 7 | Wheel distribution for notebooks |
-| 8 | `expect` for play cells |
-| 9 | JupyterLite / pyodide |
+| 8 | `expect` for play cells — the Jupyter POC tried `expect="raises"` and it works |
+| 9 | JupyterLite / pyodide — idea A2 proposes going around it with wasm |
 | 10 | `devenv.nix` — hand-authored per repo, or derived? |
 
 Decided 4 September 2026: **(4)** yes, generated repos get GitHub Actions that

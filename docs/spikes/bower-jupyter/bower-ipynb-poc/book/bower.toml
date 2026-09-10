@@ -1,0 +1,16 @@
+[book]
+name = "rust-for-failers"
+site = "https://imperialbower.github.io/rust-for-failers"
+
+[repos.failers]
+github = "ImperialBower/failers"
+
+[repos.failers.links]
+blob = "https://github.com/ImperialBower/failers/blob/{tag}/{path}#L{start}-L{end}"
+
+# Notebook target (§ 15). In Bower proper the wheel is the repo's own
+# bindings/ crate at the chapter-end tag. For this POC the chapter's
+# "wheel" is the real pkcore.py release, so the play cells actually run.
+[repos.failers.notebook]
+kernel = "python3"
+wheel = "pkcore.py==0.11.0"

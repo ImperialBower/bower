@@ -1,14 +1,14 @@
 # bower-voice-spike
 
 A zero-dependency spike of the **voice kernel** proposed in
-[`../../EPIC-09_Voice.md`](../../EPIC-09_Voice.md): the book as the single
+[`../../EPIC-10_Voice.md`](../../EPIC-10_Voice.md): the book as the single
 source of truth for how it is read aloud.
 
 It is deliberately **not** a member of the bower workspace, so `make ayce`
 never sees it. Run it on its own:
 
 ```bash
-cd spikes/bower-voice-spike
+cd docs/spikes/bower-voice-spike
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo tree -e normal          # one line: the kernel has no dependencies

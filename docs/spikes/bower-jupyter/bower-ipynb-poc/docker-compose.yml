@@ -1,0 +1,11 @@
+services:
+  bower-notebook:
+    build: .
+    image: imperialbower/bower-notebook:poc
+    ports: ["8888:8888"]
+    volumes:
+      - ./book:/home/jovyan/work/book:ro
+      - ./notebooks:/home/jovyan/work/notebooks
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    command: start-notebook.py --NotebookApp.token=''

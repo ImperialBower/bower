@@ -1,4 +1,4 @@
-# EPIC-09: Voice — the book as the source of truth for the ear (VOICE)
+# EPIC-10: Voice — the book as the source of truth for the ear (VOICE)
 
 ## Context
 
@@ -42,7 +42,7 @@ any existing command's behaviour: a book with no cues and no `voices.toml` is
 a normal book.
 
 A zero-dependency spike was built first and is checked in at
-`spikes/bower-voice-spike/`: 41 tests, clippy pedantic clean, three hand
+`docs/spikes/bower-voice-spike/`: 41 tests, clippy pedantic clean, three hand
 mutations each caught. Its `README.md` maps claim to test.
 
 ---
@@ -51,7 +51,7 @@ mutations each caught. Its `README.md` maps claim to test.
 
 | Component | Status |
 |---|---|
-| Spike — cue grammar, cast, script fold, breakdown, palette fit | **Complete** (`spikes/bower-voice-spike/`) |
+| Spike — cue grammar, cast, script fold, breakdown, palette fit | **Complete** (`docs/spikes/bower-voice-spike/`) |
 | `bower-voice` crate (Phase 1) | Not started |
 | `bower-testkit` voice corpus and coverage (Phase 2) | Not started |
 | `voices.toml`, `bower script`, `bower voices` (Phase 3) | Not started |
@@ -392,7 +392,7 @@ compares — a stale script is visible without rendering it.
 
 ### Phase 0 — Spike ✅
 
-- [x] **0a.** Zero-dependency crate at `spikes/bower-voice-spike/`, not a
+- [x] **0a.** Zero-dependency crate at `docs/spikes/bower-voice-spike/`, not a
   workspace member (its `Cargo.toml` declares `[workspace]` so cargo does not
   climb). 41 tests; `cargo clippy --all-targets -- -D warnings` clean;
   `RUSTDOCFLAGS=-D warnings cargo doc` clean; `cargo tree -e normal` one line.
@@ -512,7 +512,7 @@ Every row is a test the spike already has or Phase 2 names.
 
 | File | Role |
 |---|---|
-| `spikes/bower-voice-spike/` | The spike; promoted, not copied, in Phase 1 |
+| `docs/spikes/bower-voice-spike/` | The spike; promoted, not copied, in Phase 1 |
 | `bower-voice/src/{lib,cue,cast,script,breakdown,palette}.rs` | The kernel |
 | `bower-core/src/directive.rs:300` | `KeyValues` → `pub fn key_values` |
 | `bower-testkit/src/voice/{fixtures,generators,coverage}.rs` | Controllability |
@@ -564,7 +564,7 @@ Every row is a test the spike already has or Phase 2 names.
 
 ```bash
 # Phase 0 (now)
-cd spikes/bower-voice-spike
+cd docs/spikes/bower-voice-spike
 cargo test                                   # 41 passed
 cargo clippy --all-targets -- -D warnings    # clean
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
