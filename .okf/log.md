@@ -2,6 +2,7 @@
 
 ## 2026-09-09
 
+* **Update**: `bower publish --target pdf` now defines the Typst helpers pandoc's writer assumes its own template supplies (`PANDOC_TYPST_HELPERS`). Older pandoc emits `#blockquote[…]`, so every book with an exercise failed to build a PDF on a distro pandoc. `slow.yml` pins pandoc 3.11 alongside. Recorded in [bower publish](/commands/publish.md) and [CI lanes](/operations/ci-lanes.md).
 * **Update**: `slow.yml` now installs typst from its own GitHub release rather than through `taiki-e/install-action`, which has no typst entry and whose cargo-binstall fallback fails because the crates.io `typst` crate is the compiler library and ships no binary. Recorded in [CI lanes](/operations/ci-lanes.md).
 
 * **Creation**: Scaffolded the bundle with `okf_init.py`.

@@ -71,7 +71,25 @@ jobs:
                 typst-x86_64-unknown-linux-musl/typst
           typst --version
 
-      - run: sudo apt-get update && sudo apt-get install --no-install-recommends -y pandoc
+      # pandoc is pinned, for the same reason the fonts below are: it is a
+      # renderer the byte-identical PDF test makes a claim about. Its Typst
+      # writer changes which helper functions it emits between versions — the
+      # pandoc in Ubuntu 24.04 writes `#blockquote[…]` where 3.11 writes
+      # `#quote(block: true)` — and it renames the media it embeds in an epub,
+      # which `publish_epub_produces_a_readable_book` asserts by name. A
+      # renderer that moves underneath those tests is them failing for a reason
+      # that has nothing to do with this repository.
+      #
+      # Coping with the other pandoc is a separate job, and not CI's:
+      # `publish::PANDOC_TYPST_HELPERS` defines the helpers the older writer
+      # assumes, so a reader on a distro pandoc still gets a PDF.
+      - name: install pandoc, pinned
+        run: |
+          sudo apt-get update
+          curl -fsSL -o /tmp/pandoc.deb \
+            https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-1-amd64.deb
+          sudo apt-get install --no-install-recommends -y /tmp/pandoc.deb
+          pandoc --version | head -1
 
       - name: install the fonts books/hello-playbook/template.typ names
         # Typst substitutes silently for a font it cannot see, and

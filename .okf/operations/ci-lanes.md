@@ -28,7 +28,8 @@ definition and a contributor's local sweep is the same sweep.
 # The slow lane
 
 `slow.yml` installs `mdbook`, `cargo-audit` and `cargo-deny` through
-`taiki-e/install-action`, `pandoc` through apt, `typst` from its own release
+`taiki-e/install-action`, **`pandoc` 3.11 pinned from its own release**,
+`typst` from its own release
 (see below), and **Libertinus 7.051 pinned from a GitHub release** — Ubuntu
 24.04 has no `fonts-libertinus` package. It sets `TYPST_FONT_PATHS`, asserts
 `typst fonts` can see `Libertinus Serif` and `DejaVu Sans Mono`, then runs
@@ -37,6 +38,17 @@ definition and a contributor's local sweep is the same sweep.
 **`mdbook` is deliberately unpinned**, so that an envelope rename like mdBook
 0.4 → 0.5 is *reported* rather than hidden. See
 [the preprocessor](/architecture/mdbook-bower.md), which reads both shapes.
+
+# Why pandoc is pinned
+
+pandoc is a renderer the byte-identical PDF test makes a claim about, so it is
+pinned for the same reason the fonts are. Its Typst writer changes which helper
+functions it emits between versions — Ubuntu 24.04's pandoc writes
+`#blockquote[…]` where 3.11 writes `#quote(block: true)` — and it renames the
+media it embeds in an epub, which the epub test asserts by name.
+
+Coping with the *other* pandoc is a separate concern, and not CI's; see
+[the helper shim](/commands/publish.md).
 
 # Why typst is installed by hand
 

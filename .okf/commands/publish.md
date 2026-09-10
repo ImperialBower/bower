@@ -54,7 +54,19 @@ That epoch is `bower.toml`'s `epoch` — the same value that pins commit SHAs. O
 configured instant makes the git history and the PDF reproducible together.
 
 `template.typ` is found by convention beside `book.toml` and is **prepended** as
-a preamble, since Typst's `#set` rules apply forward. Every font it names is
+a preamble, since Typst's `#set` rules apply forward.
+
+Because the preamble replaces pandoc's standalone template, Bower must also
+supply the helper functions pandoc's Typst writer *calls* but does not emit.
+`PANDOC_TYPST_HELPERS` defines them. Which ones matter depends on the pandoc
+version: 3.11 emits `#quote(block: true)` and `#divider()`, both in Typst's
+standard library, while Ubuntu 24.04's pandoc emits `#blockquote[…]` and
+`#horizontalrule`, which are not. Without the shim, **every book containing an
+[exercise](/model/exercise.md) failed to build a PDF on the pandoc most readers
+have** — an exercise box is a block quote outside HTML. An unused `#let` emits
+no content, so defining a helper the installed pandoc never calls cannot move a
+byte of the PDF.
+ Every font it names is
 checked against `typst fonts` output first; a miss is reported as a missing
 tool. That check exists because silent font substitution had already hidden a
 real bug — see [display markers](/model/display-markers.md).

@@ -976,6 +976,34 @@ impl Renderer for MdBookRenderer {
     }
 }
 
+/// The helpers pandoc's Typst writer calls but does not emit.
+///
+/// pandoc defines these in its *standalone template*, and this renderer
+/// deliberately does not use that template — a preamble in front of the body is
+/// all a template needs to be. So the definitions have to come from somewhere,
+/// and that somewhere is here.
+///
+/// Which helpers the writer reaches for depends on the pandoc version:
+/// pandoc 3.11 emits `#quote(block: true)` and `#divider()`, both of which
+/// Typst's standard library provides, while the pandoc in Ubuntu 24.04 emits
+/// `#blockquote[…]` and `#horizontalrule`, which it does not. Without these,
+/// a book containing a block quote — which is every book with an
+/// [`crate::render`] exercise, since an exercise box *is* a block quote outside
+/// HTML — fails `typst compile` with `unknown variable: blockquote`.
+///
+/// Defining a helper the installed pandoc never calls costs nothing: an unused
+/// `#let` binding emits no content, so this cannot move a single byte of a PDF
+/// rendered through a newer pandoc.
+const PANDOC_TYPST_HELPERS: &str = "\
+// Definitions pandoc's Typst writer assumes its own template supplies.
+// Unused under a pandoc new enough to emit the Typst built-ins instead.
+#let blockquote(body) = [
+  #set text(size: 0.92em)
+  #block(inset: (left: 1.5em, top: 0.2em, bottom: 0.2em))[#body]
+]
+#let horizontalrule = line(start: (25%, 0%), end: (75%, 0%))
+";
+
 /// The PDF, via `pandoc --to typst` and `typst compile`.
 ///
 /// Two steps rather than `pandoc --to pdf`, because that route reaches for
@@ -1061,6 +1089,7 @@ impl Renderer for TypstRenderer {
             text.push_str(&std::fs::read_to_string(template).map_err(io(template))?);
             text.push('\n');
         }
+        text.push_str(PANDOC_TYPST_HELPERS);
         // Between the template and the body, because the template's `#set`
         // rules must already be in force and the cover must precede chapter
         // one. `#page` with a body opens a page of its own, so the override of
@@ -1737,6 +1766,38 @@ mod publish_tests {
         assert!(
             check_fonts(&text).is_ok(),
             "the shipped template must compile"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs typst and the Libertinus/DejaVu fonts installed"]
+    fn pandoc_helpers__compile_what_an_older_pandoc_emits() {
+        // The regression this guards: pandoc in Ubuntu 24.04 writes
+        // `#blockquote[…]` for a block quote, and an exercise box *is* a block
+        // quote outside HTML — so without these definitions every book with an
+        // exercise failed `typst compile` with `unknown variable: blockquote`,
+        // on the pandoc most readers have. Compile it rather than grep for it:
+        // a definition that does not typecheck would pass a string assertion.
+        let template = std::fs::read_to_string(sample_root().join("template.typ")).unwrap();
+        let dir = std::env::temp_dir().join("bower-pandoc-helpers");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("book.typ");
+        std::fs::write(
+            &source,
+            format!("{template}\n{PANDOC_TYPST_HELPERS}\n#blockquote[a quote]\n\n#horizontalrule\n"),
+        )
+        .unwrap();
+
+        let out = std::process::Command::new("typst")
+            .arg("compile")
+            .arg(&source)
+            .arg(dir.join("book.pdf"))
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
         );
     }
 
