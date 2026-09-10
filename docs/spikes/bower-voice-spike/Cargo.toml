@@ -1,0 +1,22 @@
+[package]
+name = "bower-voice-spike"
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+description = "Spike: the Bower voice kernel — cues, cast, script, breakdown, palette. Pure; zero dependencies."
+publish = false
+
+# Standalone on purpose: not a member of the bower workspace, so `make ayce`
+# never sees it. Promote by moving the modules into `bower-voice/` (EPIC-09).
+[workspace]
+
+[dependencies]
+# None. The kernel is pure by construction.
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+expect_used = "warn"
+module_name_repetitions = "allow"
+missing_panics_doc = "allow"

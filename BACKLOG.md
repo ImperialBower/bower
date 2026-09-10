@@ -31,6 +31,7 @@
 | **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 | **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
+| **Voice** | [`docs/EPIC-09_Voice.md`](docs/EPIC-09_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
 
 ## Known gaps
 
