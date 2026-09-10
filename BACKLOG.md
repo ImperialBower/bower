@@ -6,6 +6,10 @@
 > covers, a verify defect fix, and releases. `hello-playbook` is live at
 > <https://github.com/abstecker/hello-playbook> with its book served from
 > `gh-pages`.
+> Filed 9 September 2026: [a design for self-hosted
+> forges](docs/DESIGN_Forges.md) — one Forgejo container per book, so a
+> generated repo, its releases, its site, and its CI can exist with GitHub
+> out of the loop.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
@@ -26,6 +30,7 @@
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. |
 | **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
+| **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
 
 ## Known gaps
 
