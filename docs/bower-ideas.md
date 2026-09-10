@@ -4,6 +4,13 @@
 Concept doc 0.1 · 10 September 2026 · ImperialBower
 Companion to *Bower — Design Specification* draft 0.2
 
+> **Status, 10 September 2026.** Ranks 1–7 of Part E are now EPICs:
+> A1 → [EPIC-11](EPIC-11_Diagnostics.md), A9 → [EPIC-12](EPIC-12_Back_Matter.md),
+> A4 → [EPIC-13](EPIC-13_Exercises.md), A5 → [EPIC-14](EPIC-14_Follow.md),
+> A3 → [EPIC-15](EPIC-15_Scrubber.md), A6 → [EPIC-09](EPIC-09_Branches.md),
+> B1 + B3 + B4 + C4 → [EPIC-16](EPIC-16_Editions.md). The EPICs win where they
+> differ from this doc. The rest are still ideas.
+
 ---
 
 ## 0. Purpose and the admission rule

@@ -34,7 +34,12 @@
 |---|---|---|
 | **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | History with a shape: four directive keys (`branch=`, `from=`, `merge=`, `pr=`) put steps on a branch, merge it, and declare a pull request. A merge is a fold; a conflict is a plan-time `MergeConflict`; parents are plan values, so replay stays byte-identical. Five phases (kernel → replay/status → render → push/PRs → book), all Planned. Spike at `docs/spikes/spike-branches/` — 16 tests. Six open questions (§ Open questions). Absorbs idea A6. PR state on a forge is Phase 3's last inch — the Forges design would be its first real test target. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. A Python proof of concept at `docs/spikes/bower-jupyter/bower-ipynb-poc/` renders one chapter to a notebook and verifies it headless, against the `pkcore.py` wheel, not a book-grown `bindings/` crate. It exercises the three play-cell plan errors and `expect="raises"` (open question 8). |
-| **Editions** | spec § 13 M2 | A published edition as a pinned triple: book commit, `bower.lock`, repo tags. A reader of the 1.0 epub follows 1.0 links forever while `main` moves on. **`[book] version` is now the first brick of this** — when Editions is written, it should own that key. |
+| **Captured diagnostics** | [`docs/EPIC-11_Diagnostics.md`](docs/EPIC-11_Diagnostics.md) | Idea A1. An `output="check"\|"verify"` key binds a fence to a step. `verify` fails when the normalized output drifts, and `verify --record` rewrites the fence. Keeps failure-only as the default for `expect` and amends spec § 6 and Q3. Phase 0 makes `Outcome` keep stdout (it keeps stderr only) and adds a per-repo `toolchain` key, so snapshots do not depend on the machine. Six phases; seven open questions. |
+| **Back matter** | [`docs/EPIC-12_Back_Matter.md`](docs/EPIC-12_Back_Matter.md) | Idea A9. A step index, a failure index, and a file index, placed by an author-written `<!-- bower index="…" -->`. Built on EPIC-11 for error codes and failing test names. The step, by-step failure, and file indices can ship first. Found that the PDF drops step anchors today, so Phase 3 fixes print links. Seven phases; seven open questions. |
+| **Exercises, finished** | [`docs/EPIC-13_Exercises.md`](docs/EPIC-13_Exercises.md) | Idea A4. Exercises already ship (PR #4, `fdcd09b`). This EPIC adds `tests=`, `solution=`, and `reveal=`. Verify then checks that exactly the named tests fail, then pass (today any non-zero exit counts). `reveal="never"` closes the *hidden solution* gap below. Six phases; six open questions. |
+| **`bower follow`** | [`docs/EPIC-14_Follow.md`](docs/EPIC-14_Follow.md) | Idea A5. A light `bower-follow` binary for readers: `start`, `next`, `next --hands-on`, `check`, `diff`, `where`. Built on EPIC-13. A generated repo cannot rebuild its own verification today, so Phase 0 writes a machine-readable `.bower/steps` file into the final tree. Five phases; seven open questions. |
+| **The scrubber** | [`docs/EPIC-15_Scrubber.md`](docs/EPIC-15_Scrubber.md) | Idea A3. About 11 KB of JSON per repo, and a widget under 16 KB with no dependencies, in the HTML book only. It is the project's first JavaScript. The reverse line map the idea assumed does not exist, so the kernel gains a line diff. Shares EPIC-12's file history. Eight phases; six open questions. |
+| **Editions** | [`docs/EPIC-16_Editions.md`](docs/EPIC-16_Editions.md) | Spec § 13 M2 with ideas B1, B3, B4 and C4. `bower edition cut` writes one file that is both the pin and the verification receipt. Adds `edition-<id>/…` step tags that never move, and releases that only ever gain files. Owns `[book] version`. Found that today's `--clobber` and `push --force --tags` would overwrite a frozen edition. B4's toolchain board and B1's DOIs are deferred. Six phases; eight open questions. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
 | **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
 | **Voice** | [`docs/EPIC-10_Voice.md`](docs/EPIC-10_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
@@ -47,17 +52,22 @@ is a pure function of what the kernel already computes, or adds at most one
 annotation key. The doc was drafted as if only Phase 1 were built. Read its
 "Attaches to" column against what has shipped since.
 
-Its ranked shortlist, mapped onto this backlog:
+Ranks 1–7 of its shortlist are now EPICs, all Planned. Each EPIC records where
+the idea met shipped code and changed shape:
+
+| Rank | Idea | EPIC |
+|---|---|---|
+| 1 | **A1** captured diagnostics | [EPIC-11](docs/EPIC-11_Diagnostics.md) |
+| 2 | **A9** generated back matter | [EPIC-12](docs/EPIC-12_Back_Matter.md) |
+| 3 | **A4 + A5** exercises and `bower follow` | [EPIC-13](docs/EPIC-13_Exercises.md), [EPIC-14](docs/EPIC-14_Follow.md) |
+| 4 | **A3** the scrubber | [EPIC-15](docs/EPIC-15_Scrubber.md) |
+| 5 | **A6** verified alternate branches | [EPIC-09](docs/EPIC-09_Branches.md) |
+| 6–7 | **B1 + B3 + B4 + C4** permalinks, errata, toolchain board, receipt | [EPIC-16](docs/EPIC-16_Editions.md). B1's DOIs and B4's board are deferred inside it. |
+
+The rest stay ideas:
 
 | Rank | Idea | Where it lands here |
 |---|---|---|
-| 1 | **A1** captured diagnostics — `<!-- bower output … -->`, `verify --record`, drift fails the build | Closes the *stderr snapshots* gap below and retires spec Q3. The doc's recommended first move. |
-| 2 | **A9** generated back matter — the failure index (by rustc error code), step, file and play indices | Wants A1 first. "A weekend once A1 exists." |
-| 3 | **A4 + A5** exercises (`exercise=`, `solution=`) and `bower follow`, the reader's CLI | A4 half closes the *hidden solution* gap below. A5 is the seed of C3 (classroom). |
-| 4 | **A3** the scrubber — a step slider over each repo's tree, with a "written by" gutter | The project's first front-end code. |
-| 5 | **A6** verified alternate branches | **Now [EPIC-09](docs/EPIC-09_Branches.md).** EPIC-09 answers the doc's Part F Q2: one plan per repo, branches carried on `RepoPlan`. |
-| 6 | **B1 + B3 + C4** step permalinks and DOIs, errata feeds, the verification receipt | Belong to **Editions** above. |
-| 7 | **B4** living vs frozen edition — a per-step toolchain board | Belongs to **Editions**. Wants parallel verification (gap below). |
 | 8 | **A2** wasm components in the browser | Answers open question 9 by going around pyodide. |
 | 9–14 | B5 slides and workshops, B2 verified translations, C1 + C2 other authors and a PR bot, C3 classroom, A7/A8/B6/B7/C5/C7, C6 hosted | Wait for their trigger (a talk date, a translator, a second author). A8 is half done: the PDF and epub ship, the margin tags and QR codes do not. |
 
@@ -82,11 +92,11 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
 - [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_branch_args` is the first piece pulled out into something testable
-- [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only) — idea A1 reopens this as visible book content
+- [ ] No stderr snapshots for `compile_fail` (spec § 12 Q3, decided failure-only) — EPIC-11 reopens this as visible book content
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
-- [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2)
-- [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — idea A4 half answers this: it collapses the solution, but the solution is still a step
+- [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2) — EPIC-14's `follow check` judges a reader's answer but gives it no place; this narrows the gap and does not close it
+- [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
 

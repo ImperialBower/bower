@@ -220,6 +220,38 @@
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->
 
-_None yet._ The deep automated review pass that normally seeds this section on
-first creation was **not run** — it needs a code-review subagent, and this
-session is configured not to spawn one unasked. Say the word and I will run it.
+The deep automated review pass that normally seeds this section on first
+creation was **not run**. Say the word and it will be.
+
+Found 10 September 2026 while grounding EPIC-11 to EPIC-16 against the code.
+Each was checked against the cited lines. Each EPIC that owns a fix says so.
+
+- [ ] 🤖 **`test_fail` accepts any failing test.** A step is upheld when the
+  verify command exits non-zero (`bower/src/verify.rs:261-270`). A broken test
+  helper upholds an exercise, and a solution that deletes the failing test
+  passes. Suggested: name the tests that must fail. EPIC-13 Phase 2.
+  (`bower/src/verify.rs:261`)
+- [ ] 🤖 **Test output is thrown away.** `Outcome` keeps stderr only
+  (`bower/src/verify.rs:311-315`). libtest writes its per-test results to
+  stdout. EPIC-02 Phase 2a said stdout would be captured. Suggested: keep
+  stdout. EPIC-11 Phase 0. (`bower/src/verify.rs:311`)
+- [ ] 🤖 **A CI comment promises a check that does not exist.**
+  `.github/workflows/slow.yml:130-133` says CI catches a changed compiler
+  diagnostic. Nothing compares diagnostics today. Suggested: soften the comment
+  now; EPIC-11 makes it true. (`.github/workflows/slow.yml:130`)
+- [ ] 🤖 **A shipped release can be overwritten.** `release upload --clobber`
+  (`bower/src/forge.rs:707-716`) replaces the 0.1.0 PDF with a changed book if
+  `[book] version` is not bumped. `release create` has no `--target`
+  (`bower/src/forge.rs:718-728`), so GitHub, not Bower, picks the tagged commit.
+  And `push --force --tags` (`bower/src/forge.rs:675`) moves every tag.
+  Suggested: releases only gain files; name each tag pushed. EPIC-16 Phases 2–3.
+  (`bower/src/forge.rs:707`)
+- [ ] 🤖 **A `|` in a commit subject breaks its `STEPS.md` row.** The table
+  cells are not escaped (`bower/src/trailers.rs:97-103`). Suggested: escape
+  `|`. EPIC-14 Phase 0 adds a machine-readable twin instead of parsing the
+  table. (`bower/src/trailers.rs:97`)
+- [ ] 🤖 **The PDF has no step anchors.** The raw `<a id>` from
+  `bower/src/render.rs:72` is dropped by pandoc's Typst writer. Nothing links
+  to one yet, so nothing breaks; the first link would fail with "label does
+  not exist". Suggested: emit a pandoc span `[]{#step-id}`. EPIC-12 Phase 3.
+  (`bower/src/render.rs:72`)
