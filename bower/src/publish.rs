@@ -1784,7 +1784,9 @@ mod publish_tests {
         let source = dir.join("book.typ");
         std::fs::write(
             &source,
-            format!("{template}\n{PANDOC_TYPST_HELPERS}\n#blockquote[a quote]\n\n#horizontalrule\n"),
+            format!(
+                "{template}\n{PANDOC_TYPST_HELPERS}\n#blockquote[a quote]\n\n#horizontalrule\n"
+            ),
         )
         .unwrap();
 
