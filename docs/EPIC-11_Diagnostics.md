@@ -268,8 +268,11 @@ for play cells (spec § 12 Q8).
     prints each unit's warnings — and its `(1 duplicate)` count — as the
     units finish. A step with at least one output block runs both commands
     with `CARGO_BUILD_JOBS=1` and `RUST_TEST_THREADS=1`. With one thread
-    libtest runs tests in name order. A step without output blocks is run
-    exactly as before, so a book with no `output=` verifies unchanged.
+    libtest runs tests in name order. It also gets `RUST_BACKTRACE=0`: an
+    author whose shell exports `RUST_BACKTRACE=1` would otherwise record a
+    backtrace full of machine paths in place of libtest's one-line note. A
+    step without output blocks is run exactly as before, so a book with no
+    `output=` verifies unchanged.
     Normalization rule 7 (sort test lines) stays, for outputs recorded
     elsewhere — EPIC-14's reader diff.
 13. **The thread ID is not the compiler's words.** Since Rust 1.91 a panic
