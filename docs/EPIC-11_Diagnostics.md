@@ -53,7 +53,7 @@ verifies, and renders exactly as before.
 
 | Component | Status |
 |---|---|
-| Edge prerequisite: `Outcome` keeps stdout; per-repo `toolchain` pin | **Planned** |
+| Edge prerequisite: `Outcome` keeps both streams; per-repo `toolchain` pin | **Planned** |
 | Kernel: `output=` key, `Capture`, binding, five errors, lock text | **Planned** |
 | Kernel: `capture` module — normalize, drift, error codes, rewrite | **Planned** |
 | Testkit: output textures, fixtures, `capture × expect` axis, properties | **Planned** |
@@ -106,6 +106,22 @@ if given, else the step that owns the nearest preceding code block of that
 repo. It never touches a tree. An empty fence is legal and means "not
 recorded yet".
 
+A line that is exactly `[...]` marks lines the author left out, as the
+editorial ellipsis does in any quotation. A fence without one must equal the
+output. A fence with one must match it piece by piece, in order (Decision 5):
+
+````markdown
+<!-- bower repo="rust4failures" output="verify" -->
+```text
+[...]
+thread 'tests::hello_world' panicked at src/lib.rs:31:9:
+assertion `left == right` failed
+  left: "Hello, world!"
+ right: "Hello,  wirld!!"
+[...]
+```
+````
+
 The reader gets the compiler's actual words under every failure the book
 stages, captioned with the command, the step, and a link for each rustc error
 code. The author gets a `verify` that fails when those words move, and
@@ -135,7 +151,8 @@ code. The author gets a `verify` that fails when those words move, and
 
 ### Not in scope
 
-Arbitrary third commands, regex or code-only matching (open question 1),
+Arbitrary third commands, regex or in-line wildcards (`[...]` elides whole
+lines only; Decision 5),
 per-toolchain snapshots, a hidden `trybuild`-style `.stderr` tree, and outputs
 for play cells (spec § 12 Q8).
 
@@ -153,10 +170,20 @@ for play cells (spec § 12 Q8).
    (`stderr`, `stdout`, `test`, `check`; `bower-ideas.md:89`) overlap. The
    verifier already runs exactly two configured commands
    (`bower/src/config.rs:73-75`, defaults `config.rs:22-23`). Each capture
-   takes that command's stderr, then its stdout, and normalizes the result.
-   For `cargo check` that is the diagnostics. For `cargo test` it is warnings
-   plus the test report, which libtest prints on stdout. The names follow
-   `bower.toml` and assume no language.
+   takes both of that command's streams through **one pipe**, in the order
+   they were written, and normalizes the result. That is what a reader's
+   terminal shows. For `cargo check` it is the diagnostics. For `cargo test`
+   it is warnings plus the test report, which libtest prints on stdout. The
+   names follow `bower.toml` and assume no language.
+
+   *Amended 11 September 2026.* The draft said "stderr, then stdout". Run
+   against `kata-compiles`, that order prints cargo's closing
+   `error: test failed, to rerun pass --lib` above libtest's
+   `running 1 test`, which no terminal shows. `std::io::pipe` (stable since
+   1.87) gives the true order with no dependency. `Outcome` therefore gains
+   `output` (both streams, interleaved) and loses `stderr`; the `Broken`
+   report prints the tail of `output`, which for a test failure is the
+   libtest summary rather than cargo's rerun hint.
 3. **Five located plan-time errors.** `OutputUnbound` and `OutputUnknownStep`
    mirror play cells (`bower-core/src/lib.rs:154-158`).
    `OutputConflictingKeys` fires on tree keys, `notebook`, `exercise`,
@@ -169,10 +196,26 @@ for play cells (spec § 12 Q8).
    cannot know the scratch path. The edge passes a `Scrub` of
    `(prefix, replacement)` pairs, and `normalize(raw, &Scrub)` stays pure and
    dependency-free.
-5. **By default, match the full rendering exactly.** This is the idea's Part F
-   Q3 default (`bower-ideas.md:832-836`). The spans are the lesson: the caret
-   under `c` is what E0004 teaches. Both hand-pastes quote only the headline,
-   which is evidence for an escape hatch. That escape hatch is open question 1.
+5. **By default, match the full rendering exactly; `[...]` is the escape
+   hatch.** This is the idea's Part F Q3 default (`bower-ideas.md:832-836`).
+   The spans are the lesson: the caret under `c` is what E0004 teaches. Both
+   hand-pastes quote only part of the output, which is evidence for an escape
+   hatch (open question 1, settled 11 September 2026):
+   - A fence with no `[...]` line must **equal** the live output.
+   - A fence with `[...]` lines is split into pieces at them. Each piece must
+     appear in the live output as consecutive lines, in order. A piece with
+     no `[...]` before it must start the output; a piece with none after it
+     must end it. Each `[...]` stands for zero or more lines.
+   - `--record` leaves a matching fence alone, so an author's trim survives
+     every re-record while it still holds. A fence that no longer matches is
+     rewritten with the **full** output, and the author trims again: a drift
+     is a reason to reread the whole message anyway.
+
+   `[...]`, not `...`: rustc prints `...` in the gutter of a long multi-line
+   span, and the bracketed form is what a quotation already uses. The prefix
+   rule was the draft's lean. It cannot quote the middle of an output, which
+   `ch01-local_development.md:262-268` does, and it misses lines added at the
+   end of a full recording.
 6. **Judged only when upheld.** A `Broken` step's outputs are not compared,
    because the broken claim is the headline. `--record` never writes them: a
    snapshot of the wrong failure is worse than none.
@@ -193,12 +236,46 @@ for play cells (spec § 12 Q8).
     `rust-toolchain.toml` compiles on whatever rustup resolves there.
     `hello-playbook` pins at step `toolchain`
     (`books/hello-playbook/src/ch03-lints-and-format.md:19`);
-    `rust4failures` never does. A new per-repo `toolchain` key is exported as
-    `RUSTUP_TOOLCHAIN` beside `CARGO_TARGET_DIR` (`verify.rs:298`). Verify
-    prints one warning when a repo has output blocks, no `toolchain` key, and
-    a tree that pins nothing.
+    `rust4failures` never does.
+
+    *Amended 11 September 2026 (open question 3).* Grounding found a defect
+    under this decision. rustup's cargo proxy exports
+    `RUSTUP_TOOLCHAIN=<the workspace pin>` to its children, so a `bower`
+    launched by `cargo run` or `cargo test` — every `make` target, every
+    golden — hands that value to the scratch tree's cargo, and the tree's
+    own `rust-toolchain.toml` is silently ignored. `hello-playbook`'s
+    `1.95.0` pin has never been honoured by `make`; an installed `bower` run
+    from a shell honours it. The verdict depended on how `bower` was started.
+    The rule is now:
+    - `run` always removes the inherited `RUSTUP_TOOLCHAIN`.
+    - A step whose tree (scaffolding included) has a root
+      `rust-toolchain.toml` or `rust-toolchain` uses that pin: what a reader
+      who checks the step out gets.
+    - Otherwise a new per-repo `toolchain` key, when set, is exported as
+      `RUSTUP_TOOLCHAIN` beside `CARGO_TARGET_DIR` (`verify.rs:298`).
+    - Verify prints one warning when a repo has output blocks, no
+      `toolchain` key, and an output-bearing step whose tree pins nothing.
+
+    The key never overrides a tree's pin. `hello-playbook` teaches the pin,
+    and a verifier that overrode it would verify a different book. Side
+    effect: its steps from `toolchain` on now really run on `1.95.0`, and a
+    CI runner downloads that toolchain once. `rust4failures` gets
+    `toolchain = "1.98.1"`, matching the workspace pin.
 11. **Error codes are plan data.** `capture::error_codes` has one parser. The
     render caption and EPIC-12 both call it.
+12. **An output-bearing step runs serially.** Two sources of order are not
+    the compiler's words: libtest reports tests as they finish, and cargo
+    prints each unit's warnings — and its `(1 duplicate)` count — as the
+    units finish. A step with at least one output block runs both commands
+    with `CARGO_BUILD_JOBS=1` and `RUST_TEST_THREADS=1`. With one thread
+    libtest runs tests in name order. A step without output blocks is run
+    exactly as before, so a book with no `output=` verifies unchanged.
+    Normalization rule 7 (sort test lines) stays, for outputs recorded
+    elsewhere — EPIC-14's reader diff.
+13. **The thread ID is not the compiler's words.** Since Rust 1.91 a panic
+    prints `thread 'tests::hello_world' (691424) panicked at …`. The number
+    is an OS thread ID and changes every run. Normalization removes the
+    parenthesized number; found by running `kata-compiles` on 1.98.1.
 
 ---
 
@@ -214,7 +291,7 @@ for play cells (spec § 12 Q8).
 | Five errors | `BowerError` `lib.rs:63` | 🔴 new |
 | Normalization, drift, codes, rewrite | `capture.rs` | 🔴 new |
 | Fence scanning | `fence_width` `block.rs:127`, `capture_block` `block.rs:159` | 🟡 exists, private |
-| What a command printed | `Outcome` `verify.rs:44` | 🟡 gains `stdout` |
+| What a command printed | `Outcome` `verify.rs:44` | 🟡 `stderr` becomes `output`, both streams |
 | Claim vs reality | `verdict_for` `verify.rs:232` | ✅ unchanged |
 | Output vs reality | `OutputVerdict` on `StepVerdict` `verify.rs:68` | 🔴 new |
 | The toolchain | `RepoConfig::toolchain` `config.rs:54` | 🔴 new |
@@ -273,7 +350,17 @@ prints exercise detail (`plan.rs:390-399`), so review sees a rewording:
 pub struct Scrub(pub Vec<(String, String)>);   // longest prefix first
 pub fn normalize(raw: &str, scrub: &Scrub) -> Vec<String>;   // pure, idempotent
 
+/// A recorded line that is exactly this stands for zero or more live lines.
+pub const ELISION: &str = "[...]";
+
+/// The first place the recorded fence and the live output disagree.
+/// `line` is 1-based within the fence body. `live` is the live line found
+/// there, or `None` when the output ended, or when an unanchored piece
+/// appears nowhere after the previous one.
 pub struct Drift { pub line: usize, pub recorded: Option<String>, pub live: Option<String> }
+/// `None` when `recorded` holds: equal with no `[...]`, else matched piece by
+/// piece (Decision 5). An empty `recorded` is not judged here; the edge
+/// reports it as not recorded.
 pub fn drift(recorded: &[String], live: &[String]) -> Option<Drift>;
 
 pub fn error_codes(lines: &[String]) -> Vec<String>;   // "E0004", first-seen order, deduped
@@ -290,11 +377,16 @@ The rules run in this order. Each has a texture, and the table is a first cut:
 | 1 | CRLF → LF | a Windows runner must record what a Mac records |
 | 2 | Strip ANSI escapes (hand-written, no `regex`) | `CARGO_TERM_COLOR=always` in someone's shell |
 | 3 | Replace each `Scrub` prefix | the tree path is absolute. rustc spans are already relative, as `--> src/lib.rs:23:9` beside `Compiling … (/Users/…)` shows (`books/rust4failures/src/REJECTED_ch01-hell_in_a_cell.md:127-129`) |
-| 4 | Drop cargo status lines: a right-aligned verb (`Compiling`, `Checking`, `Finished`, `Running`, `Doc-tests`, `Blocking`, `Locking`, `Updating`, `Downloading`, `Downloaded`, `Adding`, `Fresh`) | build chatter that varies with the cache |
-| 5 | Drop `error: could not compile …` and `error: test failed, to rerun pass …` | cargo's words about the failure, not the failure (open question 2) |
+| 4 | Drop cargo status lines: a right-aligned verb (`Compiling`, `Checking`, `Finished`, `Running`, `Doc-tests`, `Blocking`, `Locking`, `Updating`, `Downloading`, `Downloaded`, `Adding`, `Fresh`) | build chatter that varies with the cache; `Running unittests src/lib.rs (…/deps/crate-08506271f5924bd7)` carries a hash |
+| 5 | Remove the thread ID from `thread '<name>' (<digits>) panicked at` | an OS thread ID, new every run (Decision 13) |
 | 6 | Strip `; finished in N.NNs` from `test result:` | the clock |
-| 7 | Sort each contiguous run of `test <name> ... <result>` lines | libtest reports tests as they finish, and with several threads the order is not fixed (open question 5) |
+| 7 | Sort each contiguous run of `test <name> ... <result>` lines | libtest reports tests as they finish; `verify` runs a capture on one thread (Decision 12), so this serves outputs recorded elsewhere |
 | 8 | Trim trailing whitespace and outer blank lines | a snapshot must survive an editor |
+
+Cargo's own summary lines — `error: could not compile …`,
+`error: test failed, to rerun pass …`, `warning: … generated 1 warning` — are
+**kept** (open question 2, settled 11 September 2026). A reader sees them, they
+do not vary between runs, and `[...]` drops them where an author wants less.
 
 `rewrite` reuses `fence_width` and `capture_block`, made `pub(crate)`
 (`block.rs:127`, `block.rs:159`), rather than writing a third fence scanner.
@@ -324,9 +416,13 @@ beside `exercise_expects` (`coverage.rs:83`, `coverage.rs:200`).
 
 ### Verify — `bower`
 
-`Outcome` gains `stdout` (`verify.rs:311-315`), and the `Broken` report still
-prints stderr only. `Verifier::run` keeps the outcomes it already computes
-(`verify.rs:201-206`) and judges each output of an `Upheld` step:
+`Outcome::stderr` becomes `Outcome::output`: both streams through one pipe
+(Decision 2). The `Broken` report prints its last eight lines, as it printed
+stderr's. `run` takes the step's extra environment — the toolchain
+(Decision 10) and, for an output-bearing step, the serial pair (Decision 12)
+— and always removes the inherited `RUSTUP_TOOLCHAIN`. `Verifier::run` keeps
+the outcomes it already computes (`verify.rs:201-206`) and judges each output
+of an `Upheld` step:
 
 ```rust
 pub enum OutputResult { Matches, NotRecorded, Drifted(Drift), Unjudged }
@@ -336,9 +432,14 @@ pub struct OutputVerdict { pub loc: Location, pub capture: Capture, pub live: Ve
 
 The edge builds the `Scrub` from its own paths (`verify.rs:182-183`):
 
-- `tree_dir` → `""`
+- `tree_dir` + `/` → `""`, then `tree_dir` → `.`
 - `target_dir` → `target`
 - `$CARGO_HOME` → `$CARGO_HOME`
+
+Each directory is scrubbed as given and as canonicalized, longest first. On
+macOS the temp directory is `/var/folders/…` and cargo prints
+`/private/var/folders/…`, as the `Checking rust4failures v0.0.1 (/private/…)`
+line on this machine shows.
 
 `run_verify` prints `drft` rows. For each drift it prints the block's
 location, the first differing line, and both sides. It exits non-zero on any
@@ -347,7 +448,9 @@ drift. For `NotRecorded`, the hint is the literal
 
 `--record` joins `Verify` (`main.rs:106-128`) and honours the
 `--repo`/`--step`/`--from` selection. For each chapter holding `Upheld`
-outputs, it folds `capture::rewrite` over the chapter text. It writes only
+outputs that are `NotRecorded` or `Drifted`, it folds `capture::rewrite` over
+the chapter text, bottom-up so earlier line numbers stay valid. A `Matches`
+fence is never rewritten, which is what keeps a `[...]` trim. It writes only
 changed chapters, through `check_path` (`materialize.rs:87`), because
 `loc.chapter` is book-controlled (`loader.rs:87`). Then it re-resolves and
 writes `bower.lock`. `RepoConfig::toolchain` joins the wire struct
@@ -368,8 +471,12 @@ the way `step-meta` is (`render.rs:324-327`):
 The command comes from `LinkTemplates::check` and `verify` with defaults
 applied (`config.rs:104-109`). Codes link through a new
 `links.error_code` template with a `{code}` placeholder; with no template,
-the code prints plain (`render.rs:542-547`). A link has to go in the caption,
-because markdown does not render inside a fence. Epub, PDF, and the
+the code prints plain (`render.rs:542-547`). When `[links]` declares none and
+the repo's `check` command (default applied) starts with `cargo`, the template
+is derived as `https://doc.rust-lang.org/error_codes/{code}.html`, the way
+`fork` is derived from `github` (open question 4, settled 11 September 2026).
+A link has to go in the caption, because markdown does not render inside a
+fence. Epub, PDF, and the
 preprocessor get the caption through the one `chapter` function
 (`publish.rs:520`, `mdbook_bower.rs:98`).
 
@@ -379,11 +486,13 @@ preprocessor get the caption through the one `chapter` function
 
 ### Phase 0 — Edge prerequisites
 
-- [ ] **0a.** `Outcome::stdout`, filled by `run`. `run__captures_stdout` uses
-  `echo`, not cargo.
-- [ ] **0b.** `RepoConfig::toolchain` (`config.rs:54`, `config.rs:292`) →
-  `RUSTUP_TOOLCHAIN` (`verify.rs:298`). `config__toolchain_is_optional`,
-  `run__exports_the_toolchain_when_set`.
+- [ ] **0a.** `Outcome::output`, both streams through one `std::io::pipe`.
+  `run__captures_both_streams_in_order` uses `sh -c`, not cargo.
+- [ ] **0b.** `RepoConfig::toolchain` (`config.rs:54`, `config.rs:292`).
+  `run` removes the inherited `RUSTUP_TOOLCHAIN` and sets the step's own
+  (Decision 10). `config__toolchain_is_optional`,
+  `toolchain__a_tree_pin_wins`, `toolchain__the_key_fills_a_tree_without_one`,
+  `run__never_passes_the_inherited_toolchain_on`.
 - [ ] **0c.** `block.rs` fence helpers to `pub(crate)`; `make test` green at
   the same count.
 
@@ -402,13 +511,14 @@ preprocessor get the caption through the one `chapter` function
 - [ ] **2a.** Textures first, then `normalize`, one rule per failing test, in
   table order.
 - [ ] **2b.** `drift`, `error_codes`.
-- [ ] **2c.** `rewrite`, widened-fence case included. Settle open question 1
-  first.
+- [ ] **2c.** `rewrite`, widened-fence case included; `drift` over `[...]`
+  pieces (Decision 5).
 - [ ] **2d.** The four properties; `make purity` green.
 
 ### Phase 3 — Verify
 
-- [ ] **3a.** `OutputVerdict`, the `Scrub`, judging only `Upheld` steps.
+- [ ] **3a.** `OutputVerdict`, the `Scrub`, judging only `Upheld` steps; the
+  serial pair on output-bearing steps (Decision 12).
 - [ ] **3b.** Report rows, drift message, exit code, `NotRecorded` hint.
 - [ ] **3c.** `--record`: write through `check_path`, re-resolve, write the
   lock; a second run writes nothing.
@@ -428,8 +538,10 @@ preprocessor get the caption through the one `chapter` function
   (`ch04-tests-and-failing-on-purpose.md:124`, E0308) and `output="verify"`
   under `test-that-fails` (`…:70`), recorded. The fast golden
   (`bower/tests/verification.rs:62`) asserts `Matches`.
-- [ ] **5b.** `rust4failures`: output blocks replace the fences at
-  `ch01-local_development.md:262-268` and `ch03-rank.md:100-103`.
+- [ ] **5b.** `rust4failures`: `toolchain = "1.98.1"` in `bower.toml`, and
+  output blocks replace the fences at `ch01-local_development.md:262-268` and
+  `ch03-rank.md:100-103`, each trimmed with `[...]` to what the hand-paste
+  quoted.
   `ch03-rank.md` is commented out of `SUMMARY.md`
   (`books/rust4failures/src/SUMMARY.md:11`), so its block is planned only once
   the chapter is listed.
@@ -462,12 +574,18 @@ preprocessor get the caption through the one `chapter` function
   - `lock_text__records_outputs_line_by_line`
 - **Normalization,** one test per rule:
   - `normalize__folds_crlf`, `__strips_ansi`, `__scrubs_the_tree_prefix`
-  - `__drops_cargo_status_lines`, `__drops_cargo_summary_lines`
+  - `__drops_cargo_status_lines`, `__keeps_cargo_summary_lines`
+  - `__removes_the_panicking_thread_id`
   - `__strips_test_timings`, `__sorts_parallel_test_lines`
   - `__keeps_a_warning_only_step`, `__keeps_the_spans_and_notes`
 - **Capture helpers:**
   - `drift__names_the_first_differing_line`,
-    `drift__a_shorter_live_output_is_drift`
+    `drift__a_shorter_live_output_is_drift`,
+    `drift__a_longer_live_output_is_drift`
+  - `drift__elision_matches_a_middle_piece`,
+    `drift__elision_at_neither_end_anchors_both`,
+    `drift__elided_pieces_must_keep_their_order`,
+    `drift__an_elided_piece_that_is_gone_names_its_first_line`
   - `error_codes__in_order_once_each`
   - `rewrite__replaces_only_the_fence_body`,
     `rewrite__widens_the_fence_when_output_holds_backticks`,
@@ -482,7 +600,9 @@ preprocessor get the caption through the one `chapter` function
   - `output__an_empty_fence_is_not_recorded_and_fails`
   - `output__a_broken_step_is_unjudged_and_never_recorded`
   - `record__rewrites_the_chapter_and_the_lock`,
-    `record__is_a_no_op_when_nothing_changed`
+    `record__is_a_no_op_when_nothing_changed`,
+    `record__keeps_a_trim_that_still_matches`,
+    `record__replaces_a_drifted_trim_with_the_full_output`
   - `record__refuses_a_chapter_path_that_climbs_out`
 - **Goldens:**
   - `upholds_the_two_deliberate_failures`, extended to assert both outputs
@@ -507,7 +627,7 @@ preprocessor get the caption through the one `chapter` function
 | `bower-core/src/capture.rs` | new: `normalize`, `drift`, `error_codes`, `rewrite` |
 | `bower-core/src/lib.rs` | five variants, `location()` arms, prelude |
 | `bower-testkit/src/{textures,fixtures,coverage}.rs`, `tests/properties.rs` | textures, fixtures, the axis, properties |
-| `bower/src/verify.rs`, `main.rs` | `stdout`, `OutputVerdict`, `Scrub`, `--record`, lock rewrite |
+| `bower/src/verify.rs`, `main.rs` | `output`, toolchain, `OutputVerdict`, `Scrub`, `--record`, lock rewrite |
 | `bower/src/config.rs`, `render.rs` | `toolchain`, `links.error_code`, the caption |
 | `books/*/src/*.md` | the recorded outputs |
 
@@ -531,6 +651,10 @@ preprocessor get the caption through the one `chapter` function
 - **Adds** one key, five `BowerError` variants (`#[non_exhaustive]`,
   `lib.rs:62`), one kernel module, one flag, two config keys, and one CSS
   class.
+- **Changes** which compiler verifies a step whose tree pins one: the pin,
+  now, not whatever launched `bower` (Decision 10). `hello-playbook` from
+  step `toolchain` on moves from 1.98.1 to its own 1.95.0. The `Broken`
+  report's tail comes from both streams (Decision 2).
 - **Breaks** nothing in purity. `make purity` stays green, and the ANSI
   scanner and code extractor are hand-written.
 
@@ -583,20 +707,26 @@ Exit criteria:
 
 ---
 
-## Open questions — decisions, not code
+## Open questions — settled 11 September 2026
 
-| # | Question |
-|---|---|
-| 1 | **Match granularity (ideas Part F Q3).** Full rendering, exact, is the default (Decision 5), yet both hand-pastes quote only the headline (`ch03-rank.md:102`, `ch01-local_development.md:264-267`). The options: the idea's `match="code"` (a second key, against the one-key rule); `output="check:code"` (one key with two meanings); or a **prefix rule**, where the recorded lines must be a prefix of the live output and `--record` preserves an author's trim. The prefix rule adds no key and keeps a trim honest. Lean: prefix. Decide before 2c. |
-| 2 | **Which cargo lines are chatter?** Rule 5 drops `error: could not compile`, which is what a reader sees. Drop it, keep it, or keep only the last one? |
-| 3 | **Toolchain source of truth.** `RUSTUP_TOOLCHAIN` overrides a tree's own `rust-toolchain.toml`. That is surprising in `hello-playbook`, which teaches the pin (`ch03-lints-and-format.md:19`). Should the key apply only to steps before the tree pins itself, or should verify refuse when the two disagree? |
-| 4 | **Default error-code link.** Derive `links.error_code` when `check` starts with `cargo`, as `checkout` and `clone` are derived from `github` (`config.rs:92-103`)? Or keep it declared-only? |
-| 5 | **Test order.** Rule 7 sorts `test … ok` runs. Alternatively, require `-- --test-threads=1` on repos with `output="verify"`: honest, but slower. |
-| 6 | **`--record` on a dirty chapter.** Verify never touches git (`verify.rs:7-9`). Should `--record` refuse on a dirty chapter (a read-only `git status`), or trust `git diff`? |
-| 7 | **Non-Rust books (C1).** The chatter table is cargo-shaped. A per-repo `normalize` preset (`cargo` \| `none`) keeps the kernel language-agnostic. Not before a second language exists. |
+| # | Question | Settled |
+|---|---|---|
+| 1 | **Match granularity (ideas Part F Q3).** Full rendering, exact, is the default, yet both hand-pastes quote only part of it (`ch03-rank.md:102`, `ch01-local_development.md:264-267`). The options were `match="code"` (a second key), `output="check:code"` (one key, two meanings), or a prefix rule. | **`[...]` elision lines** (Decision 5). No key. A fence without one is exact; a trim survives `--record` while it holds. The prefix rule could not quote the middle of an output. |
+| 2 | **Which cargo lines are chatter?** | **Keep** cargo's summary lines; drop only status lines (rule 4). A reader sees them and they do not vary. `[...]` trims them. |
+| 3 | **Toolchain source of truth.** | **The tree's own pin wins; the key fills a tree that has none**, and the inherited `RUSTUP_TOOLCHAIN` is always removed (Decision 10). Grounding found that inherited value overriding every pin under `make`. |
+| 4 | **Default error-code link.** | **Derived** as `https://doc.rust-lang.org/error_codes/{code}.html` when `check` starts with `cargo`; a declared `links.error_code` wins. |
+| 5 | **Test order.** | **Both.** An output-bearing step runs on one build job and one test thread (Decision 12), which also fixes cargo's warning order. Rule 7 stays for outputs recorded elsewhere. The author writes no flag. |
+| 6 | **`--record` on a dirty chapter.** | **Trust `git diff`.** Verify never touches git (`verify.rs:7-9`), and `--record` rewrites only fence bodies. |
+| 7 | **Non-Rust books (C1).** | **Deferred** until a second language exists. |
 
 ---
 
 *Drafted 10 September 2026 against `ImperialBower/bower` @ `4ad21bf` ("docs:
 file the forge design and add it to the backlog"). No spike; the design
 reuses the EPIC-02 verifier and the play-cell binding rule unchanged.*
+
+*Open questions settled 11 September 2026 @ `9af39d4`, after running
+`cargo check` and `cargo test` by hand on `rust4failures` steps `kata` and
+`kata-compiles` with rustc 1.98.1. Three findings changed the design: the
+panic thread ID (Decision 13), the inherited `RUSTUP_TOOLCHAIN` (Decision 10),
+and the stream order (Decision 2).*
