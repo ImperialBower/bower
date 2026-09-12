@@ -5,7 +5,8 @@
 use std::collections::BTreeMap;
 
 use crate::block::Block;
-use crate::directive::{Expect, Op};
+use crate::capture;
+use crate::directive::{Capture, Expect, Op};
 use crate::display::{self, BlockDisplay};
 use crate::source::{BookSource, Location, RepoCatalog, RepoName};
 use crate::step::{self, Step, StepId};
@@ -53,6 +54,9 @@ pub struct PlannedStep {
     pub play_cells: Vec<PlayCell>,
     /// The "your turn" point on this step, if the book declares one.
     pub exercise: Option<Exercise>,
+    /// What the compiler said at this step, as the book records it: every
+    /// `output="…"` block bound here, in document order (EPIC-11).
+    pub outputs: Vec<CapturedOutput>,
 }
 
 /// One `notebook="play"` cell: live code the ipynb target renders as an
@@ -62,6 +66,20 @@ pub struct PlayCell {
     pub loc: Location,
     /// The fence info string (`python`, typically).
     pub info: String,
+    pub lines: Vec<String>,
+}
+
+/// One `output="…"` block, bound to a step. Never part of any tree, so
+/// recording one moves no SHA (EPIC-11 Decision 9).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CapturedOutput {
+    /// The directive: where errors point and where `--record` writes.
+    pub loc: Location,
+    pub capture: Capture,
+    /// The author's fence info string, kept on rewrite.
+    pub info: String,
+    /// The fence body, tidied (`capture::tidy`). Empty means "not recorded
+    /// yet".
     pub lines: Vec<String>,
 }
 
@@ -127,6 +145,8 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
     errors.extend(extract_errors);
 
     let (play_blocks, rest): (Vec<_>, Vec<_>) = blocks.into_iter().partition(|b| b.play);
+    let (output_blocks, rest): (Vec<_>, Vec<_>) =
+        rest.into_iter().partition(|b| b.output.is_some());
     let (exercise_blocks, code_blocks): (Vec<_>, Vec<_>) =
         rest.into_iter().partition(|b| b.exercise_block);
 
@@ -175,6 +195,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
                 displays,
                 play_cells: Vec::new(),
                 exercise: None,
+                outputs: Vec::new(),
             });
         }
 
@@ -188,6 +209,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
             &mut planned,
             &mut errors,
         );
+        bind_outputs(&output_blocks, name, &index, &mut planned, &mut errors);
 
         repos.push(RepoPlan {
             repo: name.clone(),
@@ -362,6 +384,61 @@ fn bind_exercises(
     }
 }
 
+/// Attach every output block of `repo` to its step, with the play-cell rule:
+/// an explicit `step=`, else the nearest preceding code block. Blocks arrive in
+/// document order, so a duplicate is reported at the second one. A capture the
+/// verifier would never run at that step is refused here, at plan time: a
+/// fence nothing could fill is a typo.
+fn bind_outputs(
+    output_blocks: &[Block],
+    repo: &RepoName,
+    index: &StepIndex,
+    planned: &mut [PlannedStep],
+    errors: &mut Errors,
+) {
+    for b in output_blocks.iter().filter(|b| &b.repo == repo) {
+        let Some(capture) = b.output else { continue };
+        let idx = match index.locate(b.step.as_deref(), b.seq_in_book) {
+            Ok(idx) => idx,
+            Err(Unbindable::UnknownStep(step)) => {
+                errors.push(BowerError::OutputUnknownStep {
+                    loc: b.loc.clone(),
+                    step,
+                });
+                continue;
+            }
+            Err(Unbindable::NoPrecedingStep) => {
+                errors.push(BowerError::OutputUnbound { loc: b.loc.clone() });
+                continue;
+            }
+        };
+        let step = &mut planned[idx];
+        if !capture.runs_under(step.expect) {
+            errors.push(BowerError::OutputNeverRuns {
+                loc: b.loc.clone(),
+                step: step.id.0.clone(),
+                capture,
+                expect: step.expect,
+            });
+            continue;
+        }
+        if step.outputs.iter().any(|o| o.capture == capture) {
+            errors.push(BowerError::OutputDuplicate {
+                loc: b.loc.clone(),
+                step: step.id.0.clone(),
+                capture,
+            });
+            continue;
+        }
+        step.outputs.push(CapturedOutput {
+            loc: b.loc.clone(),
+            capture,
+            info: b.content.info.clone(),
+            lines: capture::tidy(&b.content.lines),
+        });
+    }
+}
+
 /// Render the plan as `bower.lock` text: the human-readable manifest that
 /// makes reordering visible in diffs and code review. Pure string out —
 /// the caller writes the file.
@@ -395,6 +472,14 @@ pub fn lock_text(plan: &BookPlan) -> String {
                 );
                 for line in &x.detail {
                     let _ = writeln!(out, "    | {line}");
+                }
+            }
+            // Every recorded line, so a rewording shows up in review as a
+            // diff of the lock as well as of the chapter.
+            for o in &s.outputs {
+                let _ = writeln!(out, "    output {} at={}", o.capture, o.loc);
+                for line in &o.lines {
+                    let _ = writeln!(out, "    > {line}");
                 }
             }
         }
@@ -642,6 +727,166 @@ mod plan_tests {
         );
         assert!(
             lock.contains("    | Parse it instead.\n    | \n    | - `str::parse` is one way.\n"),
+            "{lock}"
+        );
+    }
+
+    fn one(text: &str) -> BookSource {
+        BookSource::from_chapters(vec![Chapter::new("ch.md", text)])
+    }
+
+    fn output_chapter() -> Chapter {
+        Chapter::new(
+            "ch03-outputs.md",
+            concat!(
+                "# Outputs\n\n", // 1-2
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" step=\"broken\" expect=\"compile_fail\" -->\n", // 3
+                "```rust\nfn x() -> u32 { \"42\" }\n```\n\n", // 4-7
+                "<!-- bower repo=\"failers\" output=\"check\" -->\n", // 8
+                "```text\nerror[E0308]: mismatched types   \n[...]\n\n```\n\n", // 9-14
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"replace\" step=\"fixed\" -->\n", // 15
+                "```rust\nfn x() -> u32 { 42 }\n```\n\n", // 16-19
+                "<!-- bower repo=\"failers\" output=\"check\" step=\"fixed\" -->\n", // 20
+                "```text\n```\n",                         // 21-22
+            ),
+        )
+    }
+
+    fn output_plan() -> BookPlan {
+        plan(
+            &BookSource::from_chapters(vec![output_chapter()]),
+            &catalog(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn plan__output_binds_to_the_nearest_preceding_step() {
+        let p = output_plan();
+        let o = &p.repo("failers").unwrap().steps[0].outputs[0];
+        assert_eq!(o.capture, Capture::Check);
+        assert_eq!(o.loc, Location::new("ch03-outputs.md", 8));
+        assert_eq!(o.info, "text");
+        // Tidied: the trailing spaces and the trailing blank line are gone.
+        assert_eq!(
+            o.lines,
+            vec![
+                "error[E0308]: mismatched types".to_string(),
+                "[...]".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn plan__output_binds_explicitly_by_step() {
+        let p = output_plan();
+        let fixed = &p.repo("failers").unwrap().steps[1];
+        assert_eq!(fixed.outputs.len(), 1);
+        assert_eq!(fixed.outputs[0].loc.line, 20);
+        assert!(
+            fixed.outputs[0].lines.is_empty(),
+            "an empty fence is not recorded yet"
+        );
+    }
+
+    #[test]
+    fn plan__output_never_touches_a_tree() {
+        let p = output_plan();
+        let steps = &p.repo("failers").unwrap().steps;
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].files, vec!["src/lib.rs".to_string()]);
+        assert_eq!(
+            steps[0].tree.text("src/lib.rs").unwrap(),
+            "fn x() -> u32 { \"42\" }\n"
+        );
+    }
+
+    #[test]
+    fn plan__verify_output_on_compile_fail_never_runs() {
+        let book = one(concat!(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" expect=\"compile_fail\" -->\n```rust\nx\n```\n",
+            "<!-- bower repo=\"failers\" output=\"verify\" -->\n```text\n```\n",
+        ));
+        let errs = plan(&book, &catalog()).unwrap_err();
+        assert!(
+            matches!(
+                &errs.0[0],
+                BowerError::OutputNeverRuns { loc, capture: Capture::Verify, expect: Expect::CompileFail, .. }
+                    if loc.line == 5
+            ),
+            "{errs}"
+        );
+    }
+
+    #[test]
+    fn plan__output_on_a_none_step_never_runs() {
+        let book = one(concat!(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+            "<!-- bower repo=\"failers\" op=\"none\" step=\"talk\" expect=\"none\" msg=\"m\" -->\n",
+            "<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n",
+        ));
+        let errs = plan(&book, &catalog()).unwrap_err();
+        assert!(
+            matches!(
+                &errs.0[0],
+                BowerError::OutputNeverRuns { step, capture: Capture::Check, expect: Expect::Skip, .. }
+                    if step == "talk"
+            ),
+            "{errs}"
+        );
+    }
+
+    #[test]
+    fn plan__duplicate_capture_is_reported_at_the_second() {
+        let book = one(concat!(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+            "<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n",
+            "<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n",
+        ));
+        let errs = plan(&book, &catalog()).unwrap_err();
+        assert_eq!(errs.len(), 1, "{errs}");
+        assert!(
+            matches!(&errs.0[0], BowerError::OutputDuplicate { loc, capture: Capture::Check, .. } if loc.line == 8),
+            "{errs}"
+        );
+    }
+
+    #[test]
+    fn plan__output_binding_errors_mirror_play_cells() {
+        let unbound = one(concat!(
+            "<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ));
+        let errs = plan(&unbound, &catalog()).unwrap_err();
+        assert!(
+            matches!(errs.0[0], BowerError::OutputUnbound { .. }),
+            "{errs}"
+        );
+
+        let ghost = one(concat!(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+            "<!-- bower repo=\"failers\" output=\"check\" step=\"ghost\" -->\n```text\n```\n",
+        ));
+        let errs = plan(&ghost, &catalog()).unwrap_err();
+        assert!(
+            matches!(&errs.0[0], BowerError::OutputUnknownStep { step, .. } if step == "ghost"),
+            "{errs}"
+        );
+    }
+
+    #[test]
+    fn lock_text__records_outputs_line_by_line() {
+        let lock = lock_text(&output_plan());
+        assert!(
+            lock.contains(concat!(
+                "    output check at=ch03-outputs.md:8\n",
+                "    > error[E0308]: mismatched types\n",
+                "    > [...]\n",
+            )),
+            "{lock}"
+        );
+        assert!(
+            lock.contains("    output check at=ch03-outputs.md:20\n"),
             "{lock}"
         );
     }

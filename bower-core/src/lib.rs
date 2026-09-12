@@ -29,6 +29,7 @@
 )]
 
 pub mod block;
+pub mod capture;
 pub mod directive;
 pub mod display;
 pub mod plan;
@@ -45,7 +46,8 @@ pub mod prelude {
     pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
     pub use crate::plan::{
-        BookPlan, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan, lock_text, plan,
+        BookPlan, CapturedOutput, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan,
+        lock_text, plan,
     };
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
