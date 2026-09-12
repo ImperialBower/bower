@@ -309,6 +309,7 @@ mod step_tests {
             play: false,
             exercise: None,
             exercise_block: false,
+            output: None,
         }
     }
 
