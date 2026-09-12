@@ -169,6 +169,7 @@ impl Verifier<'_> {
         let verify_cmd = cfg
             .and_then(|c| c.verify.as_deref())
             .unwrap_or(DEFAULT_VERIFY);
+        let toolchain = cfg.and_then(|c| c.toolchain.as_deref());
 
         // The scaffolding a step's tree is incomplete without. A book whose
         // template is broken should fail verification, not be excused from it.
@@ -201,9 +202,12 @@ impl Verifier<'_> {
                     source,
                 })?;
 
-                let check = run(check_cmd, &tree_dir, &target_dir)?;
+                // `false` until output blocks exist (Task 10 passes
+                // `!step.outputs.is_empty()`).
+                let env = step_env(&blobs, toolchain, false);
+                let check = run(check_cmd, &tree_dir, &target_dir, &env)?;
                 let verify = if check.success && step.expect != Expect::CompileFail {
-                    Some(run(verify_cmd, &tree_dir, &target_dir)?)
+                    Some(run(verify_cmd, &tree_dir, &target_dir, &env)?)
                 } else {
                     None
                 };
@@ -285,11 +289,53 @@ pub fn nested_workspace(stderr: &str) -> bool {
     stderr.contains("believes it's in a workspace")
 }
 
+/// Does this tree carry its own rustup pin at the root?
+#[must_use]
+pub fn pins_toolchain(blobs: &Blobs) -> bool {
+    blobs.contains_key("rust-toolchain.toml") || blobs.contains_key("rust-toolchain")
+}
+
+/// The environment a step's commands run with, beyond `CARGO_TARGET_DIR`.
+///
+/// The toolchain first (EPIC-11 Decision 10): a tree that pins one keeps its
+/// pin, and only a tree that pins nothing gets the repo's `toolchain` key.
+/// [`run`] removes the inherited `RUSTUP_TOOLCHAIN` either way, so whatever
+/// launched `bower` never decides.
+///
+/// Then, for a step whose output the book records, the serial trio
+/// (Decision 12): one build job and one test thread, so the order of what is
+/// printed does not depend on scheduling, and no backtrace, so an author's
+/// `RUST_BACKTRACE=1` does not end up in the book.
+#[must_use]
+pub fn step_env(
+    blobs: &Blobs,
+    toolchain: Option<&str>,
+    records_output: bool,
+) -> Vec<(&'static str, String)> {
+    let mut env = Vec::new();
+    if let Some(t) = toolchain
+        && !pins_toolchain(blobs)
+    {
+        env.push(("RUSTUP_TOOLCHAIN", t.to_string()));
+    }
+    if records_output {
+        env.push(("CARGO_BUILD_JOBS", "1".to_string()));
+        env.push(("RUST_TEST_THREADS", "1".to_string()));
+        env.push(("RUST_BACKTRACE", "0".to_string()));
+    }
+    env
+}
+
 /// Run one command in `dir`, with a shared cargo target directory.
 ///
 /// The command is split on whitespace, not handed to a shell. A book needing a
 /// pipeline should put it in a script, the way `bin/security-scan` already does.
-fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyError> {
+fn run(
+    command: &str,
+    dir: &Path,
+    target_dir: &Path,
+    env: &[(&str, String)],
+) -> Result<Outcome, VerifyError> {
     let mut parts = command.split_whitespace();
     let Some(program) = parts.next() else {
         return Err(VerifyError::EmptyCommand);
@@ -306,6 +352,11 @@ fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyEr
     cmd.args(parts)
         .current_dir(dir)
         .env("CARGO_TARGET_DIR", target_dir)
+        // rustup's cargo proxy exports its own pin to every child, so a
+        // `bower` started by `cargo run` would hand the workspace's toolchain
+        // to the tree and override the tree's `rust-toolchain.toml`.
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
         .stdin(Stdio::null())
         .stdout(writer.try_clone().map_err(io)?)
         .stderr(writer);
@@ -426,8 +477,8 @@ mod verify_tests {
     fn run__reports_success_and_failure() {
         let dir = std::env::temp_dir();
         let target = dir.join("bower-verify-target");
-        assert!(run("true", &dir, &target).unwrap().success);
-        assert!(!run("false", &dir, &target).unwrap().success);
+        assert!(run("true", &dir, &target, &[]).unwrap().success);
+        assert!(!run("false", &dir, &target, &[]).unwrap().success);
     }
 
     #[test]
@@ -484,7 +535,7 @@ mod verify_tests {
     fn run__empty_command_is_an_error() {
         let dir = std::env::temp_dir();
         assert!(matches!(
-            run("   ", &dir, &dir),
+            run("   ", &dir, &dir, &[]),
             Err(VerifyError::EmptyCommand)
         ));
     }
@@ -505,8 +556,64 @@ mod verify_tests {
         // were written. Stderr-then-stdout would print cargo's closing
         // `error: test failed` above libtest's `running 1 test`.
         let dir = script("order", "echo one\necho two >&2\necho three\n");
-        let out = run("sh s.sh", &dir, &dir.join("target")).unwrap();
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
         assert_eq!(out.output, "one\ntwo\nthree\n");
         assert!(out.success);
+    }
+
+    fn blobs(paths: &[&str]) -> Blobs {
+        paths
+            .iter()
+            .map(|p| ((*p).to_string(), (Vec::new(), false)))
+            .collect()
+    }
+
+    #[test]
+    fn toolchain__a_tree_pin_wins() {
+        // hello-playbook teaches the pin. Overriding it would verify a
+        // different book than the one a reader checks out.
+        for pin in ["rust-toolchain.toml", "rust-toolchain"] {
+            let env = step_env(&blobs(&["Cargo.toml", pin]), Some("1.98.1"), false);
+            assert!(
+                !env.iter().any(|(k, _)| *k == "RUSTUP_TOOLCHAIN"),
+                "{pin}: {env:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn toolchain__the_key_fills_a_tree_without_one() {
+        let env = step_env(&blobs(&["Cargo.toml"]), Some("1.98.1"), false);
+        assert!(
+            env.contains(&("RUSTUP_TOOLCHAIN", "1.98.1".to_string())),
+            "{env:?}"
+        );
+        assert!(step_env(&blobs(&["Cargo.toml"]), None, false).is_empty());
+    }
+
+    #[test]
+    fn step_env__a_recorded_output_runs_serially() {
+        let env = step_env(&blobs(&["Cargo.toml"]), None, true);
+        for (key, value) in [
+            ("CARGO_BUILD_JOBS", "1"),
+            ("RUST_TEST_THREADS", "1"),
+            ("RUST_BACKTRACE", "0"),
+        ] {
+            assert!(env.contains(&(key, value.to_string())), "{env:?}");
+        }
+    }
+
+    #[test]
+    fn run__never_passes_the_inherited_toolchain_on() {
+        // Under `cargo test`, rustup's proxy has already exported
+        // RUSTUP_TOOLCHAIN into this process. The child must not see it: that
+        // value is how `bower` was started, not what the book pins.
+        let dir = script("toolchain", "echo \"${RUSTUP_TOOLCHAIN:-unset}\"\n");
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
+        assert_eq!(out.output, "unset\n");
+
+        let set = [("RUSTUP_TOOLCHAIN", "1.98.1".to_string())];
+        let out = run("sh s.sh", &dir, &dir.join("target"), &set).unwrap();
+        assert_eq!(out.output, "1.98.1\n");
     }
 }

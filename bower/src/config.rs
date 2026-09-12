@@ -73,6 +73,10 @@ pub struct RepoConfig {
     pub check: Option<String>,
     /// Command that must *test* a step's tree.
     pub verify: Option<String>,
+    /// The rustup toolchain a step's commands run on when the step's tree
+    /// pins none. A tree's own `rust-toolchain.toml` always wins: it is what a
+    /// reader who checks the step out gets (EPIC-11 Decision 10).
+    pub toolchain: Option<String>,
     /// The one setting the kernel cares about.
     pub keep_region_markers: bool,
     pub links: LinkTemplates,
@@ -223,6 +227,7 @@ impl BookConfig {
                             template: r.template,
                             check: r.check,
                             verify: r.verify,
+                            toolchain: r.toolchain,
                             keep_region_markers: r.keep_region_markers,
                             links: LinkTemplates {
                                 blob: r.links.blob,
@@ -296,6 +301,7 @@ struct WireRepo {
     template: Option<PathBuf>,
     check: Option<String>,
     verify: Option<String>,
+    toolchain: Option<String>,
     #[serde(default)]
     keep_region_markers: bool,
     #[serde(default)]
@@ -472,6 +478,19 @@ mod config_tests {
             RepoSpec {
                 keep_region_markers: false
             }
+        );
+    }
+
+    #[test]
+    fn config__toolchain_is_optional() {
+        let bare = BookConfig::parse(&format!("{MINIMAL}[repos.r]\n")).unwrap();
+        assert_eq!(bare.repos.get("r").unwrap().toolchain, None);
+
+        let text = format!("{MINIMAL}[repos.r]\ntoolchain = \"1.98.1\"\n");
+        let pinned = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            pinned.repos.get("r").unwrap().toolchain.as_deref(),
+            Some("1.98.1")
         );
     }
 }
