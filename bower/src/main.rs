@@ -27,7 +27,7 @@ use bower::publish::{
 use bower::push::{PushPlan, SitePush, plan_push};
 use bower::replay::{Replayer, book_name, final_blobs, scaffolding};
 use bower::status::{StatusReport, lock_drift, repo_drift, site_drift};
-use bower::verify::{Verdict, Verifier};
+use bower::verify::{OutputResult, Verdict, Verifier, VerifyReport};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -289,7 +289,6 @@ fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path)
     ExitCode::SUCCESS
 }
 
-#[allow(clippy::too_many_lines)]
 fn run_verify(
     book_root: &Path,
     cfg: &BookConfig,
@@ -320,6 +319,7 @@ fn run_verify(
 
     let named_step = step.or(from);
     let mut broken_total = 0_usize;
+    let mut reports = Vec::new();
     let mut ran_any = false;
 
     for repo in selected {
@@ -346,36 +346,10 @@ fn run_verify(
             }
         };
 
-        println!("{} — {} step(s)", report.repo, report.verdicts.len());
-        for v in &report.verdicts {
-            let mark = match &v.verdict {
-                Verdict::Upheld => "ok  ",
-                Verdict::Skipped => "skip",
-                Verdict::Broken { .. } => "FAIL",
-            };
-            println!("  {mark} {:03} {:<28} expect={}", v.seq, v.id.0, v.expect);
-        }
-
-        for v in report.broken() {
-            broken_total += 1;
-            let Verdict::Broken {
-                happened,
-                command,
-                output,
-            } = &v.verdict
-            else {
-                continue;
-            };
-            eprintln!(
-                "\n{}: step `{}` claims `{}`, but {happened}.",
-                v.anchor, v.id.0, v.expect
-            );
-            eprintln!("    (`{command}` in the step's tree)");
-            let tail: Vec<&str> = output.lines().rev().take(8).collect();
-            for line in tail.iter().rev() {
-                eprintln!("    {line}");
-            }
-        }
+        print_rows(&report);
+        broken_total += print_broken(&report);
+        warn_unpinned(&report);
+        reports.push(report);
     }
 
     // Skipping repos that lack the step must not turn a typo into a silent
@@ -385,13 +359,123 @@ fn run_verify(
         return ExitCode::FAILURE;
     }
 
-    if broken_total == 0 {
+    let (drifted, unrecorded) = print_output_problems(&reports);
+    if broken_total + drifted + unrecorded == 0 {
         println!("\nevery claim holds");
-        ExitCode::SUCCESS
-    } else {
-        eprintln!("\n{broken_total} claim(s) in the book are not true");
-        ExitCode::FAILURE
+        return ExitCode::SUCCESS;
     }
+    if broken_total > 0 {
+        eprintln!("\n{broken_total} claim(s) in the book are not true");
+    }
+    if drifted > 0 {
+        eprintln!("{drifted} recorded output(s) no longer match what the compiler says");
+    }
+    if unrecorded > 0 {
+        eprintln!("{unrecorded} output(s) are not recorded yet");
+    }
+    ExitCode::FAILURE
+}
+
+/// One row per step, and under it one row per output block.
+fn print_rows(report: &VerifyReport) {
+    println!("{} — {} step(s)", report.repo, report.verdicts.len());
+    for v in &report.verdicts {
+        let mark = match &v.verdict {
+            Verdict::Upheld => "ok  ",
+            Verdict::Skipped => "skip",
+            Verdict::Broken { .. } => "FAIL",
+        };
+        println!("  {mark} {:03} {:<28} expect={}", v.seq, v.id.0, v.expect);
+        for o in &v.outputs {
+            let mark = match &o.result {
+                OutputResult::Matches => "ok  ",
+                OutputResult::Drifted(_) => "drft",
+                OutputResult::NotRecorded => "todo",
+                OutputResult::Unjudged => "skip",
+            };
+            println!("       {mark} output={:<6} {}", o.capture, o.loc);
+        }
+    }
+}
+
+/// The report for every step whose claim did not hold; returns how many.
+fn print_broken(report: &VerifyReport) -> usize {
+    let mut count = 0;
+    for v in report.broken() {
+        count += 1;
+        let Verdict::Broken {
+            happened,
+            command,
+            output,
+        } = &v.verdict
+        else {
+            continue;
+        };
+        eprintln!(
+            "\n{}: step `{}` claims `{}`, but {happened}.",
+            v.anchor, v.id.0, v.expect
+        );
+        eprintln!("    (`{command}` in the step's tree)");
+        let tail: Vec<&str> = output.lines().rev().take(8).collect();
+        for line in tail.iter().rev() {
+            eprintln!("    {line}");
+        }
+    }
+    count
+}
+
+/// Recorded output that depends on this machine's default compiler is a
+/// snapshot nobody else can reproduce (EPIC-11 Decision 10).
+fn warn_unpinned(report: &VerifyReport) {
+    if let Some(id) = &report.unpinned_step {
+        eprintln!(
+            "\nwarning: step `{id}` of `{repo}` records compiler output, but its tree pins no \
+             toolchain and bower.toml sets no `toolchain` for it, so what it records depends \
+             on this machine's default compiler. Pin one under [repos.{repo}].",
+            repo = report.repo
+        );
+    }
+}
+
+/// The report for every output that is not what the book holds. Returns
+/// (drifted, not recorded).
+fn print_output_problems(reports: &[VerifyReport]) -> (usize, usize) {
+    let (mut drifted, mut unrecorded) = (0, 0);
+    for (v, o) in reports.iter().flat_map(VerifyReport::outputs) {
+        let record = format!("bower verify --record --step {}", v.id);
+        match &o.result {
+            OutputResult::Drifted(d) => {
+                drifted += 1;
+                eprintln!(
+                    "\n{}: the `{}` output of step `{}` has drifted, at line {} of the recording.",
+                    o.loc, o.capture, v.id, d.line
+                );
+                eprintln!(
+                    "    recorded: {}",
+                    d.recorded
+                        .as_deref()
+                        .unwrap_or("(nothing: the recording ends here)")
+                );
+                eprintln!(
+                    "    live:     {}",
+                    d.live
+                        .as_deref()
+                        .unwrap_or("(nothing: not in the live output)")
+                );
+                eprintln!("    if the compiler is right, run: {record}");
+            }
+            OutputResult::NotRecorded => {
+                unrecorded += 1;
+                eprintln!(
+                    "\n{}: the `{}` output of step `{}` is not recorded yet.",
+                    o.loc, o.capture, v.id
+                );
+                eprintln!("    run: {record}");
+            }
+            OutputResult::Matches | OutputResult::Unjudged => {}
+        }
+    }
+    (drifted, unrecorded)
 }
 
 fn run_status(

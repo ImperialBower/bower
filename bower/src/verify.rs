@@ -13,7 +13,10 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use bower_core::prelude::{Expect, Location, RepoPlan, StepId};
+use bower_core::prelude::{
+    Capture, CapturedOutput, Drift, Expect, Location, PlannedStep, RepoPlan, Scrub, StepId, drift,
+    normalize,
+};
 
 use crate::config::{BookConfig, DEFAULT_CHECK, DEFAULT_VERIFY};
 use crate::materialize::{Blobs, blobs_of, read_dir_recursive, write_tree_to_disk};
@@ -67,6 +70,102 @@ pub enum Verdict {
     Skipped,
 }
 
+/// What became of one recorded output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OutputResult {
+    /// The fence holds what the command printed.
+    Matches,
+    /// The fence is empty: the directive is written and `--record` has not
+    /// run yet. Fails `verify` (EPIC-11 Decision 7).
+    NotRecorded,
+    /// The fence and the live output disagree, first at this line.
+    Drifted(Drift),
+    /// The step's claim did not hold, or the command never ran, so the output
+    /// was not compared (Decision 6).
+    Unjudged,
+}
+
+/// One output block, judged.
+#[derive(Clone, Debug)]
+pub struct OutputVerdict {
+    /// The block's directive: where the report points and `--record` writes.
+    pub loc: Location,
+    pub capture: Capture,
+    /// What the command printed, normalized. Empty when unjudged.
+    pub live: Vec<String>,
+    pub result: OutputResult,
+}
+
+/// Judge one recorded output against what its command printed. Pure, so the
+/// whole table is tested without a compiler.
+#[must_use]
+pub fn judge_output(
+    recorded: &CapturedOutput,
+    verdict: &Verdict,
+    ran: Option<&Outcome>,
+    scrub: &Scrub,
+) -> OutputVerdict {
+    let (Verdict::Upheld, Some(outcome)) = (verdict, ran) else {
+        return OutputVerdict {
+            loc: recorded.loc.clone(),
+            capture: recorded.capture,
+            live: Vec::new(),
+            result: OutputResult::Unjudged,
+        };
+    };
+    let live = normalize(&outcome.output, scrub);
+    let result = if recorded.lines.is_empty() {
+        OutputResult::NotRecorded
+    } else {
+        drift(&recorded.lines, &live).map_or(OutputResult::Matches, OutputResult::Drifted)
+    };
+    OutputVerdict {
+        loc: recorded.loc.clone(),
+        capture: recorded.capture,
+        live,
+        result,
+    }
+}
+
+/// The machine's paths a capture must not keep: the scratch tree, the target
+/// directory, and cargo's home — each as given and as canonicalized, since
+/// cargo prints the canonical spelling (EPIC-11 Decision 4).
+#[must_use]
+pub fn scrub_for(tree_dir: &Path, target_dir: &Path, cargo_home: Option<&Path>) -> Scrub {
+    fn spellings(dir: &Path) -> Vec<String> {
+        let mut out = vec![dir.display().to_string()];
+        if let Ok(c) = dir.canonicalize() {
+            let c = c.display().to_string();
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    }
+    let mut pairs = Vec::new();
+    for tree in spellings(tree_dir) {
+        pairs.push((format!("{tree}/"), String::new()));
+        pairs.push((tree, ".".to_string()));
+    }
+    for target in spellings(target_dir) {
+        pairs.push((target, "target".to_string()));
+    }
+    if let Some(home) = cargo_home {
+        for h in spellings(home) {
+            pairs.push((h, "$CARGO_HOME".to_string()));
+        }
+    }
+    Scrub(pairs)
+}
+
+/// Where cargo keeps registry sources: `$CARGO_HOME`, else `~/.cargo`. A
+/// diagnostic inside a dependency names a path under it.
+fn cargo_home() -> Option<PathBuf> {
+    std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")))
+}
+
 #[derive(Clone, Debug)]
 pub struct StepVerdict {
     pub seq: usize,
@@ -74,12 +173,17 @@ pub struct StepVerdict {
     pub anchor: Location,
     pub expect: Expect,
     pub verdict: Verdict,
+    /// This step's output blocks, judged, in document order.
+    pub outputs: Vec<OutputVerdict>,
 }
 
 #[derive(Debug)]
 pub struct VerifyReport {
     pub repo: String,
     pub verdicts: Vec<StepVerdict>,
+    /// The first step that records output while nothing pins its toolchain:
+    /// its tree has no `rust-toolchain.toml` and the repo sets no `toolchain`.
+    pub unpinned_step: Option<StepId>,
 }
 
 impl VerifyReport {
@@ -88,6 +192,13 @@ impl VerifyReport {
         self.verdicts
             .iter()
             .filter(|v| matches!(v.verdict, Verdict::Broken { .. }))
+    }
+
+    /// Every judged output, with the step it belongs to.
+    pub fn outputs(&self) -> impl Iterator<Item = (&StepVerdict, &OutputVerdict)> {
+        self.verdicts
+            .iter()
+            .flat_map(|v| v.outputs.iter().map(move |o| (v, o)))
     }
 }
 
@@ -130,6 +241,81 @@ impl fmt::Display for VerifyError {
 
 impl std::error::Error for VerifyError {}
 
+/// What stays the same from one step to the next.
+struct Bench<'a> {
+    check_cmd: &'a str,
+    verify_cmd: &'a str,
+    toolchain: Option<&'a str>,
+    scaffolding: &'a Blobs,
+    tree_dir: PathBuf,
+    target_dir: PathBuf,
+    cargo_home: Option<PathBuf>,
+}
+
+/// One step, verified: its claim, its outputs, and whether it records output
+/// with nothing pinning its toolchain.
+struct StepRun {
+    verdict: Verdict,
+    outputs: Vec<OutputVerdict>,
+    unpinned: bool,
+}
+
+/// Write one step's tree, run its commands, and judge its claim and its
+/// outputs. A step that records output runs serially (Decision 12).
+fn run_step(bench: &Bench, step: &PlannedStep) -> Result<StepRun, VerifyError> {
+    if step.expect == Expect::Skip {
+        return Ok(StepRun {
+            verdict: Verdict::Skipped,
+            outputs: Vec::new(),
+            unpinned: false,
+        });
+    }
+    let mut blobs = bench.scaffolding.clone();
+    blobs.extend(blobs_of(&step.tree));
+    write_tree_to_disk(&bench.tree_dir, &blobs).map_err(|source| VerifyError::Io {
+        path: bench.tree_dir.clone(),
+        source,
+    })?;
+
+    let records = !step.outputs.is_empty();
+    let env = step_env(&blobs, bench.toolchain, records);
+    let check = run(bench.check_cmd, &bench.tree_dir, &bench.target_dir, &env)?;
+    let verify = if check.success && step.expect != Expect::CompileFail {
+        Some(run(
+            bench.verify_cmd,
+            &bench.tree_dir,
+            &bench.target_dir,
+            &env,
+        )?)
+    } else {
+        None
+    };
+    let verdict = verdict_for(step.expect, &check, verify.as_ref());
+
+    let scrub = scrub_for(
+        &bench.tree_dir,
+        &bench.target_dir,
+        bench.cargo_home.as_deref(),
+    );
+    let outputs = step
+        .outputs
+        .iter()
+        .map(|o| {
+            let ran = match o.capture {
+                Capture::Check => Some(&check),
+                Capture::Verify => verify.as_ref(),
+            };
+            judge_output(o, &verdict, ran, &scrub)
+        })
+        .collect();
+
+    Ok(StepRun {
+        verdict,
+        outputs,
+        unpinned: records && bench.toolchain.is_none() && !pins_toolchain(&blobs),
+    })
+}
+
 pub struct Verifier<'a> {
     pub config: &'a BookConfig,
     pub book_root: &'a Path,
@@ -169,7 +355,6 @@ impl Verifier<'_> {
         let verify_cmd = cfg
             .and_then(|c| c.verify.as_deref())
             .unwrap_or(DEFAULT_VERIFY);
-        let toolchain = cfg.and_then(|c| c.toolchain.as_deref());
 
         // The scaffolding a step's tree is incomplete without. A book whose
         // template is broken should fail verification, not be excused from it.
@@ -183,49 +368,44 @@ impl Verifier<'_> {
 
         // One target directory across every step, so twenty steps are not
         // twenty cold builds.
-        let target_dir = self.work_dir.join("target");
-        let tree_dir = self.work_dir.join("tree");
+        let bench = Bench {
+            check_cmd,
+            verify_cmd,
+            toolchain: cfg.and_then(|c| c.toolchain.as_deref()),
+            scaffolding: &scaffolding,
+            tree_dir: self.work_dir.join("tree"),
+            target_dir: self.work_dir.join("target"),
+            cargo_home: cargo_home(),
+        };
 
         let mut verdicts = Vec::new();
+        let mut unpinned_step = None;
         for step in plan.steps.iter().skip(start) {
             if only.is_some_and(|want| want != step.id.0) {
                 continue;
             }
-
-            let verdict = if step.expect == Expect::Skip {
-                Verdict::Skipped
-            } else {
-                let mut blobs = scaffolding.clone();
-                blobs.extend(blobs_of(&step.tree));
-                write_tree_to_disk(&tree_dir, &blobs).map_err(|source| VerifyError::Io {
-                    path: tree_dir.clone(),
-                    source,
-                })?;
-
-                // `false` until output blocks exist (Task 10 passes
-                // `!step.outputs.is_empty()`).
-                let env = step_env(&blobs, toolchain, false);
-                let check = run(check_cmd, &tree_dir, &target_dir, &env)?;
-                let verify = if check.success && step.expect != Expect::CompileFail {
-                    Some(run(verify_cmd, &tree_dir, &target_dir, &env)?)
-                } else {
-                    None
-                };
-                verdict_for(step.expect, &check, verify.as_ref())
-            };
-
+            let StepRun {
+                verdict,
+                outputs,
+                unpinned,
+            } = run_step(&bench, step)?;
+            if unpinned && unpinned_step.is_none() {
+                unpinned_step = Some(step.id.clone());
+            }
             verdicts.push(StepVerdict {
                 seq: step.seq,
                 id: step.id.clone(),
                 anchor: step.anchor.clone(),
                 expect: step.expect,
                 verdict,
+                outputs,
             });
         }
 
         Ok(VerifyReport {
             repo: repo_name,
             verdicts,
+            unpinned_step,
         })
     }
 }
@@ -615,5 +795,125 @@ mod verify_tests {
         let set = [("RUSTUP_TOOLCHAIN", "1.98.1".to_string())];
         let out = run("sh s.sh", &dir, &dir.join("target"), &set).unwrap();
         assert_eq!(out.output, "1.98.1\n");
+    }
+
+    fn recorded(lines: &[&str]) -> CapturedOutput {
+        CapturedOutput {
+            loc: Location::new("src/ch04.md", 12),
+            capture: Capture::Check,
+            info: "text".to_string(),
+            lines: lines.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn printed(text: &str) -> Outcome {
+        Outcome {
+            command: "cargo check".to_string(),
+            success: false,
+            output: text.to_string(),
+        }
+    }
+
+    const E0308: &str = "    Checking hp v0.1.0 (/scratch/tree)\nerror[E0308]: mismatched types\n --> src/scratch.rs:4:18\n";
+
+    #[test]
+    fn output__a_match_upholds_the_step() {
+        let v = judge_output(
+            &recorded(&["error[E0308]: mismatched types", " --> src/scratch.rs:4:18"]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::Matches);
+    }
+
+    #[test]
+    fn output__drift_fails_verify_and_names_the_line() {
+        let v = judge_output(
+            &recorded(&["error[E0308]: mismatched types", " --> src/scratch.rs:5:18"]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(
+            v.result,
+            OutputResult::Drifted(Drift {
+                line: 2,
+                recorded: Some(" --> src/scratch.rs:5:18".to_string()),
+                live: Some(" --> src/scratch.rs:4:18".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn output__an_empty_fence_is_not_recorded_and_fails() {
+        let v = judge_output(
+            &recorded(&[]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::NotRecorded);
+        assert_eq!(
+            v.live.len(),
+            2,
+            "the live text is what --record would write"
+        );
+    }
+
+    #[test]
+    fn output__a_broken_step_is_unjudged_and_never_recorded() {
+        // The broken claim is the headline. A snapshot of the wrong failure
+        // is worse than none (EPIC-11 Decision 6).
+        let broken = Verdict::Broken {
+            happened: "it compiled".to_string(),
+            command: "cargo check".to_string(),
+            output: String::new(),
+        };
+        let v = judge_output(
+            &recorded(&[]),
+            &broken,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::Unjudged);
+        assert!(v.live.is_empty());
+
+        // A command that never ran is unjudged too.
+        let v = judge_output(&recorded(&[]), &Verdict::Upheld, None, &Scrub::default());
+        assert_eq!(v.result, OutputResult::Unjudged);
+    }
+
+    #[test]
+    fn scrub_for__names_the_tree_the_target_and_cargo_home() {
+        let s = scrub_for(
+            Path::new("/w/tree"),
+            Path::new("/w/target"),
+            Some(Path::new("/home/me/.cargo")),
+        );
+        assert_eq!(
+            normalize(
+                "error: failed to parse manifest at `/w/tree/Cargo.toml`\nin /w/tree, /w/target/debug, /home/me/.cargo/registry\n",
+                &s
+            ),
+            vec![
+                "error: failed to parse manifest at `Cargo.toml`".to_string(),
+                "in ., target/debug, $CARGO_HOME/registry".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn scrub_for__covers_the_canonical_spelling_too() {
+        // macOS: the temp directory is `/var/folders/…`, and cargo prints
+        // `/private/var/folders/…`. Both must go.
+        let dir = std::env::temp_dir().join("bower-verify-scrub");
+        std::fs::create_dir_all(&dir).unwrap();
+        let canonical = dir.canonicalize().unwrap().display().to_string();
+        let s = scrub_for(&dir, &dir.join("target"), None);
+        assert!(
+            s.0.iter().any(|(from, to)| from == &canonical && to == "."),
+            "{s:?}"
+        );
     }
 }

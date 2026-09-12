@@ -195,6 +195,8 @@ fn upholds_every_step() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(stdout.contains("20 step(s)"), "{stdout}");
-    assert_eq!(stdout.matches("ok  ").count(), 20, "{stdout}");
+    // Step rows start two spaces in; output rows start seven.
+    let steps_ok = stdout.lines().filter(|l| l.starts_with("  ok ")).count();
+    assert_eq!(steps_ok, 20, "{stdout}");
     assert!(stdout.contains("every claim holds"), "{stdout}");
 }
