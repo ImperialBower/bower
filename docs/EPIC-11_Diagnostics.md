@@ -778,6 +778,16 @@ What differed from the design while building it:
   lines, with a paragraph on elision, so the reference book demonstrates it
   and not only `rust4failures`. `--record` leaves it alone;
   `records_what_the_compiler_says_at_both_failures` pins it.
+- **CI found what a laptop could not.** Honouring the tree's pin (0b) meant a
+  runner without Rust 1.95.0 installed it on first use, and rustup's
+  `info: syncing channel updates …` lines landed in the captured output:
+  `verify` reported drift and `--record` wrote them into the chapter. Every
+  pinned step now runs `rustc --version` first, output discarded, so the
+  install happens outside any recording; a failed install is
+  `VerifyError::Toolchain`, not a broken claim. Separately, the verification
+  tests' parallel first uses raced on rustup's download directory, so the
+  first `bower verify` in that binary now runs alone. Both reproduced against
+  an empty `RUSTUP_HOME`.
 
 ---
 

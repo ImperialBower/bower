@@ -45,6 +45,11 @@ whatever launched `bower` never decides. A tree's own `rust-toolchain.toml` (or
 neither gets a warning: what it records would depend on this machine's default
 compiler.
 
+Before a pinned step's commands, `verify` runs `rustc --version` and discards
+its output. On a machine without the pinned toolchain, that is where rustup
+installs it — so its install notes never reach a recording — and a failed
+install stops the run as the verifier's error, not the book's.
+
 # --record
 
 Rewrites only the output fences that are drifted or not recorded yet, bottom-up

@@ -28,7 +28,25 @@ fn scratch(case: &str) -> PathBuf {
 
 /// Run `bower verify` against `book`, returning the raw output so a test can
 /// assert on the exit status as well as the text.
+///
+/// The sample book pins Rust 1.95.0 from its `toolchain` step on. On a machine
+/// without it, rustup installs it on first use — and the tests here run in
+/// parallel, so several first uses at once race on rustup's download directory
+/// (CI, 12 September 2026: `could not rename 'downloaded' file`). The first
+/// call in this binary installs it alone; every other call waits for that.
 fn verify(book: &Path, work: &Path, extra: &[&str]) -> Output {
+    static TOOLCHAIN: std::sync::Once = std::sync::Once::new();
+    TOOLCHAIN.call_once(|| {
+        let _ = bower_verify(
+            &book_root(),
+            &scratch("toolchain-install"),
+            &["--step", "toolchain"],
+        );
+    });
+    bower_verify(book, work, extra)
+}
+
+fn bower_verify(book: &Path, work: &Path, extra: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_bower"))
         .arg("--book")
         .arg(book)

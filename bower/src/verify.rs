@@ -220,6 +220,14 @@ pub enum VerifyError {
     NestedWorkspace {
         tree: PathBuf,
     },
+    /// The toolchain a step's tree pins could not be made ready: rustup failed
+    /// to install it. Its own variant for the same reason as
+    /// `NestedWorkspace` — a failed download is not a compile error in the
+    /// book.
+    Toolchain {
+        tree: PathBuf,
+        output: String,
+    },
 }
 
 impl fmt::Display for VerifyError {
@@ -235,17 +243,38 @@ impl fmt::Display for VerifyError {
                  every Cargo.toml above it",
                 tree.display()
             ),
+            Self::Toolchain { tree, output } => {
+                write!(
+                    f,
+                    "the Rust toolchain the tree at {} pins could not be made ready \
+                     (`{TOOLCHAIN_PROBE}` failed); rustup said:",
+                    tree.display()
+                )?;
+                let tail: Vec<&str> = output.lines().rev().take(8).collect();
+                for line in tail.iter().rev() {
+                    write!(f, "\n    {line}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
 impl std::error::Error for VerifyError {}
 
+/// The command that asks rustup for a step's toolchain before anything whose
+/// output is kept. Any proxied command would do; this one prints one line and
+/// compiles nothing.
+const TOOLCHAIN_PROBE: &str = "rustc --version";
+
 /// What stays the same from one step to the next.
 struct Bench<'a> {
     check_cmd: &'a str,
     verify_cmd: &'a str,
     toolchain: Option<&'a str>,
+    /// Run before a pinned step's commands: [`TOOLCHAIN_PROBE`], except in
+    /// tests.
+    probe: &'a str,
     scaffolding: &'a Blobs,
     tree_dir: PathBuf,
     target_dir: PathBuf,
@@ -279,6 +308,19 @@ fn run_step(bench: &Bench, step: &PlannedStep) -> Result<StepRun, VerifyError> {
 
     let records = !step.outputs.is_empty();
     let env = step_env(&blobs, bench.toolchain, records);
+    // rustup installs a pinned toolchain the first time anything asks for it,
+    // and says so on the asking command's stderr. Ask first, with a command
+    // whose output nobody keeps: the install notes never reach a recording,
+    // and a failed install is the verifier's problem, not the book's.
+    if bench.toolchain.is_some() || pins_toolchain(&blobs) {
+        let probe = run(bench.probe, &bench.tree_dir, &bench.target_dir, &env)?;
+        if !probe.success {
+            return Err(VerifyError::Toolchain {
+                tree: bench.tree_dir.clone(),
+                output: probe.output,
+            });
+        }
+    }
     let check = run(bench.check_cmd, &bench.tree_dir, &bench.target_dir, &env)?;
     let verify = if check.success && step.expect != Expect::CompileFail {
         Some(run(
@@ -372,6 +414,7 @@ impl Verifier<'_> {
             check_cmd,
             verify_cmd,
             toolchain: cfg.and_then(|c| c.toolchain.as_deref()),
+            probe: TOOLCHAIN_PROBE,
             scaffolding: &scaffolding,
             tree_dir: self.work_dir.join("tree"),
             target_dir: self.work_dir.join("target"),
@@ -915,5 +958,84 @@ mod verify_tests {
             s.0.iter().any(|(from, to)| from == &canonical && to == "."),
             "{s:?}"
         );
+    }
+
+    /// Stands in for rustup's proxy: the first command to run in a fresh
+    /// target directory "installs the toolchain" and says so on stderr, the
+    /// way rustup does on a machine that lacks the pinned channel. `probe`
+    /// succeeds; anything else prints `error: <name>` and fails.
+    const FAKE_RUSTUP: &str = concat!(
+        "m=\"$CARGO_TARGET_DIR/installed\"\n",
+        "if [ ! -e \"$m\" ]; then\n",
+        "  mkdir -p \"$CARGO_TARGET_DIR\"\n",
+        "  echo 'info: syncing channel updates for 9.9.9' >&2\n",
+        "  touch \"$m\"\n",
+        "fi\n",
+        "echo \"error: $1\"\n",
+        "[ \"$1\" = probe ] && exit 0\n",
+        "exit 1\n",
+    );
+
+    /// One pinned `compile_fail` step with a `check` output, planned for real.
+    fn pinned_step() -> PlannedStep {
+        use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
+        let text = concat!(
+            "<!-- bower repo=\"r\" file=\"rust-toolchain.toml\" expect=\"compile_fail\" -->\n",
+            "```toml\n[toolchain]\nchannel = \"9.9.9\"\n```\n",
+            "<!-- bower repo=\"r\" output=\"check\" -->\n",
+            "```text\nerror: check\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("ch.md", text)]);
+        let p = plan(&book, &RepoCatalog::from_names(&["r"])).unwrap();
+        p.repos[0].steps[0].clone()
+    }
+
+    fn fake_bench<'a>(case: &str, probe: &'a str, scaffolding: &'a Blobs) -> Bench<'a> {
+        let work = std::env::temp_dir().join(format!("bower-verify-probe-{case}"));
+        let _ = std::fs::remove_dir_all(&work);
+        Bench {
+            check_cmd: "sh rustup.sh check",
+            verify_cmd: "sh rustup.sh verify",
+            toolchain: None,
+            probe,
+            scaffolding,
+            tree_dir: work.join("tree"),
+            target_dir: work.join("target"),
+            cargo_home: None,
+        }
+    }
+
+    fn fake_rustup() -> Blobs {
+        Blobs::from([(
+            "rustup.sh".to_string(),
+            (FAKE_RUSTUP.as_bytes().to_vec(), false),
+        )])
+    }
+
+    #[test]
+    fn run_step__a_toolchain_install_never_reaches_a_recording() {
+        // CI, 12 September 2026: the first `cargo check` on a runner without
+        // the book's pinned 1.95.0 printed rustup's install notes, and
+        // `--record` wrote them into the chapter.
+        let scaffolding = fake_rustup();
+        let bench = fake_bench("install", "sh rustup.sh probe", &scaffolding);
+        let run = run_step(&bench, &pinned_step()).unwrap();
+        assert_eq!(run.verdict, Verdict::Upheld);
+        assert_eq!(run.outputs[0].live, vec!["error: check".to_string()]);
+        assert_eq!(run.outputs[0].result, OutputResult::Matches);
+    }
+
+    #[test]
+    fn run_step__a_toolchain_that_will_not_install_is_the_verifiers_fault() {
+        // A failed download is not a compile error in the book.
+        let scaffolding = fake_rustup();
+        let bench = fake_bench("broken", "sh rustup.sh nope", &scaffolding);
+        match run_step(&bench, &pinned_step()) {
+            Err(VerifyError::Toolchain { output, .. }) => {
+                assert!(output.contains("info: syncing"), "{output}");
+            }
+            Err(other) => panic!("expected Toolchain, got {other}"),
+            Ok(_) => panic!("expected Toolchain, got a verdict"),
+        }
     }
 }
