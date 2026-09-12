@@ -299,7 +299,7 @@ pub fn pins_toolchain(blobs: &Blobs) -> bool {
 ///
 /// The toolchain first (EPIC-11 Decision 10): a tree that pins one keeps its
 /// pin, and only a tree that pins nothing gets the repo's `toolchain` key.
-/// [`run`] removes the inherited `RUSTUP_TOOLCHAIN` either way, so whatever
+/// `run` removes the inherited `RUSTUP_TOOLCHAIN` either way, so whatever
 /// launched `bower` never decides.
 ///
 /// Then, for a step whose output the book records, the serial trio
