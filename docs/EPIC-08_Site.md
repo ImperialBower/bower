@@ -1,5 +1,21 @@
 # EPIC-08: the site branch — shipping the rendered book (SITE)
 
+## Summary
+
+- **Builds:** `bower push` ships the rendered HTML to a `site_branch`, and
+  `bower status` reports when the site is stale.
+- **Why:** the site was published by hand once, then served last week's
+  chapters at HTTP 200 with nothing to say so.
+- **Shape:** a `.bower-site` marker fingerprints the lock and chapters;
+  `marker_verdict` guards the branch, `Forge::push_tree` pushes an orphan
+  commit, and `SiteDrift` sits beside `RepoDrift`.
+- **Proves it:** `site_push__is_not_called_when_the_gate_refuses` and
+  `a_prose_edit_alone_makes_the_site_stale`, both against `FakeForge`.
+- **Status:** Shipped at `23712c9`, 2 September 2026; `status` checks the
+  local render only, not the remote.
+
+---
+
 ## Context
 
 Seven EPICs shipped, and on 2 September 2026 the whole chain ran for real:

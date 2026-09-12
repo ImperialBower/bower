@@ -1,5 +1,21 @@
 # EPIC-05: `bower push` — publishing, with a guard rail (PUB)
 
+## Summary
+
+- **Builds:** `bower push`, which publishes a generated repo and its tags to the
+  GitHub remote in `bower.toml`, dry run by default.
+- **Why:** the first command that can destroy something irreplaceable: one typo
+  in `github` would force-push a book over years of human history.
+- **Shape:** `marker_verdict` reads the remote's `STEPS.md` marker and refuses
+  any repo Bower did not generate, with no override flag; `Forge` hides the
+  network so decisions are tested against `FakeForge`.
+- **Proves it:** `push__is_not_called_when_the_gate_refuses`, and a `--help`
+  test showing no bypass exists.
+- **Status:** Shipped at `783b0f2`, 1 September 2026; `GitHubForge` is the
+  untested last inch.
+
+---
+
 ## Context
 
 Four EPICs shipped. `bower build` replays a book into a deterministic git

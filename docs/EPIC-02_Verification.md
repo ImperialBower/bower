@@ -1,5 +1,18 @@
 # EPIC-02: Verification — the book eats its own cooking (VFY)
 
+## Summary
+
+- **Builds:** `bower verify`, which runs a real compiler on every step's tree
+  and checks the result against the step's declared `expect`.
+- **Why:** `expect="compile_fail"` was believed, never tested.
+- **Shape:** per-repo `check` and `verify` commands, a pure `verdict_for`
+  matrix over `Expect`, and `materialize` with a shared `CARGO_TARGET_DIR`.
+- **Proves it:** `bower/tests/verification.rs` upholds the two deliberate
+  failures by default and sweeps all twenty steps under `#[ignore]`.
+- **Status:** Shipped, 1 September 2026; stderr snapshots left to EPIC-11.
+
+---
+
 ## Context
 
 EPIC-01 shipped. `bower plan` resolves a book into a `BookPlan`, and

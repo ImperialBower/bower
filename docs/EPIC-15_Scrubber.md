@@ -1,5 +1,21 @@
 # EPIC-15: The scrubber — time-travel over the tree (SCRB)
 
+## Summary
+
+- **Builds:** the scrubber: a static per-repo timeline payload written by
+  `bower publish --target html`, and a widget that slides through every step
+  with a "written by" gutter.
+- **Why:** every footer link lands on one state, and nothing answers "which
+  paragraph wrote this line?"
+- **Shape:** kernel modules `diff::lines` (Myers) and `timeline` (interned
+  blobs, per-step changes, blame as a fold); the widget only draws what the
+  kernel computed.
+- **Proves it:** a reconstruction property replays the payload back to every
+  `PlannedStep::tree`; a slow-lane golden checks every footer's data attributes.
+- **Status:** Planned, filed 10 September 2026, nothing built.
+
+---
+
 ## Context
 
 Eight EPICs shipped, and the book → repo direction is link-shaped: every

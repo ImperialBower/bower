@@ -1,5 +1,20 @@
 # EPIC-13: Exercises — hand the reader the failing state (EXR)
 
+## Summary
+
+- **Builds:** `tests=`, `solution=`, and `reveal="never"` on an exercise, so it
+  names the tests the reader turns green and can hide its answer.
+- **Why:** any failing test passes as the exercise, a solution that deletes the
+  test passes as a solution, and the answer is always printed in full.
+- **Shape:** `Exercise` gains `tests`, `named`, `Reveal`; `PlannedStep` gains
+  `solves`; `verify` gains `Outcome::stdout` and a pure `named_tests_verdict`.
+- **Proves it:** the sample step is upheld only because its one named test
+  failed, and a copy with a second failing test is `Broken`.
+- **Status:** Planned; the base exercises shipped in PR #4 (`fdcd09b`,
+  6 September 2026), this EPIC's work unstarted.
+
+---
+
 ## Context
 
 Exercises already ship. They landed in PR #4 (`fdcd09b`, 6 September 2026)

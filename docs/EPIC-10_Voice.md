@@ -1,5 +1,21 @@
 # EPIC-10: Voice — the book as the source of truth for the ear (VOICE)
 
+## Summary
+
+- **Builds:** `bower-voice`, a second kernel, plus `voices.toml`, `bower script`
+  and `bower voices`: the narrator's script, cast, and breakdown derived from
+  cues in the manuscript.
+- **Why:** an audiobook's working documents are kept by hand beside the book
+  and go stale silently, the drift Bower already removed for code.
+- **Shape:** a `<!-- voice … -->` comment directs the next paragraph or span;
+  `script()`, `breakdown()`, and `fit()` are pure folds over a `Palette`.
+- **Proves it:** the spike's 41 tests, and `cargo tree -p bower-voice` printing
+  exactly two lines.
+- **Status:** Phase 0 spike complete at `docs/spikes/bower-voice-spike/`;
+  Phases 1 to 5 not started, filed 10 September 2026.
+
+---
+
 ## Context
 
 Bower's thesis is an inversion: the book is the single source of truth and the

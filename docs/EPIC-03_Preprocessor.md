@@ -1,5 +1,19 @@
 # EPIC-03: The mdBook preprocessor (PRE)
 
+## Summary
+
+- **Builds:** `mdbook-bower`, a preprocessor that strips directives, honours
+  `bower:show`, and gives every block an anchor and a source-link footer.
+- **Why:** the rendered book had no link back to the code it generates, and
+  display markers were printed whole because nothing consumed them.
+- **Shape:** a second binary behind a `preprocessor` feature and a fence-aware
+  `render::chapter` that hides elided Rust behind mdBook's toggle.
+- **Proves it:** `bower/tests/preprocessor.rs` runs the binary over the real
+  chapters: no directive survives, twenty anchors land, bad repos fail loud.
+- **Status:** Shipped, 1 September 2026.
+
+---
+
 ## Context
 
 Two EPICs shipped. `bower build` replays a book into a deterministic git

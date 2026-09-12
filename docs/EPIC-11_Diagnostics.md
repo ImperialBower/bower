@@ -1,5 +1,21 @@
 # EPIC-11: Captured diagnostics — the compiler as co-author (DIAG)
 
+## Summary
+
+- **Builds:** an `output="check|verify"` directive whose fence holds what the
+  compiler printed, checked by `bower verify` and written by `--record`.
+- **Why:** `verify` proves *that* a step fails but never *what it said*, so the
+  diagnostics the book quotes are hand-pasted and unchecked.
+- **Shape:** a pure `capture` module normalizes, diffs with `[...]` elision, and
+  rewrites fences; the edge keeps both streams in one pipe and pins the step's
+  toolchain.
+- **Proves it:** `reports_a_drifted_diagnostic_as_broken`: change one character
+  of a recorded E0308 and `verify` exits non-zero.
+- **Status:** In progress on `feat/diagnostics`; Phase 0a and 0b landed
+  (`3a48828`, `a8c0bf1`, 11 to 12 September 2026), plan Tasks 1 and 2 of 14.
+
+---
+
 ## Context
 
 Eight EPICs shipped. Every step carries an `Expect`
