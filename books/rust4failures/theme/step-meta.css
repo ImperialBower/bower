@@ -41,3 +41,16 @@
     font-weight: bold;
     margin: 0.5em 0;
 }
+
+/* The caption bower prints above a recorded output: the command that printed
+   it, the step, and a link for each error code. Same box as .step-meta, so a
+   caption reads the same whether its fence holds code or what the compiler
+   said about it. */
+.step-output {
+    margin: 0.5em 0 0.5em 1.5em;
+    padding: 0.4em 0.8em;
+    display: inline-block;
+    border: 1px solid var(--table-border-color, #ccc);
+    border-radius: 4px;
+    background: var(--table-alternate-bg, rgba(127, 127, 127, 0.08));
+}
