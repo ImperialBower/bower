@@ -51,6 +51,36 @@ fn records_the_two_deliberate_failures() {
     assert_eq!(expect_of("scratch-fixed"), Expect::Pass);
 }
 
+#[test]
+fn records_what_the_compiler_says_at_both_failures() {
+    let p = book_plan();
+    let repo = p.repo(REPO).expect("repo present");
+    let outputs_of = |id: &str| {
+        repo.steps
+            .iter()
+            .find(|s| s.id.0 == id)
+            .unwrap_or_else(|| panic!("no step `{id}`"))
+            .outputs
+            .clone()
+    };
+
+    let red = outputs_of("test-that-fails");
+    assert_eq!(red.len(), 1);
+    assert_eq!(red[0].capture, Capture::Verify);
+    assert!(
+        red[0].lines.iter().any(|l| {
+            l == "thread 'tests::greet_ignores_stray_whitespace' panicked at src/lib.rs:20:9:"
+        }),
+        "{:#?}",
+        red[0].lines
+    );
+
+    let broken = outputs_of("wont-compile");
+    assert_eq!(broken[0].capture, Capture::Check);
+    assert_eq!(broken[0].lines[0], "error[E0308]: mismatched types");
+    assert_eq!(error_codes(&broken[0].lines), vec!["E0308"]);
+}
+
 fn final_tree() -> TreeState {
     let p = book_plan();
     let repo = p.repo(REPO).expect("repo present");

@@ -259,12 +259,15 @@ whole file, but only the method was printed on the page.
 `cargo check` is green. `cargo test` is not, which is why this step declares
 `expect="test_fail"`:
 
-```console
-$ cargo test
+<!-- bower repo="rust4failures" output="verify" -->
+
+```text
+[...]
 thread 'tests::hello_world' panicked at src/lib.rs:31:9:
 assertion `left == right` failed
   left: "Hello, world!"
  right: "Hello,  wirld!!"
+[...]
 ```
 
 > 💡LESSON: "It compiles" is the first gate, not the last one. A green compiler
