@@ -1,5 +1,19 @@
 # EPIC-04: `bower status` — the drift report (STA)
 
+## Summary
+
+- **Builds:** `bower status`, a drift report on whether `bower.lock` and a built
+  repository still match the book.
+- **Why:** editing a chapter left a stale lock and a stale repo with no sign of
+  either; the only check was to re-run everything.
+- **Shape:** `LockDrift` diffs a regenerated lock, `RepoDrift` diffs tags and
+  blobs, and `StatusReport` treats never-planned and never-built as honest.
+- **Proves it:** `bower/tests/status.rs`: clean exits 0, an edited chapter names
+  the stale step, a deleted file exits 1.
+- **Status:** Shipped, 1 September 2026.
+
+---
+
 ## Context
 
 Three EPICs shipped. `bower plan` resolves a book and writes `bower.lock`

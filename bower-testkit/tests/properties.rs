@@ -8,6 +8,9 @@
 //!    text. This is the property that makes line-anchored source links
 //!    trustworthy.
 //! 4. **Lock stability** — lock text is a pure function of the plan.
+//! 5. **Normalization is idempotent** and blind to colour and line endings.
+//! 6. **Recording round-trips** — a rewritten fence plans back to exactly the
+//!    lines written, and nothing outside the fence moves.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -54,6 +57,59 @@ proptest! {
         let a = lock_text(&plan(&book, &catalog).unwrap());
         let b = lock_text(&plan(&book, &catalog).unwrap());
         prop_assert_eq!(a, b);
+    }
+
+    #[test]
+    fn normalize_is_idempotent(raw in arb_raw_output()) {
+        let once = normalize(&raw, &Scrub::default());
+        let twice = normalize(&once.join("\n"), &Scrub::default());
+        prop_assert_eq!(once, twice);
+    }
+
+    #[test]
+    fn normalize_ignores_ansi_and_crlf(lines in arb_plain_lines()) {
+        let plain = lines.join("\n");
+        let dressed = lines
+            .iter()
+            .map(|l| format!("\x1b[1m{l}\x1b[0m"))
+            .collect::<Vec<_>>()
+            .join("\r\n");
+        prop_assert_eq!(
+            normalize(&dressed, &Scrub::default()),
+            normalize(&plain, &Scrub::default())
+        );
+    }
+
+    #[test]
+    fn rewrite_round_trips_through_plan(raw in arb_raw_output()) {
+        let live = normalize(&raw, &Scrub::default());
+        // Line 8 is the output directive.
+        let chapter = concat!(
+            "# Out\n\n",
+            "<!-- bower repo=\"gen\" file=\"a.rs\" -->\n```rust\nx\n```\n\n",
+            "<!-- bower repo=\"gen\" output=\"check\" -->\n```text\n```\n\n",
+            "The end.\n",
+        );
+        let text = rewrite(chapter, 8, &live);
+        let book = BookSource::from_chapters(vec![Chapter::new("out.md", &text)]);
+        let p = plan(&book, &RepoCatalog::from_names(&["gen"])).unwrap();
+        prop_assert_eq!(&p.repos[0].steps[0].outputs[0].lines, &live);
+    }
+
+    #[test]
+    fn rewrite_touches_nothing_outside_the_fence(
+        live in arb_plain_lines(),
+        before in arb_words(),
+        after in arb_words(),
+    ) {
+        let head: String = before.iter().map(|l| format!("{l}\n")).collect::<String>()
+            + "<!-- bower repo=\"gen\" output=\"check\" -->\n";
+        let tail: String = "\n".to_string()
+            + &after.iter().map(|l| format!("{l}\n")).collect::<String>();
+        let text = format!("{head}```text\nold\n```{tail}");
+        let out = rewrite(&text, before.len() + 1, &live);
+        prop_assert!(out.starts_with(&head), "{out}");
+        prop_assert!(out.ends_with(&tail), "{out}");
     }
 }
 

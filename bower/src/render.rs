@@ -11,11 +11,11 @@
 use std::collections::BTreeMap;
 
 use bower_core::prelude::{
-    BlockDisplay, BookPlan, Directive, Exercise, ExerciseForm, Expect, LineRange, PlannedStep,
-    ShowMark, StepId, show_marker,
+    BlockDisplay, BookPlan, Capture, CapturedOutput, Directive, Exercise, ExerciseForm, Expect,
+    LineRange, PlannedStep, ShowMark, StepId, error_codes, show_marker,
 };
 
-use crate::config::LinkTemplates;
+use crate::config::{DEFAULT_CHECK, DEFAULT_VERIFY, LinkTemplates};
 use crate::publish::Target;
 
 /// Rewrite one chapter's markdown.
@@ -31,6 +31,7 @@ pub fn chapter(
     let blocks = blocks_by_line(plan, chapter_path);
     let exercises = exercises_by_line(plan, chapter_path);
     let folds = folds_by_line(plan, chapter_path);
+    let outputs = outputs_by_line(plan, chapter_path);
     let lines: Vec<&str> = text.lines().collect();
     let mut out: Vec<String> = Vec::with_capacity(lines.len());
     let mut i = 0;
@@ -100,17 +101,13 @@ pub fn chapter(
         // The header belongs right above the fence: a reader deciding whether
         // a block is worth reading wants the file and step before the code,
         // not after it.
-        if let Some((repo, step, display)) = blocks.get(&directive_line) {
-            // A chapter may feed several repos, and each declares its own forge
-            // templates. A repo with none gets a header with plain text where
-            // the links would be, never someone else's URLs.
-            let empty = LinkTemplates::default();
-            let repo_links = forge.get(repo).unwrap_or(&empty);
-            if let Some(line) = footer(step, display, repo, repo_links) {
-                out.push(line);
-                out.push(String::new());
-            }
-        }
+        push_header(
+            &mut out,
+            blocks.get(&directive_line),
+            outputs.get(&directive_line),
+            forge,
+            j > i,
+        );
 
         for line in lines.iter().take(j).skip(i) {
             out.push((*line).to_string());
@@ -159,6 +156,39 @@ pub fn chapter(
     let mut rendered = out.join("\n");
     rendered.push('\n');
     rendered
+}
+
+/// The line above a directive's fence: a code block's header, or a recorded
+/// output's caption. `separated` says whether the book already left a blank
+/// line between the directive and its fence.
+fn push_header(
+    out: &mut Vec<String>,
+    block: Option<&(String, &PlannedStep, &BlockDisplay)>,
+    output: Option<&(String, &PlannedStep, &CapturedOutput)>,
+    forge: &BTreeMap<String, LinkTemplates>,
+    separated: bool,
+) {
+    if let Some((repo, step, display)) = block {
+        // A chapter may feed several repos, and each declares its own forge
+        // templates. A repo with none gets a header with plain text where
+        // the links would be, never someone else's URLs.
+        let empty = LinkTemplates::default();
+        let repo_links = forge.get(repo).unwrap_or(&empty);
+        if let Some(line) = footer(step, display, repo, repo_links) {
+            out.push(line);
+            out.push(String::new());
+        }
+    } else if let Some((repo, step, output)) = output {
+        // A recorded output: the command that printed it, and a link for
+        // each error code. In a caption, because markdown does not render
+        // inside a fence. The fence itself passes through untouched.
+        out.push(output_caption(step, output, repo, forge.get(repo)));
+        // The blank lines between directive and fence are copied next; add a
+        // separator only when the book left none.
+        if !separated {
+            out.push(String::new());
+        }
+    }
 }
 
 /// The lines a block contributes to the page.
@@ -342,6 +372,43 @@ pub fn footer(
 pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Option<String> {
     let cmd = subst(links?.checkout.as_deref(), &step.tag(), None)?;
     Some(format!("<span class=\"step-checkout\">$> `{cmd}`</span>"))
+}
+
+/// The line above a recorded output: the command that printed it, the step,
+/// and each rustc error code it names — linked when the repo has an
+/// `error_code` template, plain text when it has none.
+///
+/// One string for every target, as `step-meta` is: the class is the tool's
+/// whole opinion about looks.
+#[must_use]
+pub fn output_caption(
+    step: &PlannedStep,
+    output: &CapturedOutput,
+    repo: &str,
+    links: Option<&LinkTemplates>,
+) -> String {
+    let command = match output.capture {
+        Capture::Check => links
+            .and_then(|l| l.check.as_deref())
+            .unwrap_or(DEFAULT_CHECK),
+        Capture::Verify => links
+            .and_then(|l| l.verify.as_deref())
+            .unwrap_or(DEFAULT_VERIFY),
+    };
+    let mut parts = vec![
+        format!("$ {command}"),
+        format!("step {:03} of {repo}", step.seq),
+    ];
+    for code in error_codes(&output.lines) {
+        parts.push(match links.and_then(|l| l.error_code.as_deref()) {
+            Some(template) => format!("[{code}]({})", template.replace("{code}", &code)),
+            None => code,
+        });
+    }
+    format!(
+        "<span class=\"step-output\"><sub>{}</sub></span>",
+        parts.join(" · ")
+    )
 }
 
 /// The "your turn" box for a step's exercise (spec § 6.1), as markdown lines.
@@ -570,6 +637,25 @@ fn blocks_by_line<'a>(
             for display in &step.displays {
                 if display.loc.chapter == chapter_path {
                     out.insert(display.loc.line, (repo.repo.0.clone(), step, display));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Line number → the output block that directive introduces, with its step
+/// and repo.
+fn outputs_by_line<'a>(
+    plan: &'a BookPlan,
+    chapter_path: &str,
+) -> BTreeMap<usize, (String, &'a PlannedStep, &'a CapturedOutput)> {
+    let mut out = BTreeMap::new();
+    for repo in &plan.repos {
+        for step in &repo.steps {
+            for o in &step.outputs {
+                if o.loc.chapter == chapter_path {
+                    out.insert(o.loc.line, (repo.repo.0.clone(), step, o));
                 }
             }
         }
@@ -1212,5 +1298,88 @@ mod render_tests {
             out.contains("[The next step](#step-code) shows one way."),
             "{out}"
         );
+    }
+
+    const OUTPUT_CH: &str = concat!(
+        "# One\n\n",
+        "<!-- bower repo=\"r\" step=\"broken\" file=\"src/lib.rs\" expect=\"compile_fail\" -->\n\n",
+        "```rust\n",
+        "fn x() -> u32 { \"42\" }\n",
+        "```\n\n",
+        "<!-- bower repo=\"r\" output=\"check\" -->\n\n",
+        "```text\n",
+        "error[E0308]: mismatched types\n",
+        "[...]\n",
+        "```\n\n",
+        "After.\n",
+    );
+
+    fn output_links() -> BTreeMap<String, LinkTemplates> {
+        let mut m = github_links();
+        let l = m.get_mut("r").unwrap();
+        l.check = Some("cargo check".to_string());
+        l.error_code = Some("https://doc.rust-lang.org/error_codes/{code}.html".to_string());
+        m
+    }
+
+    fn render_output(target: Target, links: &BTreeMap<String, LinkTemplates>) -> String {
+        chapter(
+            OUTPUT_CH,
+            "src/ch01.md",
+            &tiny_plan(OUTPUT_CH),
+            links,
+            target,
+        )
+    }
+
+    #[test]
+    fn render__output_block_keeps_its_fence_and_gains_a_caption() {
+        let out = render_output(Target::Html, &output_links());
+        assert!(
+            out.contains(concat!(
+                "<span class=\"step-output\"><sub>$ cargo check · step 001 of r · ",
+                "[E0308](https://doc.rust-lang.org/error_codes/E0308.html)</sub></span>\n\n",
+                "```text\nerror[E0308]: mismatched types\n[...]\n```\n",
+            )),
+            "{out}"
+        );
+        assert!(!out.contains("<!-- bower"), "{out}");
+        assert!(out.contains("After."), "{out}");
+    }
+
+    #[test]
+    fn render__error_code_links_through_the_template() {
+        let mut links = output_links();
+        links.get_mut("r").unwrap().error_code = Some("https://codes.invalid/{code}".to_string());
+        let out = render_output(Target::Html, &links);
+        assert!(
+            out.contains("[E0308](https://codes.invalid/E0308)"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn render__no_template_no_link() {
+        // No repo links at all: the verifier's default command, and the code
+        // as plain text.
+        let out = render_output(Target::Html, &no_links());
+        assert!(
+            out.contains("<sub>$ cargo check · step 001 of r · E0308</sub>"),
+            "{out}"
+        );
+        assert!(!out.contains("](http"), "{out}");
+    }
+
+    #[test]
+    fn render__epub_caption_matches_html() {
+        let caption = |out: &str| {
+            out.lines()
+                .find(|l| l.contains("step-output"))
+                .map(str::to_string)
+        };
+        let html = caption(&render_output(Target::Html, &output_links()));
+        assert!(html.is_some());
+        assert_eq!(html, caption(&render_output(Target::Epub, &output_links())));
+        assert_eq!(html, caption(&render_output(Target::Pdf, &output_links())));
     }
 }

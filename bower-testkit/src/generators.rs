@@ -94,3 +94,39 @@ fn directive_line(file_idx: usize, op: &str, step: Option<&str>) -> String {
     let step_key = step.map(|s| format!(" step=\"{s}\"")).unwrap_or_default();
     format!("<!-- bower repo=\"gen\" file=\"f{file_idx}.rs\" op=\"{op}\"{step_key} -->\n")
 }
+
+/// Arbitrary command output: printable ASCII lines — backticks and brackets
+/// included — some in colour, joined by LF or CRLF. The input space of
+/// `normalize`, which is not a compiler's grammar, and that is the point.
+pub fn arb_raw_output() -> impl Strategy<Value = String> {
+    (
+        prop::collection::vec(("[ -~]{0,24}", any::<bool>()), 0..=8),
+        any::<bool>(),
+    )
+        .prop_map(|(lines, crlf)| {
+            let eol = if crlf { "\r\n" } else { "\n" };
+            lines
+                .into_iter()
+                .map(|(l, coloured)| {
+                    if coloured {
+                        format!("\x1b[1m\x1b[91m{l}\x1b[0m")
+                    } else {
+                        l
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(eol)
+        })
+}
+
+/// Plain printable lines: what [`arb_raw_output`] draws before colour and
+/// line endings.
+pub fn arb_plain_lines() -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec("[ -~]{0,24}", 0..=8)
+}
+
+/// Lowercase words, one per line: prose that can never be a fence or a
+/// directive.
+pub fn arb_words() -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec(line(), 0..=4)
+}

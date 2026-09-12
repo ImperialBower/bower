@@ -9,10 +9,14 @@
 //! has ever run and never touches `gix`.
 
 use std::fmt;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-use bower_core::prelude::{Expect, Location, RepoPlan, StepId};
+use bower_core::prelude::{
+    Capture, CapturedOutput, Drift, Expect, Location, PlannedStep, RepoPlan, Scrub, StepId, drift,
+    normalize,
+};
 
 use crate::config::{BookConfig, DEFAULT_CHECK, DEFAULT_VERIFY};
 use crate::materialize::{Blobs, blobs_of, read_dir_recursive, write_tree_to_disk};
@@ -44,8 +48,10 @@ pub fn default_work_dir(book_root: &Path) -> PathBuf {
 pub struct Outcome {
     pub command: String,
     pub success: bool,
-    /// Kept for the failure report. Never printed when a step is upheld.
-    pub stderr: String,
+    /// Both streams, interleaved in the order they were written: what a
+    /// reader's terminal shows. The failure report prints its tail, and a
+    /// recorded output is judged against it (EPIC-11 Decision 2).
+    pub output: String,
 }
 
 /// A step's claim, measured against what actually happened.
@@ -54,14 +60,110 @@ pub enum Verdict {
     /// The step behaved as declared.
     Upheld,
     /// It did not. Carries enough to go and fix the book: what happened, the
-    /// command that showed it, and that command's stderr.
+    /// command that showed it, and what that command printed.
     Broken {
         happened: String,
         command: String,
-        stderr: String,
+        output: String,
     },
     /// `expect="none"`.
     Skipped,
+}
+
+/// What became of one recorded output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OutputResult {
+    /// The fence holds what the command printed.
+    Matches,
+    /// The fence is empty: the directive is written and `--record` has not
+    /// run yet. Fails `verify` (EPIC-11 Decision 7).
+    NotRecorded,
+    /// The fence and the live output disagree, first at this line.
+    Drifted(Drift),
+    /// The step's claim did not hold, or the command never ran, so the output
+    /// was not compared (Decision 6).
+    Unjudged,
+}
+
+/// One output block, judged.
+#[derive(Clone, Debug)]
+pub struct OutputVerdict {
+    /// The block's directive: where the report points and `--record` writes.
+    pub loc: Location,
+    pub capture: Capture,
+    /// What the command printed, normalized. Empty when unjudged.
+    pub live: Vec<String>,
+    pub result: OutputResult,
+}
+
+/// Judge one recorded output against what its command printed. Pure, so the
+/// whole table is tested without a compiler.
+#[must_use]
+pub fn judge_output(
+    recorded: &CapturedOutput,
+    verdict: &Verdict,
+    ran: Option<&Outcome>,
+    scrub: &Scrub,
+) -> OutputVerdict {
+    let (Verdict::Upheld, Some(outcome)) = (verdict, ran) else {
+        return OutputVerdict {
+            loc: recorded.loc.clone(),
+            capture: recorded.capture,
+            live: Vec::new(),
+            result: OutputResult::Unjudged,
+        };
+    };
+    let live = normalize(&outcome.output, scrub);
+    let result = if recorded.lines.is_empty() {
+        OutputResult::NotRecorded
+    } else {
+        drift(&recorded.lines, &live).map_or(OutputResult::Matches, OutputResult::Drifted)
+    };
+    OutputVerdict {
+        loc: recorded.loc.clone(),
+        capture: recorded.capture,
+        live,
+        result,
+    }
+}
+
+/// The machine's paths a capture must not keep: the scratch tree, the target
+/// directory, and cargo's home — each as given and as canonicalized, since
+/// cargo prints the canonical spelling (EPIC-11 Decision 4).
+#[must_use]
+pub fn scrub_for(tree_dir: &Path, target_dir: &Path, cargo_home: Option<&Path>) -> Scrub {
+    fn spellings(dir: &Path) -> Vec<String> {
+        let mut out = vec![dir.display().to_string()];
+        if let Ok(c) = dir.canonicalize() {
+            let c = c.display().to_string();
+            if !out.contains(&c) {
+                out.push(c);
+            }
+        }
+        out
+    }
+    let mut pairs = Vec::new();
+    for tree in spellings(tree_dir) {
+        pairs.push((format!("{tree}/"), String::new()));
+        pairs.push((tree, ".".to_string()));
+    }
+    for target in spellings(target_dir) {
+        pairs.push((target, "target".to_string()));
+    }
+    if let Some(home) = cargo_home {
+        for h in spellings(home) {
+            pairs.push((h, "$CARGO_HOME".to_string()));
+        }
+    }
+    Scrub(pairs)
+}
+
+/// Where cargo keeps registry sources: `$CARGO_HOME`, else `~/.cargo`. A
+/// diagnostic inside a dependency names a path under it.
+fn cargo_home() -> Option<PathBuf> {
+    std::env::var_os("CARGO_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cargo")))
 }
 
 #[derive(Clone, Debug)]
@@ -71,12 +173,17 @@ pub struct StepVerdict {
     pub anchor: Location,
     pub expect: Expect,
     pub verdict: Verdict,
+    /// This step's output blocks, judged, in document order.
+    pub outputs: Vec<OutputVerdict>,
 }
 
 #[derive(Debug)]
 pub struct VerifyReport {
     pub repo: String,
     pub verdicts: Vec<StepVerdict>,
+    /// The first step that records output while nothing pins its toolchain:
+    /// its tree has no `rust-toolchain.toml` and the repo sets no `toolchain`.
+    pub unpinned_step: Option<StepId>,
 }
 
 impl VerifyReport {
@@ -85,6 +192,13 @@ impl VerifyReport {
         self.verdicts
             .iter()
             .filter(|v| matches!(v.verdict, Verdict::Broken { .. }))
+    }
+
+    /// Every judged output, with the step it belongs to.
+    pub fn outputs(&self) -> impl Iterator<Item = (&StepVerdict, &OutputVerdict)> {
+        self.verdicts
+            .iter()
+            .flat_map(|v| v.outputs.iter().map(move |o| (v, o)))
     }
 }
 
@@ -106,6 +220,14 @@ pub enum VerifyError {
     NestedWorkspace {
         tree: PathBuf,
     },
+    /// The toolchain a step's tree pins could not be made ready: rustup failed
+    /// to install it. Its own variant for the same reason as
+    /// `NestedWorkspace` — a failed download is not a compile error in the
+    /// book.
+    Toolchain {
+        tree: PathBuf,
+        output: String,
+    },
 }
 
 impl fmt::Display for VerifyError {
@@ -121,11 +243,120 @@ impl fmt::Display for VerifyError {
                  every Cargo.toml above it",
                 tree.display()
             ),
+            Self::Toolchain { tree, output } => {
+                write!(
+                    f,
+                    "the Rust toolchain the tree at {} pins could not be made ready \
+                     (`{TOOLCHAIN_PROBE}` failed); rustup said:",
+                    tree.display()
+                )?;
+                let tail: Vec<&str> = output.lines().rev().take(8).collect();
+                for line in tail.iter().rev() {
+                    write!(f, "\n    {line}")?;
+                }
+                Ok(())
+            }
         }
     }
 }
 
 impl std::error::Error for VerifyError {}
+
+/// The command that asks rustup for a step's toolchain before anything whose
+/// output is kept. Any proxied command would do; this one prints one line and
+/// compiles nothing.
+const TOOLCHAIN_PROBE: &str = "rustc --version";
+
+/// What stays the same from one step to the next.
+struct Bench<'a> {
+    check_cmd: &'a str,
+    verify_cmd: &'a str,
+    toolchain: Option<&'a str>,
+    /// Run before a pinned step's commands: [`TOOLCHAIN_PROBE`], except in
+    /// tests.
+    probe: &'a str,
+    scaffolding: &'a Blobs,
+    tree_dir: PathBuf,
+    target_dir: PathBuf,
+    cargo_home: Option<PathBuf>,
+}
+
+/// One step, verified: its claim, its outputs, and whether it records output
+/// with nothing pinning its toolchain.
+struct StepRun {
+    verdict: Verdict,
+    outputs: Vec<OutputVerdict>,
+    unpinned: bool,
+}
+
+/// Write one step's tree, run its commands, and judge its claim and its
+/// outputs. A step that records output runs serially (Decision 12).
+fn run_step(bench: &Bench, step: &PlannedStep) -> Result<StepRun, VerifyError> {
+    if step.expect == Expect::Skip {
+        return Ok(StepRun {
+            verdict: Verdict::Skipped,
+            outputs: Vec::new(),
+            unpinned: false,
+        });
+    }
+    let mut blobs = bench.scaffolding.clone();
+    blobs.extend(blobs_of(&step.tree));
+    write_tree_to_disk(&bench.tree_dir, &blobs).map_err(|source| VerifyError::Io {
+        path: bench.tree_dir.clone(),
+        source,
+    })?;
+
+    let records = !step.outputs.is_empty();
+    let env = step_env(&blobs, bench.toolchain, records);
+    // rustup installs a pinned toolchain the first time anything asks for it,
+    // and says so on the asking command's stderr. Ask first, with a command
+    // whose output nobody keeps: the install notes never reach a recording,
+    // and a failed install is the verifier's problem, not the book's.
+    if bench.toolchain.is_some() || pins_toolchain(&blobs) {
+        let probe = run(bench.probe, &bench.tree_dir, &bench.target_dir, &env)?;
+        if !probe.success {
+            return Err(VerifyError::Toolchain {
+                tree: bench.tree_dir.clone(),
+                output: probe.output,
+            });
+        }
+    }
+    let check = run(bench.check_cmd, &bench.tree_dir, &bench.target_dir, &env)?;
+    let verify = if check.success && step.expect != Expect::CompileFail {
+        Some(run(
+            bench.verify_cmd,
+            &bench.tree_dir,
+            &bench.target_dir,
+            &env,
+        )?)
+    } else {
+        None
+    };
+    let verdict = verdict_for(step.expect, &check, verify.as_ref());
+
+    let scrub = scrub_for(
+        &bench.tree_dir,
+        &bench.target_dir,
+        bench.cargo_home.as_deref(),
+    );
+    let outputs = step
+        .outputs
+        .iter()
+        .map(|o| {
+            let ran = match o.capture {
+                Capture::Check => Some(&check),
+                Capture::Verify => verify.as_ref(),
+            };
+            judge_output(o, &verdict, ran, &scrub)
+        })
+        .collect();
+
+    Ok(StepRun {
+        verdict,
+        outputs,
+        unpinned: records && bench.toolchain.is_none() && !pins_toolchain(&blobs),
+    })
+}
 
 pub struct Verifier<'a> {
     pub config: &'a BookConfig,
@@ -179,46 +410,45 @@ impl Verifier<'_> {
 
         // One target directory across every step, so twenty steps are not
         // twenty cold builds.
-        let target_dir = self.work_dir.join("target");
-        let tree_dir = self.work_dir.join("tree");
+        let bench = Bench {
+            check_cmd,
+            verify_cmd,
+            toolchain: cfg.and_then(|c| c.toolchain.as_deref()),
+            probe: TOOLCHAIN_PROBE,
+            scaffolding: &scaffolding,
+            tree_dir: self.work_dir.join("tree"),
+            target_dir: self.work_dir.join("target"),
+            cargo_home: cargo_home(),
+        };
 
         let mut verdicts = Vec::new();
+        let mut unpinned_step = None;
         for step in plan.steps.iter().skip(start) {
             if only.is_some_and(|want| want != step.id.0) {
                 continue;
             }
-
-            let verdict = if step.expect == Expect::Skip {
-                Verdict::Skipped
-            } else {
-                let mut blobs = scaffolding.clone();
-                blobs.extend(blobs_of(&step.tree));
-                write_tree_to_disk(&tree_dir, &blobs).map_err(|source| VerifyError::Io {
-                    path: tree_dir.clone(),
-                    source,
-                })?;
-
-                let check = run(check_cmd, &tree_dir, &target_dir)?;
-                let verify = if check.success && step.expect != Expect::CompileFail {
-                    Some(run(verify_cmd, &tree_dir, &target_dir)?)
-                } else {
-                    None
-                };
-                verdict_for(step.expect, &check, verify.as_ref())
-            };
-
+            let StepRun {
+                verdict,
+                outputs,
+                unpinned,
+            } = run_step(&bench, step)?;
+            if unpinned && unpinned_step.is_none() {
+                unpinned_step = Some(step.id.clone());
+            }
             verdicts.push(StepVerdict {
                 seq: step.seq,
                 id: step.id.clone(),
                 anchor: step.anchor.clone(),
                 expect: step.expect,
                 verdict,
+                outputs,
             });
         }
 
         Ok(VerifyReport {
             repo: repo_name,
             verdicts,
+            unpinned_step,
         })
     }
 }
@@ -233,7 +463,7 @@ pub fn verdict_for(expect: Expect, check: &Outcome, verify: Option<&Outcome>) ->
     let broken = |happened: &str, o: &Outcome| Verdict::Broken {
         happened: happened.to_string(),
         command: o.command.clone(),
-        stderr: o.stderr.clone(),
+        output: o.output.clone(),
     };
 
     match expect {
@@ -282,27 +512,87 @@ pub fn nested_workspace(stderr: &str) -> bool {
     stderr.contains("believes it's in a workspace")
 }
 
+/// Does this tree carry its own rustup pin at the root?
+#[must_use]
+pub fn pins_toolchain(blobs: &Blobs) -> bool {
+    blobs.contains_key("rust-toolchain.toml") || blobs.contains_key("rust-toolchain")
+}
+
+/// The environment a step's commands run with, beyond `CARGO_TARGET_DIR`.
+///
+/// The toolchain first (EPIC-11 Decision 10): a tree that pins one keeps its
+/// pin, and only a tree that pins nothing gets the repo's `toolchain` key.
+/// `run` removes the inherited `RUSTUP_TOOLCHAIN` either way, so whatever
+/// launched `bower` never decides.
+///
+/// Then, for a step whose output the book records, the serial trio
+/// (Decision 12): one build job and one test thread, so the order of what is
+/// printed does not depend on scheduling, and no backtrace, so an author's
+/// `RUST_BACKTRACE=1` does not end up in the book.
+#[must_use]
+pub fn step_env(
+    blobs: &Blobs,
+    toolchain: Option<&str>,
+    records_output: bool,
+) -> Vec<(&'static str, String)> {
+    let mut env = Vec::new();
+    if let Some(t) = toolchain
+        && !pins_toolchain(blobs)
+    {
+        env.push(("RUSTUP_TOOLCHAIN", t.to_string()));
+    }
+    if records_output {
+        env.push(("CARGO_BUILD_JOBS", "1".to_string()));
+        env.push(("RUST_TEST_THREADS", "1".to_string()));
+        env.push(("RUST_BACKTRACE", "0".to_string()));
+    }
+    env
+}
+
 /// Run one command in `dir`, with a shared cargo target directory.
 ///
 /// The command is split on whitespace, not handed to a shell. A book needing a
 /// pipeline should put it in a script, the way `bin/security-scan` already does.
-fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyError> {
+fn run(
+    command: &str,
+    dir: &Path,
+    target_dir: &Path,
+    env: &[(&str, String)],
+) -> Result<Outcome, VerifyError> {
     let mut parts = command.split_whitespace();
     let Some(program) = parts.next() else {
         return Err(VerifyError::EmptyCommand);
     };
+    let io = |source| VerifyError::Io {
+        path: PathBuf::from(program),
+        source,
+    };
 
-    let output = Command::new(program)
-        .args(parts)
+    // One pipe for both streams, so the text keeps the order it was written
+    // in: the order a reader's terminal shows (EPIC-11 Decision 2).
+    let (mut reader, writer) = std::io::pipe().map_err(io)?;
+    let mut cmd = Command::new(program);
+    cmd.args(parts)
         .current_dir(dir)
         .env("CARGO_TARGET_DIR", target_dir)
-        .output()
-        .map_err(|source| VerifyError::Io {
-            path: PathBuf::from(program),
-            source,
-        })?;
+        // rustup's cargo proxy exports its own pin to every child, so a
+        // `bower` started by `cargo run` would hand the workspace's toolchain
+        // to the tree and override the tree's `rust-toolchain.toml`.
+        .env_remove("RUSTUP_TOOLCHAIN")
+        .envs(env.iter().map(|(k, v)| (*k, v.as_str())))
+        .stdin(Stdio::null())
+        .stdout(writer.try_clone().map_err(io)?)
+        .stderr(writer);
+    let mut child = cmd.spawn().map_err(io)?;
+    // `cmd` still holds both write ends. Until it is gone the read below never
+    // sees end-of-file, and waits for ever.
+    drop(cmd);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).map_err(io)?;
+    let status = child.wait().map_err(io)?;
+    let output = String::from_utf8_lossy(&bytes).into_owned();
 
-    if !output.status.success() && nested_workspace(&String::from_utf8_lossy(&output.stderr)) {
+    if !status.success() && nested_workspace(&output) {
         return Err(VerifyError::NestedWorkspace {
             tree: dir.to_path_buf(),
         });
@@ -310,8 +600,8 @@ fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyEr
 
     Ok(Outcome {
         command: command.to_string(),
-        success: output.status.success(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        success: status.success(),
+        output,
     })
 }
 
@@ -324,7 +614,7 @@ mod verify_tests {
         Outcome {
             command: cmd.to_string(),
             success: true,
-            stderr: String::new(),
+            output: String::new(),
         }
     }
 
@@ -332,7 +622,7 @@ mod verify_tests {
         Outcome {
             command: cmd.to_string(),
             success: false,
-            stderr: "error[E0308]: mismatched types\n".to_string(),
+            output: "error[E0308]: mismatched types\n".to_string(),
         }
     }
 
@@ -394,12 +684,12 @@ mod verify_tests {
     }
 
     #[test]
-    fn matrix__broken_carries_the_stderr() {
+    fn matrix__broken_carries_the_output() {
         match verdict_for(Expect::Pass, &bad("check"), None) {
             Verdict::Broken {
-                stderr, command, ..
+                output, command, ..
             } => {
-                assert!(stderr.contains("E0308"));
+                assert!(output.contains("E0308"));
                 assert_eq!(command, "check", "the report must name the command");
             }
             other => panic!("expected Broken, got {other:?}"),
@@ -410,8 +700,8 @@ mod verify_tests {
     fn run__reports_success_and_failure() {
         let dir = std::env::temp_dir();
         let target = dir.join("bower-verify-target");
-        assert!(run("true", &dir, &target).unwrap().success);
-        assert!(!run("false", &dir, &target).unwrap().success);
+        assert!(run("true", &dir, &target, &[]).unwrap().success);
+        assert!(!run("false", &dir, &target, &[]).unwrap().success);
     }
 
     #[test]
@@ -468,8 +758,284 @@ mod verify_tests {
     fn run__empty_command_is_an_error() {
         let dir = std::env::temp_dir();
         assert!(matches!(
-            run("   ", &dir, &dir),
+            run("   ", &dir, &dir, &[]),
             Err(VerifyError::EmptyCommand)
         ));
+    }
+
+    /// A shell script in its own directory, run the way `run` runs any
+    /// command: split on whitespace, no shell of ours in between.
+    fn script(case: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bower-verify-run-{case}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s.sh"), body).unwrap();
+        dir
+    }
+
+    #[test]
+    fn run__captures_both_streams_in_order() {
+        // A reader's terminal interleaves the two streams in the order they
+        // were written. Stderr-then-stdout would print cargo's closing
+        // `error: test failed` above libtest's `running 1 test`.
+        let dir = script("order", "echo one\necho two >&2\necho three\n");
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
+        assert_eq!(out.output, "one\ntwo\nthree\n");
+        assert!(out.success);
+    }
+
+    fn blobs(paths: &[&str]) -> Blobs {
+        paths
+            .iter()
+            .map(|p| ((*p).to_string(), (Vec::new(), false)))
+            .collect()
+    }
+
+    #[test]
+    fn toolchain__a_tree_pin_wins() {
+        // hello-playbook teaches the pin. Overriding it would verify a
+        // different book than the one a reader checks out.
+        for pin in ["rust-toolchain.toml", "rust-toolchain"] {
+            let env = step_env(&blobs(&["Cargo.toml", pin]), Some("1.98.1"), false);
+            assert!(
+                !env.iter().any(|(k, _)| *k == "RUSTUP_TOOLCHAIN"),
+                "{pin}: {env:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn toolchain__the_key_fills_a_tree_without_one() {
+        let env = step_env(&blobs(&["Cargo.toml"]), Some("1.98.1"), false);
+        assert!(
+            env.contains(&("RUSTUP_TOOLCHAIN", "1.98.1".to_string())),
+            "{env:?}"
+        );
+        assert!(step_env(&blobs(&["Cargo.toml"]), None, false).is_empty());
+    }
+
+    #[test]
+    fn step_env__a_recorded_output_runs_serially() {
+        let env = step_env(&blobs(&["Cargo.toml"]), None, true);
+        for (key, value) in [
+            ("CARGO_BUILD_JOBS", "1"),
+            ("RUST_TEST_THREADS", "1"),
+            ("RUST_BACKTRACE", "0"),
+        ] {
+            assert!(env.contains(&(key, value.to_string())), "{env:?}");
+        }
+    }
+
+    #[test]
+    fn run__never_passes_the_inherited_toolchain_on() {
+        // Under `cargo test`, rustup's proxy has already exported
+        // RUSTUP_TOOLCHAIN into this process. The child must not see it: that
+        // value is how `bower` was started, not what the book pins.
+        let dir = script("toolchain", "echo \"${RUSTUP_TOOLCHAIN:-unset}\"\n");
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
+        assert_eq!(out.output, "unset\n");
+
+        let set = [("RUSTUP_TOOLCHAIN", "1.98.1".to_string())];
+        let out = run("sh s.sh", &dir, &dir.join("target"), &set).unwrap();
+        assert_eq!(out.output, "1.98.1\n");
+    }
+
+    fn recorded(lines: &[&str]) -> CapturedOutput {
+        CapturedOutput {
+            loc: Location::new("src/ch04.md", 12),
+            capture: Capture::Check,
+            info: "text".to_string(),
+            lines: lines.iter().map(ToString::to_string).collect(),
+        }
+    }
+
+    fn printed(text: &str) -> Outcome {
+        Outcome {
+            command: "cargo check".to_string(),
+            success: false,
+            output: text.to_string(),
+        }
+    }
+
+    const E0308: &str = "    Checking hp v0.1.0 (/scratch/tree)\nerror[E0308]: mismatched types\n --> src/scratch.rs:4:18\n";
+
+    #[test]
+    fn output__a_match_upholds_the_step() {
+        let v = judge_output(
+            &recorded(&["error[E0308]: mismatched types", " --> src/scratch.rs:4:18"]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::Matches);
+    }
+
+    #[test]
+    fn output__drift_fails_verify_and_names_the_line() {
+        let v = judge_output(
+            &recorded(&["error[E0308]: mismatched types", " --> src/scratch.rs:5:18"]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(
+            v.result,
+            OutputResult::Drifted(Drift {
+                line: 2,
+                recorded: Some(" --> src/scratch.rs:5:18".to_string()),
+                live: Some(" --> src/scratch.rs:4:18".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn output__an_empty_fence_is_not_recorded_and_fails() {
+        let v = judge_output(
+            &recorded(&[]),
+            &Verdict::Upheld,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::NotRecorded);
+        assert_eq!(
+            v.live.len(),
+            2,
+            "the live text is what --record would write"
+        );
+    }
+
+    #[test]
+    fn output__a_broken_step_is_unjudged_and_never_recorded() {
+        // The broken claim is the headline. A snapshot of the wrong failure
+        // is worse than none (EPIC-11 Decision 6).
+        let broken = Verdict::Broken {
+            happened: "it compiled".to_string(),
+            command: "cargo check".to_string(),
+            output: String::new(),
+        };
+        let v = judge_output(
+            &recorded(&[]),
+            &broken,
+            Some(&printed(E0308)),
+            &Scrub::default(),
+        );
+        assert_eq!(v.result, OutputResult::Unjudged);
+        assert!(v.live.is_empty());
+
+        // A command that never ran is unjudged too.
+        let v = judge_output(&recorded(&[]), &Verdict::Upheld, None, &Scrub::default());
+        assert_eq!(v.result, OutputResult::Unjudged);
+    }
+
+    #[test]
+    fn scrub_for__names_the_tree_the_target_and_cargo_home() {
+        let s = scrub_for(
+            Path::new("/w/tree"),
+            Path::new("/w/target"),
+            Some(Path::new("/home/me/.cargo")),
+        );
+        assert_eq!(
+            normalize(
+                "error: failed to parse manifest at `/w/tree/Cargo.toml`\nin /w/tree, /w/target/debug, /home/me/.cargo/registry\n",
+                &s
+            ),
+            vec![
+                "error: failed to parse manifest at `Cargo.toml`".to_string(),
+                "in ., target/debug, $CARGO_HOME/registry".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn scrub_for__covers_the_canonical_spelling_too() {
+        // macOS: the temp directory is `/var/folders/…`, and cargo prints
+        // `/private/var/folders/…`. Both must go.
+        let dir = std::env::temp_dir().join("bower-verify-scrub");
+        std::fs::create_dir_all(&dir).unwrap();
+        let canonical = dir.canonicalize().unwrap().display().to_string();
+        let s = scrub_for(&dir, &dir.join("target"), None);
+        assert!(
+            s.0.iter().any(|(from, to)| from == &canonical && to == "."),
+            "{s:?}"
+        );
+    }
+
+    /// Stands in for rustup's proxy: the first command to run in a fresh
+    /// target directory "installs the toolchain" and says so on stderr, the
+    /// way rustup does on a machine that lacks the pinned channel. `probe`
+    /// succeeds; anything else prints `error: <name>` and fails.
+    const FAKE_RUSTUP: &str = concat!(
+        "m=\"$CARGO_TARGET_DIR/installed\"\n",
+        "if [ ! -e \"$m\" ]; then\n",
+        "  mkdir -p \"$CARGO_TARGET_DIR\"\n",
+        "  echo 'info: syncing channel updates for 9.9.9' >&2\n",
+        "  touch \"$m\"\n",
+        "fi\n",
+        "echo \"error: $1\"\n",
+        "[ \"$1\" = probe ] && exit 0\n",
+        "exit 1\n",
+    );
+
+    /// One pinned `compile_fail` step with a `check` output, planned for real.
+    fn pinned_step() -> PlannedStep {
+        use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
+        let text = concat!(
+            "<!-- bower repo=\"r\" file=\"rust-toolchain.toml\" expect=\"compile_fail\" -->\n",
+            "```toml\n[toolchain]\nchannel = \"9.9.9\"\n```\n",
+            "<!-- bower repo=\"r\" output=\"check\" -->\n",
+            "```text\nerror: check\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("ch.md", text)]);
+        let p = plan(&book, &RepoCatalog::from_names(&["r"])).unwrap();
+        p.repos[0].steps[0].clone()
+    }
+
+    fn fake_bench<'a>(case: &str, probe: &'a str, scaffolding: &'a Blobs) -> Bench<'a> {
+        let work = std::env::temp_dir().join(format!("bower-verify-probe-{case}"));
+        let _ = std::fs::remove_dir_all(&work);
+        Bench {
+            check_cmd: "sh rustup.sh check",
+            verify_cmd: "sh rustup.sh verify",
+            toolchain: None,
+            probe,
+            scaffolding,
+            tree_dir: work.join("tree"),
+            target_dir: work.join("target"),
+            cargo_home: None,
+        }
+    }
+
+    fn fake_rustup() -> Blobs {
+        Blobs::from([(
+            "rustup.sh".to_string(),
+            (FAKE_RUSTUP.as_bytes().to_vec(), false),
+        )])
+    }
+
+    #[test]
+    fn run_step__a_toolchain_install_never_reaches_a_recording() {
+        // CI, 12 September 2026: the first `cargo check` on a runner without
+        // the book's pinned 1.95.0 printed rustup's install notes, and
+        // `--record` wrote them into the chapter.
+        let scaffolding = fake_rustup();
+        let bench = fake_bench("install", "sh rustup.sh probe", &scaffolding);
+        let run = run_step(&bench, &pinned_step()).unwrap();
+        assert_eq!(run.verdict, Verdict::Upheld);
+        assert_eq!(run.outputs[0].live, vec!["error: check".to_string()]);
+        assert_eq!(run.outputs[0].result, OutputResult::Matches);
+    }
+
+    #[test]
+    fn run_step__a_toolchain_that_will_not_install_is_the_verifiers_fault() {
+        // A failed download is not a compile error in the book.
+        let scaffolding = fake_rustup();
+        let bench = fake_bench("broken", "sh rustup.sh nope", &scaffolding);
+        match run_step(&bench, &pinned_step()) {
+            Err(VerifyError::Toolchain { output, .. }) => {
+                assert!(output.contains("info: syncing"), "{output}");
+            }
+            Err(other) => panic!("expected Toolchain, got {other}"),
+            Ok(_) => panic!("expected Toolchain, got a verdict"),
+        }
     }
 }

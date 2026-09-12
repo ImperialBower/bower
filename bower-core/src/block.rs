@@ -6,7 +6,7 @@
 //! someone else's code block (say, a chapter of the book showing Bower's
 //! own syntax) is never parsed as one.
 
-use crate::directive::{Directive, Expect, Op};
+use crate::directive::{Capture, Directive, Expect, Op};
 use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName};
 use crate::{BowerError, Errors};
 
@@ -51,6 +51,10 @@ pub struct Block {
     /// is the exercise's detail. Like a play cell it never joins a step or
     /// touches a tree; [`crate::plan`] binds it.
     pub exercise_block: bool,
+    /// `output="…"`: the fence records what that command printed at the bound
+    /// step. Like a play cell it never joins a step or touches a tree;
+    /// [`crate::plan`] binds it (EPIC-11).
+    pub output: Option<Capture>,
 }
 
 /// Extract every annotated block from the book, in document order.
@@ -124,10 +128,24 @@ fn scan_chapter(
 }
 
 /// If the line opens a fence, return its backtick count.
-fn fence_width(line: &str) -> Option<usize> {
+pub(crate) fn fence_width(line: &str) -> Option<usize> {
     let t = line.trim_start();
     let count = t.chars().take_while(|&c| c == '`').count();
     (count >= 3).then_some(count)
+}
+
+/// Where the fence after `from` opens and closes, blank lines between allowed:
+/// `Some((opener, closer))`, with `closer == None` when it never closes, or
+/// `None` when no fence follows. The one scanner behind `capture_block` and
+/// `capture::rewrite`.
+pub(crate) fn fence_span(lines: &[&str], from: usize) -> Option<(usize, Option<usize>)> {
+    let mut j = from;
+    while j < lines.len() && lines[j].trim().is_empty() {
+        j += 1;
+    }
+    let width = fence_width(lines.get(j)?)?;
+    let close = (j + 1..lines.len()).find(|&k| fence_width(lines[k]).is_some_and(|w| w >= width));
+    Some((j, close))
 }
 
 /// Given the index of an opening fence, return the index just past its
@@ -162,32 +180,25 @@ fn capture_block(
     loc: &Location,
     errors: &mut Errors,
 ) -> (Option<BlockContent>, usize) {
-    let mut j = from;
-    while j < lines.len() && lines[j].trim().is_empty() {
-        j += 1;
-    }
-    let Some(&opener) = lines.get(j) else {
+    let Some((open, close)) = fence_span(lines, from) else {
         return (None, from);
     };
-    let Some(width) = fence_width(opener) else {
-        return (None, from);
-    };
-    let info = opener
+    let info = lines[open]
         .trim_start()
         .trim_start_matches('`')
         .trim()
         .to_string();
-    let mut body = Vec::new();
-    let mut k = j + 1;
-    while k < lines.len() {
-        if fence_width(lines[k]).is_some_and(|w| w >= width) {
-            return (Some(BlockContent { info, lines: body }), k + 1);
-        }
-        body.push(lines[k].to_string());
-        k += 1;
-    }
-    errors.push(BowerError::UnclosedFence { loc: loc.clone() });
-    (None, lines.len())
+    let Some(k) = close else {
+        errors.push(BowerError::UnclosedFence { loc: loc.clone() });
+        return (None, lines.len());
+    };
+    (
+        Some(BlockContent {
+            info,
+            lines: lines[open + 1..k].iter().map(ToString::to_string).collect(),
+        }),
+        k + 1,
+    )
 }
 
 /// Does the directive say anything about a repo tree? Play cells and
@@ -198,6 +209,39 @@ fn carries_tree_keys(d: &Directive) -> bool {
         || d.region.is_some()
         || d.src.is_some()
         || !d.paths.is_empty()
+}
+
+/// A tree block's op decides which other keys it needs: a file (or paths),
+/// a region for `region`, a source for `copy`, and a fence for the ops that
+/// write text.
+fn require_op_keys(
+    directive: &Directive,
+    op: Op,
+    has_content: bool,
+    loc: &Location,
+    errors: &mut Errors,
+) {
+    if op.needs_file() && directive.file.is_none() && directive.paths.is_empty() {
+        errors.push(BowerError::MissingKey {
+            loc: loc.clone(),
+            key: "file".to_string(),
+        });
+    }
+    if op == Op::Region && directive.region.is_none() {
+        errors.push(BowerError::MissingKey {
+            loc: loc.clone(),
+            key: "region".to_string(),
+        });
+    }
+    if op == Op::Copy && directive.src.is_none() {
+        errors.push(BowerError::MissingKey {
+            loc: loc.clone(),
+            key: "src".to_string(),
+        });
+    }
+    if op.needs_block() && !has_content {
+        errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
+    }
 }
 
 /// Merge include defaults, validate keys against the catalog and the op's
@@ -214,6 +258,8 @@ fn resolve(
     seq_in_book: usize,
     errors: &mut Errors,
 ) -> Option<Block> {
+    // Read before the include is resolved: the overlay clears it.
+    let included = directive.include.is_some();
     if let Some(path) = directive.include.clone() {
         match resolve_include(&path, loc, book, errors) {
             Some((defaults, lib_content)) => {
@@ -248,10 +294,27 @@ fn resolve(
 
     let play = directive.notebook.is_some();
     let tree_keys = carries_tree_keys(&directive);
-    let exercise_block = directive.exercise.is_some() && !tree_keys && !play;
+    let output = directive.output;
+    let exercise_block = directive.exercise.is_some() && !tree_keys && !play && output.is_none();
     let op = directive.op.unwrap_or_default();
 
-    if play {
+    if output.is_some() {
+        // An output block quotes what a command printed at a step. It names
+        // its step and nothing else: not a tree, a cell, an exercise, or a
+        // claim — and not an include, because `--record` writes into the
+        // chapter and a library entry is not one.
+        if tree_keys
+            || play
+            || directive.exercise.is_some()
+            || directive.expect.is_some()
+            || included
+        {
+            errors.push(BowerError::OutputConflictingKeys { loc: loc.clone() });
+        }
+        if content.is_none() {
+            errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
+        }
+    } else if play {
         // A play cell is a notebook concern: it needs its code block and
         // must not carry anything that would touch a repo tree — nor be an
         // exercise, which is a different kind of aside.
@@ -271,27 +334,7 @@ fn resolve(
             errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
         }
     } else {
-        if op.needs_file() && directive.file.is_none() && directive.paths.is_empty() {
-            errors.push(BowerError::MissingKey {
-                loc: loc.clone(),
-                key: "file".to_string(),
-            });
-        }
-        if op == Op::Region && directive.region.is_none() {
-            errors.push(BowerError::MissingKey {
-                loc: loc.clone(),
-                key: "region".to_string(),
-            });
-        }
-        if op == Op::Copy && directive.src.is_none() {
-            errors.push(BowerError::MissingKey {
-                loc: loc.clone(),
-                key: "src".to_string(),
-            });
-        }
-        if op.needs_block() && content.is_none() {
-            errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
-        }
+        require_op_keys(&directive, op, content.is_some(), loc, errors);
     }
 
     if errors.len() > before {
@@ -301,9 +344,9 @@ fn resolve(
     Some(Block {
         loc: loc.clone(),
         repo,
-        // Neither a play cell nor a block-form exercise applies to a tree;
-        // Prose is the inert op.
-        op: if play || exercise_block {
+        // Neither a play cell, a block-form exercise, nor an output applies
+        // to a tree; Prose is the inert op.
+        op: if play || exercise_block || output.is_some() {
             Op::Prose
         } else {
             op
@@ -325,6 +368,7 @@ fn resolve(
         play,
         exercise: directive.exercise,
         exercise_block,
+        output,
     })
 }
 
@@ -535,5 +579,69 @@ mod block_tests {
         let src = book("<!-- bower repo=\"failers\" file=\"x\" -->\n```rust\nnever closes\n");
         let (_, errors) = extract(&src, &catalog());
         assert!(matches!(errors.0[0], BowerError::UnclosedFence { .. }));
+    }
+
+    #[test]
+    fn extract__output_block_is_inert() {
+        let src = book(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" output=\"check\" -->\n```text\nerror: e\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(errors.is_empty(), "{errors}");
+        let b = &blocks[1];
+        assert_eq!(b.output, Some(Capture::Check));
+        assert_eq!(b.op, Op::Prose);
+        assert_eq!(b.content.lines, vec!["error: e".to_string()]);
+    }
+
+    #[test]
+    fn extract__output_needs_its_fence() {
+        let src = book("<!-- bower repo=\"failers\" output=\"check\" -->\nprose instead\n");
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(blocks.is_empty());
+        assert!(
+            matches!(errors.0[0], BowerError::DirectiveWithoutBlock { .. }),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn extract__output_with_tree_keys_is_refused() {
+        for keys in [
+            "file=\"a.rs\"",
+            "op=\"none\"",
+            "expect=\"pass\"",
+            "notebook=\"play\"",
+            "exercise=\"Try\"",
+        ] {
+            let src = book(&format!(
+                "<!-- bower repo=\"failers\" output=\"check\" {keys} -->\n```text\nx\n```\n"
+            ));
+            let (blocks, errors) = extract(&src, &catalog());
+            assert!(blocks.is_empty(), "{keys}");
+            assert!(
+                errors
+                    .0
+                    .iter()
+                    .any(|e| matches!(e, BowerError::OutputConflictingKeys { .. })),
+                "{keys}: {errors}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract__output_with_include_is_refused() {
+        // `--record` writes into the chapter, and a library entry is not one.
+        let mut src = book("<!-- bower include=\"blocks/out.md\" output=\"check\" -->\n");
+        src.library.insert(
+            "blocks/out.md".to_string(),
+            "<!-- bower repo=\"failers\" -->\n```text\nx\n```\n".to_string(),
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(blocks.is_empty());
+        assert!(
+            matches!(errors.0[0], BowerError::OutputConflictingKeys { .. }),
+            "{errors}"
+        );
     }
 }

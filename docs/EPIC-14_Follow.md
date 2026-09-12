@@ -1,5 +1,20 @@
 # EPIC-14: `bower follow` — the reader's CLI (FLW)
 
+## Summary
+
+- **Builds:** `bower-follow`, a reader's CLI (`start`, `where`, `diff`, `next`,
+  `check`) that walks a generated repo and runs the book's own verifier.
+- **Why:** every Bower tool faces the author and needs `bower.toml`; the reader
+  gets `git checkout {tag}` and nothing else.
+- **Shape:** a `.bower/steps` manifest in the final tree, and the verification
+  matrix moved into `bower-core/src/verdict.rs` so `verify`, the exercise box,
+  and `follow check` share one definition.
+- **Proves it:** `bower-follow start --from test-that-fails && bower-follow
+  check` exits 1, and `cargo tree -p bower-follow` lists only two crates.
+- **Status:** Planned, filed 10 September 2026, nothing started.
+
+---
+
 ## Context
 
 Every Bower tool faces the author. `bower` loads `bower.toml` before it

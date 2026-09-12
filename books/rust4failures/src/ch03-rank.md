@@ -97,9 +97,12 @@ impl From<char> for Rank {
 Every rank is listed. Every card in the deck is covered. The code is still
 rejected, and the message is the lesson:
 
-```console
-$ cargo check
+<!-- bower repo="rust4failures" output="check" -->
+
+```text
+[...]
 error[E0004]: non-exhaustive patterns: `'\0'..='/'`, `'1'`, `':'..='@'` and 9 more not covered
+[...]
 ```
 
 `char` is not "the characters on a playing card". `char` is every Unicode scalar

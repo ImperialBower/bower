@@ -103,6 +103,29 @@ reading and start typing: the box under the code above tells you how to fork
 the repository, check out exactly this commit, and run the tests yourself. The
 next section is one answer, and it stays folded until you open it.
 
+Here is the part of what `cargo test` prints at this step that matters:
+
+<!-- bower repo="hello-playbook" output="verify" -->
+
+```text
+[...]
+thread 'tests::greet_ignores_stray_whitespace' panicked at src/lib.rs:20:9:
+assertion `left == right` failed
+  left: "Hello,   world  !"
+ right: "Hello, world!"
+[...]
+```
+
+That is not a paste. The `output="verify"` directive above binds the block to
+this step, and `bower verify` runs the tests and fails the day what they print
+changes. `bower verify --record` is what filled it in, with the whole output.
+
+The two `[...]` lines are a trim, made by hand after recording. Each one stands
+for lines left out, so the quote can skip the test list and the summary and
+keep only the failure. It is still checked: the lines that remain must appear
+in the output, in this order. `--record` leaves the trim alone for as long as
+that holds, and writes the whole output back the day it does not.
+
 ## The fix
 
 <!-- bower repo="hello-playbook" step="test-that-passes" file="src/lib.rs" op="region" region="greet" msg="fix: greet ignores stray whitespace" -->
@@ -148,6 +171,23 @@ commit, and that commit genuinely does not build.
 
 Notice the blank line at the end of that block. That is the separator promised
 earlier — it belongs to the region, not to the file around it.
+
+And here is what the compiler says about it, checked the same way:
+
+<!-- bower repo="hello-playbook" output="check" -->
+
+```text
+error[E0308]: mismatched types
+ --> src/scratch.rs:4:18
+  |
+4 |     let n: u32 = "42";
+  |            ---   ^^^^ expected `u32`, found `&str`
+  |            |
+  |            expected due to this
+
+For more information about this error, try `rustc --explain E0308`.
+error: could not compile `hello-playbook` (lib) due to 1 previous error
+```
 
 ## The repair
 

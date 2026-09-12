@@ -22,6 +22,11 @@ use time::format_description::well_known::Rfc3339;
 pub const DEFAULT_CHECK: &str = "cargo check";
 pub const DEFAULT_VERIFY: &str = "cargo test";
 
+/// Where rustc explains an error code. The `links.error_code` a repo gets when
+/// its `check` command is cargo and `[links]` declares none — derived the way
+/// `fork` is derived from `github`.
+pub const RUSTC_ERROR_CODES: &str = "https://doc.rust-lang.org/error_codes/{code}.html";
+
 /// The parsed `bower.toml`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BookConfig {
@@ -73,6 +78,10 @@ pub struct RepoConfig {
     pub check: Option<String>,
     /// Command that must *test* a step's tree.
     pub verify: Option<String>,
+    /// The rustup toolchain a step's commands run on when the step's tree
+    /// pins none. A tree's own `rust-toolchain.toml` always wins: it is what a
+    /// reader who checks the step out gets (EPIC-11 Decision 10).
+    pub toolchain: Option<String>,
     /// The one setting the kernel cares about.
     pub keep_region_markers: bool,
     pub links: LinkTemplates,
@@ -107,6 +116,10 @@ pub struct LinkTemplates {
     /// The repo's verify command, default applied: the command after every
     /// other kind of step.
     pub verify: Option<String>,
+    /// Where an error code in a recorded output links:
+    /// `https://…/{code}.html`. Declarable in `[links]`; derived from a cargo
+    /// `check` command when absent (EPIC-11).
+    pub error_code: Option<String>,
 }
 
 /// Why a configuration could not be loaded. Every variant names the file, so a
@@ -214,6 +227,12 @@ impl BookConfig {
                             .clone()
                             .unwrap_or_else(|| DEFAULT_VERIFY.to_string()),
                     );
+                    let error_code = r.links.error_code.clone().or_else(|| {
+                        check
+                            .as_deref()
+                            .is_some_and(|c| c.split_whitespace().next() == Some("cargo"))
+                            .then(|| RUSTC_ERROR_CODES.to_string())
+                    });
                     (
                         name,
                         RepoConfig {
@@ -223,6 +242,7 @@ impl BookConfig {
                             template: r.template,
                             check: r.check,
                             verify: r.verify,
+                            toolchain: r.toolchain,
                             keep_region_markers: r.keep_region_markers,
                             links: LinkTemplates {
                                 blob: r.links.blob,
@@ -233,6 +253,7 @@ impl BookConfig {
                                 clone,
                                 check,
                                 verify,
+                                error_code,
                             },
                         },
                     )
@@ -296,6 +317,7 @@ struct WireRepo {
     template: Option<PathBuf>,
     check: Option<String>,
     verify: Option<String>,
+    toolchain: Option<String>,
     #[serde(default)]
     keep_region_markers: bool,
     #[serde(default)]
@@ -309,6 +331,7 @@ struct WireLinks {
     tree: Option<String>,
     commit: Option<String>,
     fork: Option<String>,
+    error_code: Option<String>,
 }
 
 #[cfg(test)]
@@ -472,6 +495,48 @@ mod config_tests {
             RepoSpec {
                 keep_region_markers: false
             }
+        );
+    }
+
+    #[test]
+    fn config__a_cargo_repo_links_error_codes_to_rustc() {
+        let cfg = BookConfig::parse(&format!("{MINIMAL}[repos.r]\n")).unwrap();
+        assert_eq!(
+            cfg.repos.get("r").unwrap().links.error_code.as_deref(),
+            Some(RUSTC_ERROR_CODES)
+        );
+    }
+
+    #[test]
+    fn config__a_declared_error_code_link_wins() {
+        let text = format!(
+            "{MINIMAL}[repos.r]\n[repos.r.links]\nerror_code = \"https://codes.invalid/{{code}}\"\n"
+        );
+        let cfg = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            cfg.repos.get("r").unwrap().links.error_code.as_deref(),
+            Some("https://codes.invalid/{code}")
+        );
+    }
+
+    #[test]
+    fn config__a_repo_that_is_not_cargo_gets_no_error_code_link() {
+        // rustc's codes mean nothing to `make check`. No link beats a wrong one.
+        let text = format!("{MINIMAL}[repos.r]\ncheck = \"make check\"\n");
+        let cfg = BookConfig::parse(&text).unwrap();
+        assert_eq!(cfg.repos.get("r").unwrap().links.error_code, None);
+    }
+
+    #[test]
+    fn config__toolchain_is_optional() {
+        let bare = BookConfig::parse(&format!("{MINIMAL}[repos.r]\n")).unwrap();
+        assert_eq!(bare.repos.get("r").unwrap().toolchain, None);
+
+        let text = format!("{MINIMAL}[repos.r]\ntoolchain = \"1.98.1\"\n");
+        let pinned = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            pinned.repos.get("r").unwrap().toolchain.as_deref(),
+            Some("1.98.1")
         );
     }
 }

@@ -301,6 +301,25 @@ fn sample_book_renders_the_exercise_and_folds_its_answer() {
     assert!(fold < fix, "the fold must precede the fix: {ch04}");
 }
 
+#[test]
+fn sample_book_captions_the_recorded_outputs() {
+    let ch04 = &rendered_chapters()[3];
+    assert!(
+        ch04.contains(
+            "<span class=\"step-output\"><sub>$ cargo test · step 011 of hello-playbook</sub></span>"
+        ),
+        "{ch04}"
+    );
+    assert!(
+        ch04.contains(concat!(
+            "<span class=\"step-output\"><sub>$ cargo check · step 013 of hello-playbook · ",
+            "[E0308](https://doc.rust-lang.org/error_codes/E0308.html)</sub></span>"
+        )),
+        "{ch04}"
+    );
+    assert!(ch04.contains("error[E0308]: mismatched types"), "{ch04}");
+}
+
 /// End to end through mdBook itself. Ignored: it needs `mdbook` installed and
 /// `mdbook-bower` on PATH. Run with:
 ///

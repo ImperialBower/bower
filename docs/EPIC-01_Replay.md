@@ -1,5 +1,18 @@
 # EPIC-01: Replay — book plan to git history (RPL)
 
+## Summary
+
+- **Builds:** the `bower` CLI: `bower plan` and `bower build` turn a book into a
+  deterministic git repository, one commit per step.
+- **Why:** the kernel produced a `BookPlan` and nothing turned it into a repo.
+- **Shape:** `bower-core` stays pure; a new `bower` crate owns config, loading,
+  and a `Replayer` with fixed identity and timestamps, so SHAs never move.
+- **Proves it:** `bower/tests/determinism.rs` replays the sample book twice and
+  asserts identical SHAs, 26 tags, and the final tree.
+- **Status:** Shipped, 1 September 2026; verification deferred to EPIC-02.
+
+---
+
 ## Context
 
 Phase 1 shipped. `bower-core` is a pure kernel: it parses `<!-- bower … -->`

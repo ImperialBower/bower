@@ -1,5 +1,21 @@
 # EPIC-12: Generated back matter — the failure index (IDX)
 
+## Summary
+
+- **Builds:** generated back matter for every target: a failure index, a step
+  index, and a file index, placed by an `index=` directive.
+- **Why:** the only index is `STEPS.md` inside the generated repo, and a book
+  about failing cannot find the chapter that failed the same way.
+- **Shape:** `back_matter(book, plan)` folds the plan into a step spine,
+  failure rows, and `FileBiography` diffs; `render::chapter` substitutes the
+  tables per target.
+- **Proves it:** `backmatter__scratch_rs_is_created_changed_deleted` and
+  `publish__pdf_with_an_index_compiles`.
+- **Status:** Planned, filed 10 September 2026; error-code and failing-test
+  columns wait on EPIC-11.
+
+---
+
 ## Context
 
 A book about failing should be indexed by its failures. Idea A9

@@ -131,6 +131,56 @@ impl std::str::FromStr for Expect {
     }
 }
 
+/// Whose output an `output="…"` block records: the repo's `check` command or
+/// its `verify` command, as `bower.toml` names them (EPIC-11 Decision 2).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Capture {
+    Check,
+    Verify,
+}
+
+impl Capture {
+    /// Both captures, for coverage reporting in the testkit.
+    #[must_use]
+    pub fn all() -> [Capture; 2] {
+        [Self::Check, Self::Verify]
+    }
+
+    /// Does the verifier run this capture's command at a step that claims
+    /// `expect`? `check` runs unless the step is skipped; `verify` runs only
+    /// when the check must pass. A fence the verifier could never fill is a
+    /// typo, and `plan` says so (`BowerError::OutputNeverRuns`).
+    #[must_use]
+    pub fn runs_under(self, expect: Expect) -> bool {
+        match self {
+            Self::Check => expect != Expect::Skip,
+            Self::Verify => matches!(expect, Expect::Pass | Expect::TestFail),
+        }
+    }
+}
+
+impl std::fmt::Display for Capture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `pad`, not `write!`: the verify report aligns captures in a column.
+        f.pad(match self {
+            Self::Check => "check",
+            Self::Verify => "verify",
+        })
+    }
+}
+
+impl std::str::FromStr for Capture {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "check" => Ok(Self::Check),
+            "verify" => Ok(Self::Verify),
+            other => Err(other.to_string()),
+        }
+    }
+}
+
 /// One parsed directive, keys as written. Nothing is defaulted or validated
 /// against the catalog yet — that happens in [`crate::block`] where the
 /// directive meets its code block and the repo catalog.
@@ -156,6 +206,9 @@ pub struct Directive {
     /// with no tree keys at all, a block-form exercise whose fence is the
     /// detail. See `docs/superpowers/specs/2026-09-06-exercises-design.md`.
     pub exercise: Option<String>,
+    /// `output="check"|"verify"` — the fence holds what that command printed
+    /// at the bound step, normalized. Never repo content (EPIC-11).
+    pub output: Option<Capture>,
 }
 
 impl Directive {
@@ -226,6 +279,14 @@ impl Directive {
                 "include" => d.include = Some(value),
                 "after" => d.after = Some(value),
                 "exercise" => d.exercise = Some(value),
+                "output" => match value.parse::<Capture>() {
+                    Ok(c) => d.output = Some(c),
+                    Err(v) => errors.push(BowerError::BadValue {
+                        loc: loc.clone(),
+                        key: "output".to_string(),
+                        value: v,
+                    }),
+                },
                 "notebook" => {
                     if value == "play" {
                         d.notebook = Some(value);
@@ -279,6 +340,7 @@ impl Directive {
             after: self.after.clone().or_else(|| defaults.after.clone()),
             notebook: self.notebook.clone().or_else(|| defaults.notebook.clone()),
             exercise: self.exercise.clone().or_else(|| defaults.exercise.clone()),
+            output: self.output.or(defaults.output),
             paths: if self.paths.is_empty() {
                 defaults.paths.clone()
             } else {
@@ -398,6 +460,40 @@ mod directive_tests {
     }
 
     #[test]
+    fn parse__output_accepts_check_and_verify() {
+        for (value, want) in [("check", Capture::Check), ("verify", Capture::Verify)] {
+            let line = format!("<!-- bower repo=\"failers\" output=\"{value}\" -->");
+            assert_eq!(Directive::parse(&line, &loc()).unwrap().output, Some(want));
+        }
+    }
+
+    #[test]
+    fn parse__output_rejects_any_other_value() {
+        // The idea's bare `<!-- bower output -->` does not parse at all, and
+        // a stream name is not a capture: captures name commands.
+        let errs =
+            Directive::parse("<!-- bower repo=\"r\" output=\"stderr\" -->", &loc()).unwrap_err();
+        assert!(
+            matches!(&errs.0[0], BowerError::BadValue { key, value, .. } if key == "output" && value == "stderr"),
+            "{errs}"
+        );
+    }
+
+    #[test]
+    fn capture__runs_under_follows_the_matrix() {
+        // `check` runs unless the step is skipped; `verify` only where the
+        // check must pass (bower/src/verify.rs).
+        assert!(Capture::Check.runs_under(Expect::Pass));
+        assert!(Capture::Check.runs_under(Expect::CompileFail));
+        assert!(Capture::Check.runs_under(Expect::TestFail));
+        assert!(!Capture::Check.runs_under(Expect::Skip));
+        assert!(Capture::Verify.runs_under(Expect::Pass));
+        assert!(!Capture::Verify.runs_under(Expect::CompileFail));
+        assert!(Capture::Verify.runs_under(Expect::TestFail));
+        assert!(!Capture::Verify.runs_under(Expect::Skip));
+    }
+
+    #[test]
     fn parse__paths_splits_on_commas() {
         let d = Directive::parse(
             "<!-- bower repo=\"r\" op=\"delete\" paths=\"a.rs, b.rs\" -->",
@@ -430,6 +526,9 @@ mod directive_tests {
         }
         for e in Expect::all() {
             assert_eq!(e.to_string().parse::<Expect>().unwrap(), e);
+        }
+        for c in Capture::all() {
+            assert_eq!(c.to_string().parse::<Capture>().unwrap(), c);
         }
     }
 

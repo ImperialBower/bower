@@ -29,6 +29,7 @@
 )]
 
 pub mod block;
+pub mod capture;
 pub mod directive;
 pub mod display;
 pub mod plan;
@@ -42,16 +43,19 @@ pub mod prelude {
 
     pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
-    pub use crate::directive::{Directive, Expect, Op};
+    pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, rewrite, tidy};
+    pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
     pub use crate::plan::{
-        BookPlan, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan, lock_text, plan,
+        BookPlan, CapturedOutput, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan,
+        lock_text, plan,
     };
     pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
     pub use crate::step::StepId;
     pub use crate::tree::{FileBody, ShowMark, TreeState, show_marker};
 }
 
+use crate::directive::{Capture, Expect};
 use crate::source::Location;
 
 /// The central kernel error. Every variant carries enough context to point
@@ -173,6 +177,29 @@ pub enum BowerError {
     /// A play cell also declares `exercise=`. A cell is one thing or the
     /// other.
     ExerciseConflictingKeys { loc: Location },
+    /// An `output` block has no preceding step of its repo to attach to, and
+    /// names none explicitly.
+    OutputUnbound { loc: Location },
+    /// An `output` block names a step that does not exist.
+    OutputUnknownStep { loc: Location, step: String },
+    /// An `output` block carries a key that belongs to another kind of block:
+    /// a tree key, `notebook`, `exercise`, `expect`, or `include`.
+    OutputConflictingKeys { loc: Location },
+    /// A step already has an output block for this capture; reported at the
+    /// second one.
+    OutputDuplicate {
+        loc: Location,
+        step: String,
+        capture: Capture,
+    },
+    /// The bound step never runs this capture's command: `verify` on a
+    /// `compile_fail` step, or anything on a `none` step.
+    OutputNeverRuns {
+        loc: Location,
+        step: String,
+        capture: Capture,
+        expect: Expect,
+    },
 }
 
 impl BowerError {
@@ -210,7 +237,12 @@ impl BowerError {
             | Self::ExerciseUnknownStep { loc, .. }
             | Self::ExerciseDuplicate { loc, .. }
             | Self::ExerciseWithoutAnswer { loc, .. }
-            | Self::ExerciseConflictingKeys { loc } => Some(loc),
+            | Self::ExerciseConflictingKeys { loc }
+            | Self::OutputUnbound { loc }
+            | Self::OutputUnknownStep { loc, .. }
+            | Self::OutputConflictingKeys { loc }
+            | Self::OutputDuplicate { loc, .. }
+            | Self::OutputNeverRuns { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -348,6 +380,30 @@ impl std::fmt::Display for BowerError {
             Self::ExerciseConflictingKeys { loc } => {
                 write!(f, "{loc}: a play cell cannot also be an exercise")
             }
+            Self::OutputUnbound { loc } => {
+                write!(f, "{loc}: output block has no preceding step to attach to")
+            }
+            Self::OutputUnknownStep { loc, step } => write!(
+                f,
+                "{loc}: output block names step `{step}`, which does not exist"
+            ),
+            Self::OutputConflictingKeys { loc } => write!(
+                f,
+                "{loc}: output block carries keys of another kind of block; it names only its repo, step, and capture"
+            ),
+            Self::OutputDuplicate { loc, step, capture } => write!(
+                f,
+                "{loc}: step `{step}` already has an output=\"{capture}\" block"
+            ),
+            Self::OutputNeverRuns {
+                loc,
+                step,
+                capture,
+                expect,
+            } => write!(
+                f,
+                "{loc}: step `{step}` declares expect=\"{expect}\", so its `{capture}` command never runs"
+            ),
         }
     }
 }

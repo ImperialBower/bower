@@ -1,5 +1,19 @@
 # EPIC-07: `--target pdf` — Typst, and a PDF that is the same twice (PDF)
 
+## Summary
+
+- **Builds:** `bower publish --target pdf`, a Typst-rendered PDF that is
+  byte-identical across runs.
+- **Why:** spec § 13 M1 names `pdf`; the spike showed LaTeX cannot reproduce
+  bytes even under `SOURCE_DATE_EPOCH`, and Typst can.
+- **Shape:** `Target::Pdf`, a `TypstRenderer` running `pandoc --to typst` then
+  `typst compile`, a `template.typ` for code typography, and a font guard.
+- **Proves it:** `pdf_is_byte_identical_across_runs` in the ignored lane.
+- **Status:** Shipped at `386f3ec`, 2 September 2026; long URLs still wrap in
+  code blocks.
+
+---
+
 ## Context
 
 EPIC-06 shipped `bower publish` with two targets. `Target`

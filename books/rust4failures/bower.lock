@@ -3,3 +3,10 @@
 [rust4failures]
 001 kata expect=compile_fail anchor=src/ch01-local_development.md:95 files=Cargo.toml,Cargo.lock,src/lib.rs,.github/workflows/CI.yaml
 002 kata-compiles expect=test_fail anchor=src/ch01-local_development.md:216 files=src/lib.rs
+    output verify at=src/ch01-local_development.md:262
+    > [...]
+    > thread 'tests::hello_world' panicked at src/lib.rs:31:9:
+    > assertion `left == right` failed
+    >   left: "Hello, world!"
+    >  right: "Hello,  wirld!!"
+    > [...]

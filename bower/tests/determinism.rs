@@ -5,7 +5,7 @@
 //! is deliberate: the artifact a reader runs is the artifact under test, and it
 //! keeps the CLI's own argument handling inside the guarantee.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -30,9 +30,14 @@ fn scratch(case: &str) -> PathBuf {
 
 /// Run `bower build` and return the HEAD id it reports.
 fn build(out: &Path) -> String {
+    build_from(&book_root(), out)
+}
+
+/// `build`, for any book.
+fn build_from(book: &Path, out: &Path) -> String {
     let output = Command::new(env!("CARGO_BIN_EXE_bower"))
         .arg("--book")
-        .arg(book_root())
+        .arg(book)
         .arg("build")
         .arg("-o")
         .arg(out)
@@ -53,6 +58,53 @@ fn build(out: &Path) -> String {
         .expect("build must report a HEAD id");
     assert_eq!(head.len(), 40, "a HEAD id is 40 hex characters: {head}");
     head.to_string()
+}
+
+/// Copy a book, leaving out mdBook's render output, which is not part of it.
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap();
+        if name == "book" {
+            continue;
+        }
+        let target = to.join(name);
+        if path.is_dir() {
+            copy_dir(&path, &target);
+        } else {
+            std::fs::copy(&path, &target).unwrap();
+        }
+    }
+}
+
+/// Recording an output rewrites a fence, which moves every later line of its
+/// chapter. Commits name steps by id, never by line, so no SHA may move
+/// (EPIC-11 Decision 9, exit criterion 5). No compiler needed: any new fence
+/// body proves it.
+#[test]
+fn replay__recording_an_output_moves_no_sha() {
+    let book = scratch("sha-book");
+    copy_dir(&book_root(), &book);
+    let before = build_from(&book, &scratch("sha-before"));
+
+    let chapter = book
+        .join("src")
+        .join("ch04-tests-and-failing-on-purpose.md");
+    let text = std::fs::read_to_string(&chapter).unwrap();
+    let line = text
+        .lines()
+        .position(|l| l.contains("output=\"check\""))
+        .unwrap()
+        + 1;
+    let longer: Vec<String> = ["a", "longer", "recording", "moves", "every later line"]
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    std::fs::write(&chapter, bower_core::prelude::rewrite(&text, line, &longer)).unwrap();
+
+    let after = build_from(&book, &scratch("sha-after"));
+    assert_eq!(before, after, "a fence body is not part of any commit");
 }
 
 /// Loose refs under `.git/refs/tags`, read from disk rather than through a git

@@ -134,6 +134,7 @@ Full key set:
 | `include` | no | — | Pull block content from the block library instead of inline (see § 14.3) |
 | `notebook` | no | — | `play`: a live notebook cell, not repo content (see § 15) |
 | `exercise` | no | — | A "your turn" task on this step. Alone, with no tree keys, it is a block-form exercise whose fence is the detail. See `docs/superpowers/specs/2026-09-06-exercises-design.md` |
+| `output` | no | — | `check` \| `verify`: the fence holds what that command printed at the bound step, normalized. `bower verify` compares; `bower verify --record` writes. A `[...]` line elides. See `docs/EPIC-11_Diagnostics.md` |
 
 *`file` is not required for `op="delete"` steps declared with `paths=[…]`, nor
 for pure-narrative steps (`op="none"`) that exist only to carry a commit message
@@ -345,8 +346,8 @@ step's `expect`:
 | `expect` | Verifier asserts |
 |---|---|
 | `pass` (default) | Build and tests succeed at this tree state |
-| `compile_fail` | `cargo check` **fails** — and, optionally, stderr matches a stored pattern (trybuild-style) |
-| `test_fail` | Build succeeds, named test **fails** |
+| `compile_fail` | `cargo check` **fails**. An `output="check"` block, if the book has one, must match what it printed (EPIC-11) |
+| `test_fail` | Build succeeds, tests **fail**. An `output="verify"` block, if present, records which test and how (EPIC-11) |
 | `none` | Step is skipped (prose-only steps, mid-refactor states) |
 
 This is the load-bearing feature for *Rust for Failures*: the book's controlled
@@ -520,12 +521,13 @@ milestone there is scoped only after Phase 5 has produced a real book end to end
    was never in question. Each book publishes to its own GitHub repository,
    which receives the code on its default branch and the rendered book on
    `site_branch`. M4 (§ 13) may assume a shared workspace again.
-3. ~~**Diagnostic snapshots for `compile_fail`**~~ **Decided: failure-only**
-   (EPIC-02, 1 September 2026). `bower verify` asserts that the check command
-   fails and captures its stderr for the failure report, but matches nothing
-   against a stored pattern. Snapshots remain a plausible opt-in; nothing in the
-   verifier's shape prevents adding them later, and no book has yet needed the
-   stronger claim.
+3. ~~**Diagnostic snapshots for `compile_fail`**~~ **Decided: failure-only by
+   default; visible opt-in snapshots** (EPIC-02, 1 September 2026; amended by
+   EPIC-11, 11 September 2026). `expect` still asserts only *that* a step
+   fails. A book that quotes *what* the compiler said puts an `output="check"`
+   or `output="verify"` block after the step; `bower verify` compares its
+   normalized text and `--record` writes it. The snapshot is book content,
+   rendered and diffed in review — never a hidden fixture.
 4. ~~**Should generated repos carry GitHub Actions** that re-verify on push, as a
    public badge that every step passes?~~ **Decided: yes** (4 September 2026).
 5. ~~**Crate naming on crates.io.**~~ **Checked 2 September 2026: all free.**

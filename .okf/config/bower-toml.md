@@ -3,7 +3,7 @@ type: Configuration
 title: bower.toml
 description: The book's configuration at its root — epoch, identity, and per-repo remotes, templates, commands and link templates. Unknown fields are a load-time error.
 tags: [config, toml]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-12T00:00:00Z'
 ---
 
 # Where it lives
@@ -27,8 +27,9 @@ at load time, not a setting silently ignored.
 | | `assets` | Book-relative directory holding release downloads. |
 | | `template` | Book-relative step-0 scaffolding. |
 | | `check`, `verify` | The commands [`bower verify`](/commands/verify.md) runs. |
+| | `toolchain` | Optional. The rustup toolchain for a step whose tree pins none. A tree's own `rust-toolchain.toml` wins. |
 | | `keep_region_markers` | Bool, default false. **The only key that crosses into the kernel.** |
-| `[repos.<name>.links]` | `blob`, `tree`, `commit`, `fork` | URL templates. |
+| `[repos.<name>.links]` | `blob`, `tree`, `commit`, `fork`, `error_code` | URL templates. |
 
 # Derived, not declared
 
@@ -38,6 +39,10 @@ drift from what the tool actually does:
 - `checkout` = `git checkout {tag}` (only when `github` is set)
 - `clone` = `git clone https://github.com/{github}.git`
 - `fork` = the declared value, else `https://github.com/{github}/fork`
+- `links.error_code` = the declared value, else
+  `https://doc.rust-lang.org/error_codes/{code}.html` when `check`'s first word
+  is `cargo` — the link each error code gets in a
+  [captured output](/model/captured-output.md)'s caption
 - `links.check` / `links.verify` fall back to `DEFAULT_CHECK` (`cargo check`)
   and `DEFAULT_VERIFY` (`cargo test`) — **the same defaults the verifier uses**,
   so an [exercise](/model/exercise.md) box can never print a command

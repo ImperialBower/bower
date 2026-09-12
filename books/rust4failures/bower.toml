@@ -28,6 +28,10 @@ keep_region_markers = false
 # "compiles, tests fail". `bower verify` needs both to tell them apart.
 check = "cargo check"
 verify = "cargo test"
+# The compiler for every step whose tree has no rust-toolchain.toml of its
+# own. The book records what the compiler says, so which compiler says it is
+# part of the book. Matches the workspace pin in the repository root.
+toolchain = "1.98.1"
 
 [repos.rust4failures.links]
 blob = "https://github.com/abstecker/rust4failures/blob/{tag}/{path}#L{start}-L{end}"

@@ -1,5 +1,19 @@
 # EPIC-06: `bower publish` — one render, several targets (PUB2)
 
+## Summary
+
+- **Builds:** `bower publish --target html|epub`, one command that renders the
+  book to mdBook HTML or a pandoc epub.
+- **Why:** the only output was mdBook HTML by hand; the epub elision rule was
+  built and rendered into nothing.
+- **Shape:** a `Target` enum through `render::body_lines`, a pure `RenderPlan`
+  fold, and a `Renderer` trait with `FakeRenderer` carrying the tests.
+- **Proves it:** `render_plan__epub_and_html_differ_only_in_elision`, and an
+  epub plan over the real chapters with no renderer installed.
+- **Status:** Shipped at `0bf725b`, 2 September 2026; `pdf` went to EPIC-07.
+
+---
+
 ## Context
 
 Five EPICs shipped. A book becomes a deterministic git repository, every

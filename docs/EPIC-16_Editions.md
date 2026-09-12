@@ -1,5 +1,20 @@
 # EPIC-16: Editions — the living book and the frozen one (ED)
 
+## Summary
+
+- **Builds:** editions: `bower edition cut` pins a book as a manifest with
+  immutable `edition-<id>/…` tags, and `bower diff --edition` computes errata.
+- **Why:** `[book] version` is only a label: nothing is pinned, epub links
+  follow force-pushed tags, and a re-ship clobbers the release files.
+- **Shape:** a pure `edition_state` with five states that `status`, `build`,
+  `publish`, `push`, and `diff` all ask, and a `TagScope` making HTML living
+  and epub and PDF frozen.
+- **Proves it:** `edition cut` on the sample book writes 20 `upheld` rows, and
+  `FakeForge` records no delete, no `--prune`, no forced edition ref.
+- **Status:** Planned, filed 10 September 2026, nothing started.
+
+---
+
 ## Context
 
 A book has one version today, and it is a label. `[book] version` is a free

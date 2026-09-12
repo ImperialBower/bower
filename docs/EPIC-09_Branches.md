@@ -1,5 +1,21 @@
 # EPIC-09: Branches, merges, and pull requests — history with a shape (BRN)
 
+## Summary
+
+- **Builds:** branches, merges, and pull requests in a generated repo, authored
+  with four directive keys: `branch=`, `from=`, `merge=`, `pr=`.
+- **Why:** a plan is one straight line, so a book cannot show an abandoned
+  experiment or a change as a pull request the reader can check out.
+- **Shape:** `plan()` becomes a per-line fold with one tree per open branch; a
+  merge is the branch's blocks re-applied over main; `parents` live on the plan
+  so replay stays byte-identical.
+- **Proves it:** the sixteen spike tests ported by name, plus a golden that a
+  change on a branch reaches only what descends from it.
+- **Status:** Planned; model settled by `docs/spikes/spike-branches/`, filed
+  10 September 2026, no phase started.
+
+---
+
 ## Context
 
 Eight EPICs shipped. A Bower plan is a straight line: `step::order`
