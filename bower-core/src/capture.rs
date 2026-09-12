@@ -159,6 +159,138 @@ fn sort_test_runs(lines: &mut [String]) {
     }
 }
 
+/// A recorded line that is exactly this stands for zero or more live lines —
+/// the editorial ellipsis of any quotation. Not `...`: rustc prints that in
+/// the gutter of a long multi-line span (EPIC-11 Decision 5).
+pub const ELISION: &str = "[...]";
+
+/// The first place a recording and the live output disagree.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Drift {
+    /// 1-based, within the recorded lines.
+    pub line: usize,
+    /// The recorded line there; `None` when the recording has ended.
+    pub recorded: Option<String>,
+    /// The live line there; `None` when the output has ended, or when an
+    /// unanchored piece appears nowhere after the piece before it.
+    pub live: Option<String>,
+}
+
+/// Does the recording hold against the live output?
+///
+/// Without a `[...]` line the two must be equal. With one, the recording is
+/// split into pieces at each `[...]`; every piece must appear as consecutive
+/// live lines, in order. A piece with no `[...]` before it must start the
+/// output, and one with none after it must end it. An empty recording is not
+/// judged here: the caller reports it as not recorded yet.
+#[must_use]
+pub fn drift(recorded: &[String], live: &[String]) -> Option<Drift> {
+    if !recorded.iter().any(|l| l == ELISION) {
+        return compare_at(recorded, 0, live, 0, recorded.len().max(live.len()));
+    }
+
+    // (index of the piece's first line in `recorded`, the piece)
+    let mut pieces: Vec<(usize, &[String])> = Vec::new();
+    let mut start = 0;
+    for (i, line) in recorded.iter().enumerate() {
+        if line == ELISION {
+            if i > start {
+                pieces.push((start, &recorded[start..i]));
+            }
+            start = i + 1;
+        }
+    }
+    if start < recorded.len() {
+        pieces.push((start, &recorded[start..]));
+    }
+
+    let anchored_start = recorded.first().is_some_and(|l| l != ELISION);
+    let anchored_end = recorded.last().is_some_and(|l| l != ELISION);
+    let last = pieces.len().saturating_sub(1);
+    let mut pos = 0;
+
+    for (k, &(start, piece)) in pieces.iter().enumerate() {
+        if k == 0 && anchored_start {
+            if let Some(d) = compare_at(piece, start, live, 0, piece.len()) {
+                return Some(d);
+            }
+            pos = piece.len();
+        } else if k == last && anchored_end {
+            if live.len() < pos + piece.len() {
+                return Some(Drift {
+                    line: start + 1,
+                    recorded: Some(piece[0].clone()),
+                    live: None,
+                });
+            }
+            let at = live.len() - piece.len();
+            if let Some(d) = compare_at(piece, start, live, at, piece.len()) {
+                return Some(d);
+            }
+            pos = live.len();
+        } else {
+            let found = (pos..=live.len().saturating_sub(piece.len()))
+                .find(|&at| live.get(at..at + piece.len()) == Some(piece));
+            let Some(at) = found else {
+                return Some(Drift {
+                    line: start + 1,
+                    recorded: Some(piece[0].clone()),
+                    live: None,
+                });
+            };
+            pos = at + piece.len();
+        }
+    }
+    None
+}
+
+/// Compare `piece` (which starts at recorded index `start`) against `live`
+/// from index `at`, for `len` lines — longer than the piece when the live
+/// output must also end where it does.
+fn compare_at(
+    piece: &[String],
+    start: usize,
+    live: &[String],
+    at: usize,
+    len: usize,
+) -> Option<Drift> {
+    (0..len).find_map(|i| {
+        let r = piece.get(i);
+        let l = live.get(at + i);
+        (r != l).then(|| Drift {
+            line: start + i + 1,
+            recorded: r.cloned(),
+            live: l.cloned(),
+        })
+    })
+}
+
+/// The rustc error codes an output names, from its `error[E0004]` and
+/// `warning[E0004]` headlines: first-seen order, each once. The one parser
+/// both the render caption and EPIC-12's failure index use.
+#[must_use]
+pub fn error_codes(lines: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for line in lines {
+        let t = line.trim_start();
+        let Some(rest) = t
+            .strip_prefix("error[")
+            .or_else(|| t.strip_prefix("warning["))
+        else {
+            continue;
+        };
+        let Some(end) = rest.find(']') else { continue };
+        let code = &rest[..end];
+        let is_code = code.len() == 5
+            && code.starts_with('E')
+            && code[1..].bytes().all(|b| b.is_ascii_digit());
+        if is_code && !out.iter().any(|c| c == code) {
+            out.push(code.to_string());
+        }
+    }
+    out
+}
+
 /// Rule 8, shared by both sides of every comparison: trailing whitespace off
 /// each line, blank lines off both ends. A recorded fence goes through this at
 /// plan time, so an editor that strips trailing spaces changes nothing.
@@ -318,5 +450,158 @@ mod capture_tests {
     fn normalize__trims_line_ends_and_outer_blanks() {
         // A snapshot must survive an editor.
         assert_eq!(norm("\n\nerror: x   \n\n"), v(&["error: x"]));
+    }
+
+    #[test]
+    fn drift__none_when_equal() {
+        assert_eq!(drift(&v(&["a", "b"]), &v(&["a", "b"])), None);
+    }
+
+    #[test]
+    fn drift__names_the_first_differing_line() {
+        assert_eq!(
+            drift(&v(&["a", "b", "c"]), &v(&["a", "x", "c"])),
+            Some(Drift {
+                line: 2,
+                recorded: Some("b".into()),
+                live: Some("x".into())
+            })
+        );
+    }
+
+    #[test]
+    fn drift__a_shorter_live_output_is_drift() {
+        assert_eq!(
+            drift(&v(&["a", "b"]), &v(&["a"])),
+            Some(Drift {
+                line: 2,
+                recorded: Some("b".into()),
+                live: None
+            })
+        );
+    }
+
+    #[test]
+    fn drift__a_longer_live_output_is_drift() {
+        // A new note at the end is a rewording too. Only `[...]` excuses it.
+        assert_eq!(
+            drift(&v(&["a"]), &v(&["a", "b"])),
+            Some(Drift {
+                line: 2,
+                recorded: None,
+                live: Some("b".into())
+            })
+        );
+    }
+
+    #[test]
+    fn drift__elision_matches_a_middle_piece() {
+        let live = v(&[
+            "w1",
+            "w2",
+            "thread panicked",
+            "left: 1",
+            "right: 2",
+            "summary",
+        ]);
+        let recorded = v(&[ELISION, "thread panicked", "left: 1", "right: 2", ELISION]);
+        assert_eq!(drift(&recorded, &live), None);
+    }
+
+    #[test]
+    fn drift__elision_at_neither_end_anchors_both() {
+        let live = v(&["head", "middle", "tail"]);
+        assert_eq!(drift(&v(&["head", ELISION, "tail"]), &live), None);
+        assert_eq!(drift(&v(&["head", ELISION]), &live), None);
+        assert_eq!(drift(&v(&[ELISION, "tail"]), &live), None);
+        // Anchored: `middle` is neither the first line nor the last.
+        assert_eq!(
+            drift(&v(&["middle", ELISION]), &live),
+            Some(Drift {
+                line: 1,
+                recorded: Some("middle".into()),
+                live: Some("head".into())
+            })
+        );
+        assert_eq!(
+            drift(&v(&[ELISION, "middle"]), &live),
+            Some(Drift {
+                line: 2,
+                recorded: Some("middle".into()),
+                live: Some("tail".into())
+            })
+        );
+    }
+
+    #[test]
+    fn drift__elided_pieces_must_keep_their_order() {
+        let live = v(&["a", "b", "c"]);
+        assert_eq!(
+            drift(&v(&[ELISION, "a", ELISION, "c", ELISION]), &live),
+            None
+        );
+        assert_eq!(
+            drift(&v(&[ELISION, "c", ELISION, "a", ELISION]), &live),
+            Some(Drift {
+                line: 4,
+                recorded: Some("a".into()),
+                live: None
+            })
+        );
+    }
+
+    #[test]
+    fn drift__an_elided_piece_that_is_gone_names_its_first_line() {
+        assert_eq!(
+            drift(&v(&[ELISION, "z", "y", ELISION]), &v(&["a", "b"])),
+            Some(Drift {
+                line: 2,
+                recorded: Some("z".into()),
+                live: None
+            })
+        );
+    }
+
+    #[test]
+    fn drift__an_elision_may_stand_for_no_lines() {
+        assert_eq!(drift(&v(&["a", ELISION, "b"]), &v(&["a", "b"])), None);
+        assert_eq!(drift(&v(&[ELISION]), &v(&["x"])), None);
+    }
+
+    #[test]
+    fn drift__anchored_ends_may_not_overlap() {
+        // `a [...] a` against the single line `a`: both ends cannot claim it.
+        assert_eq!(
+            drift(&v(&["a", ELISION, "a"]), &v(&["a"])),
+            Some(Drift {
+                line: 3,
+                recorded: Some("a".into()),
+                live: None
+            })
+        );
+    }
+
+    #[test]
+    fn error_codes__in_order_once_each() {
+        let lines = v(&[
+            "error[E0308]: mismatched types",
+            "  = note: see E0004",
+            "error[E0004]: non-exhaustive patterns",
+            "error[E0308]: again",
+            "warning: unused variable",
+            "For more information about this error, try `rustc --explain E0308`.",
+        ]);
+        assert_eq!(error_codes(&lines), vec!["E0308", "E0004"]);
+    }
+
+    #[test]
+    fn error_codes__only_headline_codes_count() {
+        let lines = v(&[
+            "error[E12]: short",
+            "error[X0001]: not rustc",
+            "error: plain",
+            "error[E0004",
+        ]);
+        assert!(error_codes(&lines).is_empty());
     }
 }
