@@ -18,6 +18,7 @@ pub mod loader;
 pub mod materialize;
 pub mod publish;
 pub mod push;
+pub mod record;
 pub mod render;
 pub mod replay;
 pub mod status;

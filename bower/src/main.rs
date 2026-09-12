@@ -125,6 +125,12 @@ enum Command {
         /// for a reason that has nothing to do with the book.
         #[arg(long)]
         work: Option<PathBuf>,
+
+        /// Write what each command printed into the output fences that are
+        /// empty or no longer match, then rewrite `bower.lock`. A fence that
+        /// still matches is left alone, so a `[...]` trim survives.
+        #[arg(long)]
+        record: bool,
     },
     /// Replay the plan into a local git repository, one commit per step.
     Build {
@@ -174,6 +180,7 @@ fn main() -> ExitCode {
             step,
             from,
             work,
+            record,
         } => run_verify(
             &cli.book,
             &cfg,
@@ -181,6 +188,7 @@ fn main() -> ExitCode {
             step.as_deref(),
             from.as_deref(),
             work.as_deref(),
+            record,
         ),
     }
 }
@@ -234,13 +242,53 @@ fn run_plan(book_root: &Path, cfg: &BookConfig, only: Option<&str>) -> ExitCode 
         }
     }
 
-    let lock_path = book_root.join("bower.lock");
-    if let Err(e) = std::fs::write(&lock_path, lock_text(&resolved)) {
-        eprintln!("bower: cannot write {}: {e}", lock_path.display());
-        return ExitCode::FAILURE;
+    match write_lock(book_root, &resolved) {
+        Ok(path) => {
+            println!("\nwrote {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("bower: {e}");
+            ExitCode::FAILURE
+        }
     }
-    println!("\nwrote {}", lock_path.display());
-    ExitCode::SUCCESS
+}
+
+/// Write `bower.lock` for `resolved`. One function, so `plan` and
+/// `verify --record` cannot write two different formats.
+fn write_lock(book_root: &Path, resolved: &BookPlan) -> Result<PathBuf, String> {
+    let lock_path = book_root.join("bower.lock");
+    std::fs::write(&lock_path, lock_text(resolved))
+        .map_err(|e| format!("cannot write {}: {e}", lock_path.display()))?;
+    Ok(lock_path)
+}
+
+/// `--record`: rewrite every fence whose output is missing or has drifted,
+/// then re-plan and rewrite the lock — a fence's new length moves every later
+/// anchor in its chapter (EPIC-11 Decision 8). Returns how many fences were
+/// written.
+fn record_outputs(
+    book_root: &Path,
+    cfg: &BookConfig,
+    reports: &[VerifyReport],
+) -> Result<usize, String> {
+    let recs = bower::record::recordings(reports);
+    if recs.is_empty() {
+        return Ok(0);
+    }
+    let book = BookLoader::new(book_root)
+        .load()
+        .map_err(|e| e.to_string())?;
+    let texts: std::collections::BTreeMap<String, String> = book
+        .chapters
+        .iter()
+        .map(|c| (c.path.clone(), c.text.clone()))
+        .collect();
+    let changed = bower::record::apply(&texts, &recs);
+    bower::record::write_chapters(book_root, &changed).map_err(|e| e.to_string())?;
+    let resolved = resolve(book_root, cfg).ok_or("the book no longer resolves after recording")?;
+    write_lock(book_root, &resolved)?;
+    Ok(recs.len())
 }
 
 fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path) -> ExitCode {
@@ -296,6 +344,7 @@ fn run_verify(
     step: Option<&str>,
     from: Option<&str>,
     work: Option<&Path>,
+    record: bool,
 ) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
         return ExitCode::FAILURE;
@@ -359,7 +408,22 @@ fn run_verify(
         return ExitCode::FAILURE;
     }
 
-    let (drifted, unrecorded) = print_output_problems(&reports);
+    if record {
+        match record_outputs(book_root, cfg, &reports) {
+            Ok(0) => println!("\nnothing to record"),
+            Ok(n) => println!("\nrecorded {n} output(s) and rewrote bower.lock"),
+            Err(e) => {
+                eprintln!("bower: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+
+    let (drifted, unrecorded) = if record {
+        (0, 0)
+    } else {
+        print_output_problems(&reports)
+    };
     if broken_total + drifted + unrecorded == 0 {
         println!("\nevery claim holds");
         return ExitCode::SUCCESS;
