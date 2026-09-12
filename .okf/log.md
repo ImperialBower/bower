@@ -1,5 +1,10 @@
 # Update Log
 
+## 2026-09-12
+
+* **Creation**: [Captured output](/model/captured-output.md) — EPIC-11's `output="check"|"verify"` blocks, their normalization, `[...]` matching, and five errors.
+* **Update**: [bower verify](/commands/verify.md) gains `--record`, output rows, and the toolchain rule; [bower.toml](/config/bower-toml.md) gains `toolchain` and `links.error_code`; [errors](/model/errors.md) counts 37 variants.
+
 ## 2026-09-09
 
 * **Update**: `bower publish --target pdf` now defines the Typst helpers pandoc's writer assumes its own template supplies (`PANDOC_TYPST_HELPERS`). Older pandoc emits `#blockquote[…]`, so every book with an exercise failed to build a PDF on a distro pandoc. `slow.yml` pins pandoc 3.11 alongside. Recorded in [bower publish](/commands/publish.md) and [CI lanes](/operations/ci-lanes.md).

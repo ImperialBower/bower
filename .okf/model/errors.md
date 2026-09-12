@@ -1,9 +1,9 @@
 ---
 type: Domain Concept
 title: Errors — located and collected
-description: One non-exhaustive enum of 32 variants, each carrying the chapter and line that caused it, reported all at once rather than one rebuild at a time.
+description: One non-exhaustive enum of 37 variants, each carrying the chapter and line that caused it, reported all at once rather than one rebuild at a time.
 tags: [model, kernel, errors]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-12T00:00:00Z'
 ---
 
 # The posture
@@ -21,7 +21,7 @@ Failures."* The tool for a book about failing well is itself built to fail well.
 # The type
 
 `BowerError` — `#[non_exhaustive]`, `Clone + Debug + Eq + Hash + PartialEq`,
-implements `Display` and `std::error::Error`. **32 variants**, grouped by what
+implements `Display` and `std::error::Error`. **37 variants**, grouped by what
 goes wrong:
 
 | Group | Variants |
@@ -34,6 +34,7 @@ goes wrong:
 | [Display spans](/model/display-markers.md) | `UnclosedShowSpan`, `NestedShowSpan`, `OrphanShowEnd`, `UnknownShowSpan`, `SpanNotInTree` |
 | [Play cells](/model/play-cell.md) | `PlayCellUnbound`, `PlayCellUnknownStep`, `PlayCellConflictingKeys` |
 | [Exercises](/model/exercise.md) | `ExerciseUnbound`, `ExerciseUnknownStep`, `ExerciseDuplicate`, `ExerciseWithoutAnswer`, `ExerciseConflictingKeys` |
+| [Captured output](/model/captured-output.md) | `OutputUnbound`, `OutputUnknownStep`, `OutputConflictingKeys`, `OutputDuplicate`, `OutputNeverRuns` |
 
 # Location
 

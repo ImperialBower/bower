@@ -21,9 +21,10 @@ no renderers.
 * [Assembly — fragments vs. full files](assembly.md) - hidden lines and named regions, the two ways one block is both fragment and whole file.
 * [Display markers and elision](display-markers.md) - which spans render, and the one rule where HTML and epub/PDF differ.
 * [Exercise](exercise.md) - a step as a place to stop reading and start typing.
+* [Captured output](captured-output.md) - what the compiler said at a step, recorded in the book and checked on every verify.
 * [Play cell](play-cell.md) - a live Python cell bound to a step, for the notebook target.
 
 # When it goes wrong
 
 * [Expectation — controlled failure as an executable claim](expectation.md) - `pass`, `compile_fail`, `test_fail`, `none`.
-* [Errors — located and collected](errors.md) - 32 variants, each carrying its chapter and line.
+* [Errors — located and collected](errors.md) - 37 variants, each carrying its chapter and line.

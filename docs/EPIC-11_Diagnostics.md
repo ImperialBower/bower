@@ -69,15 +69,15 @@ verifies, and renders exactly as before.
 
 | Component | Status |
 |---|---|
-| Edge prerequisite: `Outcome` keeps both streams; per-repo `toolchain` pin | **Planned** |
-| Kernel: `output=` key, `Capture`, binding, five errors, lock text | **Planned** |
-| Kernel: `capture` module — normalize, drift, error codes, rewrite | **Planned** |
-| Testkit: output textures, fixtures, `capture × expect` axis, properties | **Planned** |
-| Verify: drift check, report, exit code | **Planned** |
-| Verify: `--record` rewrites chapters and `bower.lock` | **Planned** |
-| Render: caption line and error-code link, all three targets | **Planned** |
-| Books: the two hand-pasted outputs replaced; sample-book golden | **Planned** |
-| Docs: spec § 3.2, § 6, § 12 Q3; `.okf`; backlog and debt | **Planned** |
+| Edge prerequisite: `Outcome` keeps both streams; per-repo `toolchain` pin | **Done** |
+| Kernel: `output=` key, `Capture`, binding, five errors, lock text | **Done** |
+| Kernel: `capture` module — normalize, drift, error codes, rewrite | **Done** |
+| Testkit: output textures, fixtures, `capture × expect` axis, properties | **Done** |
+| Verify: drift check, report, exit code | **Done** |
+| Verify: `--record` rewrites chapters and `bower.lock` | **Done** |
+| Render: caption line and error-code link, all three targets | **Done** |
+| Books: the two hand-pasted outputs replaced; sample-book golden | **Done** |
+| Docs: spec § 3.2, § 6, § 12 Q3; `.okf`; backlog and debt | **Done** |
 
 ---
 
@@ -505,74 +505,74 @@ preprocessor get the caption through the one `chapter` function
 
 ### Phase 0 — Edge prerequisites
 
-- [ ] **0a.** `Outcome::output`, both streams through one `std::io::pipe`.
+- [x] **0a.** `Outcome::output`, both streams through one `std::io::pipe`.
   `run__captures_both_streams_in_order` uses `sh -c`, not cargo.
-- [ ] **0b.** `RepoConfig::toolchain` (`config.rs:54`, `config.rs:292`).
+- [x] **0b.** `RepoConfig::toolchain` (`config.rs:54`, `config.rs:292`).
   `run` removes the inherited `RUSTUP_TOOLCHAIN` and sets the step's own
   (Decision 10). `config__toolchain_is_optional`,
   `toolchain__a_tree_pin_wins`, `toolchain__the_key_fills_a_tree_without_one`,
   `run__never_passes_the_inherited_toolchain_on`.
-- [ ] **0c.** `block.rs` fence helpers to `pub(crate)`; `make test` green at
+- [x] **0c.** `block.rs` fence helpers to `pub(crate)`; `make test` green at
   the same count.
 
 ### Phase 1 — Kernel: key, block, binding
 
-- [ ] **1a.** `Capture`, `Directive::output`, `BadValue` arm, overlay.
-- [ ] **1b.** `Block::output`; `resolve`; `OutputConflictingKeys`.
-- [ ] **1c.** Partition, `bind_outputs`, `OutputUnbound`, `OutputUnknownStep`,
+- [x] **1a.** `Capture`, `Directive::output`, `BadValue` arm, overlay.
+- [x] **1b.** `Block::output`; `resolve`; `OutputConflictingKeys`.
+- [x] **1c.** Partition, `bind_outputs`, `OutputUnbound`, `OutputUnknownStep`,
   `OutputDuplicate`, `OutputNeverRuns`, `PlannedStep::outputs`, prelude.
-- [ ] **1d.** `lock_text` output lines.
-- [ ] **1e.** `captured_outputs()`, five broken fixtures, the mechanism, the
+- [x] **1d.** `lock_text` output lines.
+- [x] **1e.** `captured_outputs()`, five broken fixtures, the mechanism, the
   axis.
 
 ### Phase 2 — Kernel: `capture.rs`
 
-- [ ] **2a.** Textures first, then `normalize`, one rule per failing test, in
+- [x] **2a.** Textures first, then `normalize`, one rule per failing test, in
   table order.
-- [ ] **2b.** `drift`, `error_codes`.
-- [ ] **2c.** `rewrite`, widened-fence case included; `drift` over `[...]`
+- [x] **2b.** `drift`, `error_codes`.
+- [x] **2c.** `rewrite`, widened-fence case included; `drift` over `[...]`
   pieces (Decision 5).
-- [ ] **2d.** The four properties; `make purity` green.
+- [x] **2d.** The four properties; `make purity` green.
 
 ### Phase 3 — Verify
 
-- [ ] **3a.** `OutputVerdict`, the `Scrub`, judging only `Upheld` steps; the
+- [x] **3a.** `OutputVerdict`, the `Scrub`, judging only `Upheld` steps; the
   serial pair on output-bearing steps (Decision 12).
-- [ ] **3b.** Report rows, drift message, exit code, `NotRecorded` hint.
-- [ ] **3c.** `--record`: write through `check_path`, re-resolve, write the
+- [x] **3b.** Report rows, drift message, exit code, `NotRecorded` hint.
+- [x] **3c.** `--record`: write through `check_path`, re-resolve, write the
   lock; a second run writes nothing.
-- [ ] **3d.** The toolchain warning.
+- [x] **3d.** The toolchain warning.
 
 ### Phase 4 — Render
 
-- [ ] **4a.** `outputs_by_line`, the caption, `step-output`.
-- [ ] **4b.** `links.error_code` in `LinkTemplates` and `WireLinks`
+- [x] **4a.** `outputs_by_line`, the caption, `step-output`.
+- [x] **4b.** `links.error_code` in `LinkTemplates` and `WireLinks`
   (`config.rs:307`).
-- [ ] **4c.** Render tests on all three targets; a case in
+- [x] **4c.** Render tests on all three targets; a case in
   `bower/tests/preprocessor.rs`.
 
 ### Phase 5 — Books and docs
 
-- [ ] **5a.** `hello-playbook` ch04: `output="check"` under `wont-compile`
+- [x] **5a.** `hello-playbook` ch04: `output="check"` under `wont-compile`
   (`ch04-tests-and-failing-on-purpose.md:124`, E0308) and `output="verify"`
   under `test-that-fails` (`…:70`), recorded. The fast golden
   (`bower/tests/verification.rs:62`) asserts `Matches`.
-- [ ] **5b.** `rust4failures`: `toolchain = "1.98.1"` in `bower.toml`, and
+- [x] **5b.** `rust4failures`: `toolchain = "1.98.1"` in `bower.toml`, and
   output blocks replace the fences at `ch01-local_development.md:262-268` and
   `ch03-rank.md:100-103`, each trimmed with `[...]` to what the hand-paste
   quoted.
   `ch03-rank.md` is commented out of `SUMMARY.md`
   (`books/rust4failures/src/SUMMARY.md:11`), so its block is planned only once
   the chapter is listed.
-- [ ] **5c.** Spec: `output` in § 3.2 (`bower-spec.md:122-136`). The output
+- [x] **5c.** Spec: `output` in § 3.2 (`bower-spec.md:122-136`). The output
   block replaces § 6's "stored pattern" and "named test"
   (`bower-spec.md:348-349`). § 12 Q3 amended to "failure-only by default;
   visible opt-in snapshots, EPIC-11".
-- [ ] **5d.** `.okf/model/directive.md`, a new
+- [x] **5d.** `.okf/model/directive.md`, a new
   `.okf/model/captured-output.md`, and `.okf/commands/verify.md`. Close
   `TECHNICAL_DEBT.md:70-74` and `BACKLOG.md:85`, and move A1
   (`BACKLOG.md:54`) out of Ideas.
-- [ ] **5e.** Flip Status rows; append the corrigendum.
+- [x] **5e.** Flip Status rows; append the corrigendum.
 
 ---
 
@@ -737,6 +737,42 @@ Exit criteria:
 | 5 | **Test order.** | **Both.** An output-bearing step runs on one build job and one test thread (Decision 12), which also fixes cargo's warning order. Rule 7 stays for outputs recorded elsewhere. The author writes no flag. |
 | 6 | **`--record` on a dirty chapter.** | **Trust `git diff`.** Verify never touches git (`verify.rs:7-9`), and `--record` rewrites only fence bodies. |
 | 7 | **Non-Rust books (C1).** | **Deferred** until a second language exists. |
+
+---
+
+## Corrigendum — as built, 12 September 2026
+
+Phase status:
+
+| Phase | Status | Notes |
+|---|---|---|
+| 0 (edge prerequisites) | Shipped | the inherited-toolchain defect fixed in 0b |
+| 1 (key, block, binding) | Shipped | |
+| 2 (`capture.rs`) | Shipped | eight rules; `[...]` matching in `drift` |
+| 3 (verify, `--record`) | Shipped | |
+| 4 (render) | Shipped | caption on all three targets |
+| 5 (books, docs) | Shipped | `ch03-rank.md`'s block waits for the chapter to be listed |
+
+What differed from the design while building it:
+
+- **No rule changed.** Both `hello-playbook` recordings came out of
+  `--record` byte for byte as the plan predicted, and a second `--record`
+  wrote nothing. The four properties found no counter-example.
+- **Two functions outgrew clippy's 100-line limit** and were split rather than
+  allowed: `block::resolve` (its tree-op key checks moved to
+  `require_op_keys`) and `render::chapter` (the header and the new caption
+  moved to `push_header`). `run_verify` shrank enough, through `run_step` and
+  the report helpers, to lose its `too_many_lines` allow.
+- **Smaller lint fixes to the plan's code:** `let … else` for a two-arm
+  `match` in `capture_block`, `sort_by_key(Reverse)` in `record::apply`, a
+  method path in `flat_map`, a raw string without `#` for the `E0004`
+  texture, and `non_snake_case` allowed in the three integration-test files
+  whose names use `subject__does_thing`.
+- **A doc link broke `make docs`:** `step_env`'s comment linked the private
+  `run`. Fixed in its own commit; clippy and the tests do not check rustdoc
+  links.
+- **A1 stays listed in the backlog's ideas table**, marked shipped, rather
+  than moved out of it (5d).
 
 ---
 

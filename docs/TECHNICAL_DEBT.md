@@ -67,11 +67,13 @@
   book with hundreds of steps will need it, and `std::thread::scope` would add
   no dependency.
 
-- [ ] **No stderr snapshots for `compile_fail`.**
-  `bower verify` asserts the check command failed and captures stderr for the
-  report, but matches nothing against a stored pattern. Spec § 12 Q3 was closed
-  as failure-only (EPIC-02, Phase 5c). A book that says "here is what the
-  compiler tells you" cannot yet prove the message is still that.
+- [x] ~~**No stderr snapshots for `compile_fail`.**~~ Closed 12 September 2026
+  by EPIC-11. A book records what the compiler said in an `output="check"` or
+  `output="verify"` fence; `bower verify` compares its normalized text and
+  `--record` writes it (`bower-core/src/capture.rs`, `bower/src/record.rs`).
+  Grounding it found that `bower verify` under `make` ignored every tree's
+  toolchain pin, because rustup's cargo proxy exports `RUSTUP_TOOLCHAIN` to its
+  children; `run` now removes it.
 
 - [ ] **File modes are inferred from a shebang.**
   The kernel does not model file modes — `FileBody` is text or bytes

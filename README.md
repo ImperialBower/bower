@@ -227,6 +227,29 @@ print it with a note. An exercise can sit on any step but the last, and a step
 carries at most one. Design:
 `docs/superpowers/specs/2026-09-06-exercises-design.md`.
 
+### Recorded output
+
+A step that fails on purpose can show what the compiler said, and prove it.
+Put an `output` directive after the step, with an empty fence:
+
+````markdown
+<!-- bower repo="hello-playbook" output="check" -->
+```text
+```
+````
+
+`bower verify --record` fills the fence with what the repo's `check` (or
+`verify`) command printed at that step, with paths, colour, timings, build
+chatter and thread IDs taken out. From then on `bower verify` fails the day the
+compiler says something else. A line that is exactly `[...]` stands for lines
+left out, so a fence can quote only what matters; `--record` keeps that trim
+while it still matches. The rendered page gets a caption with the command and a
+link for each error code.
+
+Which compiler says it matters, so a step runs on its tree's own
+`rust-toolchain.toml`, or else on the repo's `toolchain` key in `bower.toml`.
+Design: `docs/EPIC-11_Diagnostics.md`.
+
 ## License
 
 MIT OR Apache-2.0.
