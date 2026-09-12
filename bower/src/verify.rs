@@ -9,8 +9,9 @@
 //! has ever run and never touches `gix`.
 
 use std::fmt;
+use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use bower_core::prelude::{Expect, Location, RepoPlan, StepId};
 
@@ -44,8 +45,10 @@ pub fn default_work_dir(book_root: &Path) -> PathBuf {
 pub struct Outcome {
     pub command: String,
     pub success: bool,
-    /// Kept for the failure report. Never printed when a step is upheld.
-    pub stderr: String,
+    /// Both streams, interleaved in the order they were written: what a
+    /// reader's terminal shows. The failure report prints its tail, and a
+    /// recorded output is judged against it (EPIC-11 Decision 2).
+    pub output: String,
 }
 
 /// A step's claim, measured against what actually happened.
@@ -54,11 +57,11 @@ pub enum Verdict {
     /// The step behaved as declared.
     Upheld,
     /// It did not. Carries enough to go and fix the book: what happened, the
-    /// command that showed it, and that command's stderr.
+    /// command that showed it, and what that command printed.
     Broken {
         happened: String,
         command: String,
-        stderr: String,
+        output: String,
     },
     /// `expect="none"`.
     Skipped,
@@ -233,7 +236,7 @@ pub fn verdict_for(expect: Expect, check: &Outcome, verify: Option<&Outcome>) ->
     let broken = |happened: &str, o: &Outcome| Verdict::Broken {
         happened: happened.to_string(),
         command: o.command.clone(),
-        stderr: o.stderr.clone(),
+        output: o.output.clone(),
     };
 
     match expect {
@@ -291,18 +294,31 @@ fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyEr
     let Some(program) = parts.next() else {
         return Err(VerifyError::EmptyCommand);
     };
+    let io = |source| VerifyError::Io {
+        path: PathBuf::from(program),
+        source,
+    };
 
-    let output = Command::new(program)
-        .args(parts)
+    // One pipe for both streams, so the text keeps the order it was written
+    // in: the order a reader's terminal shows (EPIC-11 Decision 2).
+    let (mut reader, writer) = std::io::pipe().map_err(io)?;
+    let mut cmd = Command::new(program);
+    cmd.args(parts)
         .current_dir(dir)
         .env("CARGO_TARGET_DIR", target_dir)
-        .output()
-        .map_err(|source| VerifyError::Io {
-            path: PathBuf::from(program),
-            source,
-        })?;
+        .stdin(Stdio::null())
+        .stdout(writer.try_clone().map_err(io)?)
+        .stderr(writer);
+    let mut child = cmd.spawn().map_err(io)?;
+    // `cmd` still holds both write ends. Until it is gone the read below never
+    // sees end-of-file, and waits for ever.
+    drop(cmd);
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).map_err(io)?;
+    let status = child.wait().map_err(io)?;
+    let output = String::from_utf8_lossy(&bytes).into_owned();
 
-    if !output.status.success() && nested_workspace(&String::from_utf8_lossy(&output.stderr)) {
+    if !status.success() && nested_workspace(&output) {
         return Err(VerifyError::NestedWorkspace {
             tree: dir.to_path_buf(),
         });
@@ -310,8 +326,8 @@ fn run(command: &str, dir: &Path, target_dir: &Path) -> Result<Outcome, VerifyEr
 
     Ok(Outcome {
         command: command.to_string(),
-        success: output.status.success(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        success: status.success(),
+        output,
     })
 }
 
@@ -324,7 +340,7 @@ mod verify_tests {
         Outcome {
             command: cmd.to_string(),
             success: true,
-            stderr: String::new(),
+            output: String::new(),
         }
     }
 
@@ -332,7 +348,7 @@ mod verify_tests {
         Outcome {
             command: cmd.to_string(),
             success: false,
-            stderr: "error[E0308]: mismatched types\n".to_string(),
+            output: "error[E0308]: mismatched types\n".to_string(),
         }
     }
 
@@ -394,12 +410,12 @@ mod verify_tests {
     }
 
     #[test]
-    fn matrix__broken_carries_the_stderr() {
+    fn matrix__broken_carries_the_output() {
         match verdict_for(Expect::Pass, &bad("check"), None) {
             Verdict::Broken {
-                stderr, command, ..
+                output, command, ..
             } => {
-                assert!(stderr.contains("E0308"));
+                assert!(output.contains("E0308"));
                 assert_eq!(command, "check", "the report must name the command");
             }
             other => panic!("expected Broken, got {other:?}"),
@@ -471,5 +487,26 @@ mod verify_tests {
             run("   ", &dir, &dir),
             Err(VerifyError::EmptyCommand)
         ));
+    }
+
+    /// A shell script in its own directory, run the way `run` runs any
+    /// command: split on whitespace, no shell of ours in between.
+    fn script(case: &str, body: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bower-verify-run-{case}"));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s.sh"), body).unwrap();
+        dir
+    }
+
+    #[test]
+    fn run__captures_both_streams_in_order() {
+        // A reader's terminal interleaves the two streams in the order they
+        // were written. Stderr-then-stdout would print cargo's closing
+        // `error: test failed` above libtest's `running 1 test`.
+        let dir = script("order", "echo one\necho two >&2\necho three\n");
+        let out = run("sh s.sh", &dir, &dir.join("target")).unwrap();
+        assert_eq!(out.output, "one\ntwo\nthree\n");
+        assert!(out.success);
     }
 }

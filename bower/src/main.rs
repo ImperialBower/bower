@@ -361,7 +361,7 @@ fn run_verify(
             let Verdict::Broken {
                 happened,
                 command,
-                stderr,
+                output,
             } = &v.verdict
             else {
                 continue;
@@ -371,7 +371,7 @@ fn run_verify(
                 v.anchor, v.id.0, v.expect
             );
             eprintln!("    (`{command}` in the step's tree)");
-            let tail: Vec<&str> = stderr.lines().rev().take(8).collect();
+            let tail: Vec<&str> = output.lines().rev().take(8).collect();
             for line in tail.iter().rev() {
                 eprintln!("    {line}");
             }
