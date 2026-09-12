@@ -128,10 +128,24 @@ fn scan_chapter(
 }
 
 /// If the line opens a fence, return its backtick count.
-fn fence_width(line: &str) -> Option<usize> {
+pub(crate) fn fence_width(line: &str) -> Option<usize> {
     let t = line.trim_start();
     let count = t.chars().take_while(|&c| c == '`').count();
     (count >= 3).then_some(count)
+}
+
+/// Where the fence after `from` opens and closes, blank lines between allowed:
+/// `Some((opener, closer))`, with `closer == None` when it never closes, or
+/// `None` when no fence follows. The one scanner behind `capture_block` and
+/// `capture::rewrite`.
+pub(crate) fn fence_span(lines: &[&str], from: usize) -> Option<(usize, Option<usize>)> {
+    let mut j = from;
+    while j < lines.len() && lines[j].trim().is_empty() {
+        j += 1;
+    }
+    let width = fence_width(lines.get(j)?)?;
+    let close = (j + 1..lines.len()).find(|&k| fence_width(lines[k]).is_some_and(|w| w >= width));
+    Some((j, close))
 }
 
 /// Given the index of an opening fence, return the index just past its
@@ -166,32 +180,25 @@ fn capture_block(
     loc: &Location,
     errors: &mut Errors,
 ) -> (Option<BlockContent>, usize) {
-    let mut j = from;
-    while j < lines.len() && lines[j].trim().is_empty() {
-        j += 1;
-    }
-    let Some(&opener) = lines.get(j) else {
+    let Some((open, close)) = fence_span(lines, from) else {
         return (None, from);
     };
-    let Some(width) = fence_width(opener) else {
-        return (None, from);
-    };
-    let info = opener
+    let info = lines[open]
         .trim_start()
         .trim_start_matches('`')
         .trim()
         .to_string();
-    let mut body = Vec::new();
-    let mut k = j + 1;
-    while k < lines.len() {
-        if fence_width(lines[k]).is_some_and(|w| w >= width) {
-            return (Some(BlockContent { info, lines: body }), k + 1);
-        }
-        body.push(lines[k].to_string());
-        k += 1;
-    }
-    errors.push(BowerError::UnclosedFence { loc: loc.clone() });
-    (None, lines.len())
+    let Some(k) = close else {
+        errors.push(BowerError::UnclosedFence { loc: loc.clone() });
+        return (None, lines.len());
+    };
+    (
+        Some(BlockContent {
+            info,
+            lines: lines[open + 1..k].iter().map(ToString::to_string).collect(),
+        }),
+        k + 1,
+    )
 }
 
 /// Does the directive say anything about a repo tree? Play cells and

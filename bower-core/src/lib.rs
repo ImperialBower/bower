@@ -43,7 +43,7 @@ pub mod prelude {
 
     pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
-    pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, tidy};
+    pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, rewrite, tidy};
     pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
     pub use crate::plan::{

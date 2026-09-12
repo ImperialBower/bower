@@ -3,6 +3,8 @@
 //! Pure string functions: the edge runs the command and hands the text in.
 //! Nothing here knows about cargo beyond the shape of its output lines.
 
+use crate::block;
+
 /// Machine-specific path prefixes and what replaces each: the scratch tree,
 /// the shared target directory, cargo's home. The edge knows them; the kernel
 /// only replaces text (EPIC-11 Decision 4). Applied longest prefix first, so
@@ -288,6 +290,63 @@ pub fn error_codes(lines: &[String]) -> Vec<String> {
             out.push(code.to_string());
         }
     }
+    out
+}
+
+/// Replace the body of the fence that follows the directive on
+/// `directive_line` (1-based) with `lines`, and touch nothing else: every byte
+/// outside the fence, line endings included, is copied back. The fence is
+/// widened when a new line would close it. Without a fence after the
+/// directive, the text comes back unchanged.
+#[must_use]
+pub fn rewrite(chapter_text: &str, directive_line: usize, lines: &[String]) -> String {
+    // Pieces keep their own line endings; `bare` is what the scanner reads.
+    let pieces: Vec<&str> = chapter_text.split_inclusive('\n').collect();
+    let bare: Vec<&str> = pieces
+        .iter()
+        .map(|p| p.trim_end_matches(['\n', '\r']))
+        .collect();
+    if directive_line == 0 {
+        return chapter_text.to_string();
+    }
+    let Some((open, Some(close))) = block::fence_span(&bare, directive_line) else {
+        return chapter_text.to_string();
+    };
+
+    let eol = if pieces[open].ends_with("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let width = block::fence_width(bare[open]).unwrap_or(3);
+    let needed = lines
+        .iter()
+        .filter_map(|l| block::fence_width(l))
+        .max()
+        .map_or(width, |w| width.max(w + 1));
+    let widen = |line: &str| {
+        let indent = &line[..line.len() - line.trim_start().len()];
+        let info = &line.trim_start()[width..];
+        format!("{indent}{}{info}", "`".repeat(needed))
+    };
+    let (opener, closer) = if needed == width {
+        (bare[open].to_string(), bare[close].to_string())
+    } else {
+        (widen(bare[open]), widen(bare[close]))
+    };
+
+    let mut out: String = pieces[..open].concat();
+    out.push_str(&opener);
+    out.push_str(eol);
+    for line in lines {
+        out.push_str(line);
+        out.push_str(eol);
+    }
+    out.push_str(&closer);
+    // The closer keeps whatever ended it: a newline, or nothing at the end of
+    // the file.
+    out.push_str(&pieces[close][bare[close].len()..]);
+    out.push_str(&pieces[close + 1..].concat());
     out
 }
 
@@ -603,5 +662,64 @@ mod capture_tests {
             "error[E0004",
         ]);
         assert!(error_codes(&lines).is_empty());
+    }
+
+    const CH: &str = "# T\n\n<!-- bower repo=\"r\" output=\"check\" -->\n\n```text\nold one\nold two\n```\n\nAfter.\n";
+
+    #[test]
+    fn rewrite__replaces_only_the_fence_body() {
+        assert_eq!(
+            rewrite(CH, 3, &v(&["new"])),
+            "# T\n\n<!-- bower repo=\"r\" output=\"check\" -->\n\n```text\nnew\n```\n\nAfter.\n"
+        );
+    }
+
+    #[test]
+    fn rewrite__fills_an_empty_fence() {
+        let empty = "<!-- bower repo=\"r\" output=\"check\" -->\n```text\n```\n";
+        assert_eq!(
+            rewrite(empty, 1, &v(&["a", "b"])),
+            "<!-- bower repo=\"r\" output=\"check\" -->\n```text\na\nb\n```\n"
+        );
+    }
+
+    #[test]
+    fn rewrite__empties_a_fence() {
+        assert_eq!(
+            rewrite(CH, 3, &[]),
+            "# T\n\n<!-- bower repo=\"r\" output=\"check\" -->\n\n```text\n```\n\nAfter.\n"
+        );
+    }
+
+    #[test]
+    fn rewrite__widens_the_fence_when_output_holds_backticks() {
+        let out = rewrite(CH, 3, &v(&["```rust", "x", "```"]));
+        assert!(out.contains("\n````text\n```rust\nx\n```\n````\n"), "{out}");
+    }
+
+    #[test]
+    fn rewrite__keeps_crlf_line_endings() {
+        let crlf =
+            "<!-- bower repo=\"r\" output=\"check\" -->\r\n```text\r\nold\r\n```\r\nAfter.\r\n";
+        assert_eq!(
+            rewrite(crlf, 1, &v(&["new"])),
+            "<!-- bower repo=\"r\" output=\"check\" -->\r\n```text\r\nnew\r\n```\r\nAfter.\r\n"
+        );
+    }
+
+    #[test]
+    fn rewrite__keeps_a_missing_final_newline() {
+        let bare = "<!-- bower repo=\"r\" output=\"check\" -->\n```text\nold\n```";
+        assert_eq!(
+            rewrite(bare, 1, &v(&["new"])),
+            "<!-- bower repo=\"r\" output=\"check\" -->\n```text\nnew\n```"
+        );
+    }
+
+    #[test]
+    fn rewrite__without_a_fence_changes_nothing() {
+        let text = "<!-- bower repo=\"r\" output=\"check\" -->\nprose\n";
+        assert_eq!(rewrite(text, 1, &v(&["x"])), text);
+        assert_eq!(rewrite(text, 0, &v(&["x"])), text);
     }
 }
