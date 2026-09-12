@@ -369,6 +369,41 @@ pub fn exercise_forms() -> Fixture {
     )
 }
 
+/// Every legal `capture × expect` pair, bound both ways: `check` on a green
+/// step and its `verify` reaching back by `step=` from the end of the chapter,
+/// `check` on a `compile_fail` step, and both on a `test_fail` step. Two fences
+/// are empty: recorded and not-yet-recorded outputs plan alike.
+#[must_use]
+pub fn captured_outputs() -> Fixture {
+    Fixture::new(
+        "captured_outputs",
+        BookSource::from_chapters(vec![chapter(
+            "ch08-outputs.md",
+            concat!(
+                "# What the compiler said\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" step=\"green\" -->\n",
+                "```rust\npub fn answer() -> u32 { 42 }\n```\n\n",
+                "<!-- bower repo=\"failers\" output=\"check\" -->\n",
+                "```text\n```\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"replace\" step=\"broken\" expect=\"compile_fail\" -->\n",
+                "```rust\npub fn answer() -> u32 { \"42\" }\n```\n\n",
+                "<!-- bower repo=\"failers\" output=\"check\" -->\n",
+                "```text\nerror[E0308]: mismatched types\n[...]\n```\n\n",
+                "<!-- bower repo=\"failers\" file=\"src/lib.rs\" op=\"replace\" step=\"red\" expect=\"test_fail\" -->\n",
+                "```rust\npub fn answer() -> u32 { 41 }\n#[test]\nfn answers() { assert_eq!(answer(), 42); }\n```\n\n",
+                "<!-- bower repo=\"failers\" output=\"check\" -->\n",
+                "```text\n```\n\n",
+                "<!-- bower repo=\"failers\" output=\"verify\" -->\n",
+                "```text\n[...]\ntest answers ... FAILED\n[...]\n```\n\n",
+                "Back to the green step, by name:\n\n",
+                "<!-- bower repo=\"failers\" output=\"verify\" step=\"green\" -->\n",
+                "```text\n[...]\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n```\n",
+            ),
+        )]),
+        failers(),
+    )
+}
+
 /// Every valid fixture, for corpus-wide properties and the coverage report.
 #[must_use]
 pub fn valid() -> Vec<Fixture> {
@@ -382,6 +417,7 @@ pub fn valid() -> Vec<Fixture> {
         self_hosting_chapter(),
         notebook_play(),
         exercise_forms(),
+        captured_outputs(),
         hello_playbook(),
     ]
 }
@@ -541,6 +577,33 @@ fn broken_exercises() -> Vec<(&'static str, Fixture)> {
     ]
 }
 
+/// Errors raised by output blocks: binding, a key of another kind of block, a
+/// second block for one capture, and a capture the verifier never runs.
+fn broken_outputs() -> Vec<(&'static str, Fixture)> {
+    vec![
+        single(
+            "OutputUnbound",
+            "<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "OutputUnknownStep",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" output=\"check\" step=\"ghost\" -->\n```text\n```\n",
+        ),
+        single(
+            "OutputConflictingKeys",
+            "<!-- bower repo=\"failers\" output=\"check\" file=\"a.rs\" -->\n```text\n```\n",
+        ),
+        single(
+            "OutputDuplicate",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n<!-- bower repo=\"failers\" output=\"check\" -->\n```text\n```\n",
+        ),
+        single(
+            "OutputNeverRuns",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" expect=\"compile_fail\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" output=\"verify\" -->\n```text\n```\n",
+        ),
+    ]
+}
+
 /// Broken books, one per error family. The paired name states the
 /// [`BowerError`] variant the fixture must produce.
 #[must_use]
@@ -549,6 +612,7 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
     cases.extend(broken_tree());
     cases.extend(broken_display());
     cases.extend(broken_exercises());
+    cases.extend(broken_outputs());
 
     let mut malformed_include = BookSource::from_chapters(vec![chapter(
         "bad.md",

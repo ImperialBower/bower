@@ -44,6 +44,49 @@ fn corpus_state_coverage_is_complete() {
         report.missing_exercise_expects().is_empty(),
         "coverage gaps:\n{report}"
     );
+    assert!(
+        report.missing_capture_expects().is_empty(),
+        "coverage gaps:\n{report}"
+    );
+}
+
+#[test]
+fn captured_outputs_bind_every_legal_pair() {
+    let f = fixtures::captured_outputs();
+    let p = plan(&f.book, &f.catalog).unwrap();
+    let steps = &p.repo("failers").unwrap().steps;
+    let captures = |id: &str| {
+        steps
+            .iter()
+            .find(|s| s.id.0 == id)
+            .unwrap()
+            .outputs
+            .iter()
+            .map(|o| o.capture)
+            .collect::<Vec<_>>()
+    };
+
+    // `green`'s verify block sits last in the book and reaches back by name.
+    assert_eq!(captures("green"), vec![Capture::Check, Capture::Verify]);
+    assert_eq!(captures("broken"), vec![Capture::Check]);
+    assert_eq!(captures("red"), vec![Capture::Check, Capture::Verify]);
+
+    assert_eq!(
+        steps[1].outputs[0].lines,
+        vec![
+            "error[E0308]: mismatched types".to_string(),
+            ELISION.to_string()
+        ]
+    );
+    assert!(
+        steps[0].outputs[0].lines.is_empty(),
+        "an empty fence is not recorded yet"
+    );
+    // Output blocks never reach a tree.
+    assert_eq!(
+        steps[2].tree.paths().collect::<Vec<_>>(),
+        vec!["src/lib.rs"]
+    );
 }
 
 #[test]

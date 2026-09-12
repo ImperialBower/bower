@@ -34,11 +34,13 @@ pub enum Mechanism {
     PlayCell,
     /// An `exercise="…"` in either form.
     Exercise,
+    /// An `output="…"` block (EPIC-11).
+    CapturedOutput,
 }
 
 impl Mechanism {
     #[must_use]
-    pub fn all() -> [Mechanism; 10] {
+    pub fn all() -> [Mechanism; 11] {
         [
             Self::HiddenLines,
             Self::Regions,
@@ -50,6 +52,7 @@ impl Mechanism {
             Self::AfterConstraint,
             Self::PlayCell,
             Self::Exercise,
+            Self::CapturedOutput,
         ]
     }
 }
@@ -67,6 +70,7 @@ impl std::fmt::Display for Mechanism {
             Self::AfterConstraint => "after-constraint",
             Self::PlayCell => "play-cell",
             Self::Exercise => "exercise",
+            Self::CapturedOutput => "captured-output",
         };
         write!(f, "{s}")
     }
@@ -81,6 +85,8 @@ pub struct CoverageReport {
     /// The `expect` values that carry an exercise somewhere in the corpus —
     /// the exercise × expect axis of the spec.
     pub exercise_expects: BTreeSet<String>,
+    /// The legal `capture × expect` pairs the corpus binds, as `"check×pass"`.
+    pub capture_expects: BTreeSet<String>,
 }
 
 impl CoverageReport {
@@ -105,7 +111,11 @@ impl CoverageReport {
             if b.exercise.is_some() {
                 self.mechanisms.insert(Mechanism::Exercise.to_string());
             }
-            if b.play || b.exercise_block {
+            if b.output.is_some() {
+                self.mechanisms
+                    .insert(Mechanism::CapturedOutput.to_string());
+            }
+            if b.play || b.exercise_block || b.output.is_some() {
                 if b.play {
                     self.mechanisms.insert(Mechanism::PlayCell.to_string());
                 }
@@ -161,6 +171,10 @@ impl CoverageReport {
                 if s.exercise.is_some() {
                     self.exercise_expects.insert(s.expect.to_string());
                 }
+                for o in &s.outputs {
+                    self.capture_expects
+                        .insert(format!("{}×{}", o.capture, s.expect));
+                }
             }
         }
     }
@@ -205,6 +219,22 @@ impl CoverageReport {
             .collect()
     }
 
+    /// Legal `capture × expect` pairs — those the verifier runs
+    /// (`Capture::runs_under`) — that no output in the corpus sits on.
+    #[must_use]
+    pub fn missing_capture_expects(&self) -> Vec<String> {
+        Capture::all()
+            .into_iter()
+            .flat_map(|c| {
+                Expect::all()
+                    .into_iter()
+                    .filter(move |e| c.runs_under(*e))
+                    .map(move |e| format!("{c}×{e}"))
+            })
+            .filter(|pair| !self.capture_expects.contains(pair))
+            .collect()
+    }
+
     /// Full coverage means every op, expect, and mechanism appears at
     /// least once across the corpus, and an exercise sits on every expect.
     #[must_use]
@@ -213,6 +243,7 @@ impl CoverageReport {
             && self.missing_expects().is_empty()
             && self.missing_mechanisms().is_empty()
             && self.missing_exercise_expects().is_empty()
+            && self.missing_capture_expects().is_empty()
     }
 }
 
@@ -246,6 +277,15 @@ impl std::fmt::Display for CoverageReport {
                 "exercise × expect",
                 &self.exercise_expects,
                 &self.missing_exercise_expects()
+            )
+        )?;
+        writeln!(
+            f,
+            "{}",
+            line(
+                "capture × expect",
+                &self.capture_expects,
+                &self.missing_capture_expects()
             )
         )
     }
