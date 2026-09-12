@@ -103,37 +103,28 @@ reading and start typing: the box under the code above tells you how to fork
 the repository, check out exactly this commit, and run the tests yourself. The
 next section is one answer, and it stays folded until you open it.
 
-Here is what `cargo test` prints at this step:
+Here is the part of what `cargo test` prints at this step that matters:
 
 <!-- bower repo="hello-playbook" output="verify" -->
 
 ```text
-running 2 tests
-test tests::greet_ignores_stray_whitespace ... FAILED
-test tests::greet_uses_the_name ... ok
-
-failures:
-
----- tests::greet_ignores_stray_whitespace stdout ----
-
+[...]
 thread 'tests::greet_ignores_stray_whitespace' panicked at src/lib.rs:20:9:
 assertion `left == right` failed
   left: "Hello,   world  !"
  right: "Hello, world!"
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-
-
-failures:
-    tests::greet_ignores_stray_whitespace
-
-test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out
-
-error: test failed, to rerun pass `--lib`
+[...]
 ```
 
 That is not a paste. The `output="verify"` directive above binds the block to
 this step, and `bower verify` runs the tests and fails the day what they print
-changes. `bower verify --record` is what filled it in.
+changes. `bower verify --record` is what filled it in, with the whole output.
+
+The two `[...]` lines are a trim, made by hand after recording. Each one stands
+for lines left out, so the quote can skip the test list and the summary and
+keep only the failure. It is still checked: the lines that remain must appear
+in the output, in this order. `--record` leaves the trim alone for as long as
+that holds, and writes the whole output back the day it does not.
 
 ## The fix
 

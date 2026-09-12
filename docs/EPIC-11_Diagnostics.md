@@ -773,6 +773,11 @@ What differed from the design while building it:
   links.
 - **A1 stays listed in the backlog's ideas table**, marked shipped, rather
   than moved out of it (5d).
+- **The sample book shows the trim.** After the EPIC closed, `hello-playbook`
+  chapter 4's `verify` fence was cut to the panic lines between two `[...]`
+  lines, with a paragraph on elision, so the reference book demonstrates it
+  and not only `rust4failures`. `--record` leaves it alone;
+  `records_what_the_compiler_says_at_both_failures` pins it.
 
 ---
 

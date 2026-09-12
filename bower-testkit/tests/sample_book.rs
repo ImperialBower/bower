@@ -67,6 +67,9 @@ fn records_what_the_compiler_says_at_both_failures() {
     let red = outputs_of("test-that-fails");
     assert_eq!(red.len(), 1);
     assert_eq!(red[0].capture, Capture::Verify);
+    // The sample book's one `[...]` trim: it quotes the failure, not the run.
+    assert_eq!(red[0].lines.first().map(String::as_str), Some(ELISION));
+    assert_eq!(red[0].lines.last().map(String::as_str), Some(ELISION));
     assert!(
         red[0].lines.iter().any(|l| {
             l == "thread 'tests::greet_ignores_stray_whitespace' panicked at src/lib.rs:20:9:"
