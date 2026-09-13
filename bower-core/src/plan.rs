@@ -260,9 +260,14 @@ fn check_branch_refs(branches: &[BranchSummary], planned: &[PlannedStep], errors
     };
     for (i, a) in branches.iter().enumerate() {
         for b in &branches[..i] {
-            let collides = a.name.starts_with(&format!("{}/", b.name))
-                || b.name.starts_with(&format!("{}/", a.name))
-                || (a.name.eq_ignore_ascii_case(&b.name) && a.name != b.name);
+            // Lowercased: a case-insensitive filesystem resolves `Try/` and
+            // `try/` to the same directory, so the prefix test must compare
+            // names the way the filesystem would, not byte-for-byte.
+            let la = a.name.to_ascii_lowercase();
+            let lb = b.name.to_ascii_lowercase();
+            let collides = la.starts_with(&format!("{lb}/"))
+                || lb.starts_with(&format!("{la}/"))
+                || (la == lb && a.name != b.name);
             if !collides {
                 continue;
             }

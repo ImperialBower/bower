@@ -878,14 +878,22 @@ fn report_push(
             tags,
             branches,
             create,
+            main_first,
             site,
             release,
         } => {
             println!("{repo} → {remote}");
             println!("  branch    {branch}");
-            // Only when there are any: a straight line's report is unchanged.
+            // Only when there are any: a straight line's report is unchanged
+            // (exit criterion 6).
             if !branches.is_empty() {
+                let order = if main_first {
+                    "main, branches, tags"
+                } else {
+                    "branches, main, tags"
+                };
                 println!("  branches  {}", branches.join(", "));
+                println!("  order     {order}");
             }
             println!("  tags      {tags}");
             if create {

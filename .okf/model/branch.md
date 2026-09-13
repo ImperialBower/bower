@@ -47,8 +47,8 @@ actually resolves out of the branch's blocks before re-applying them — a
 multi-path `op="delete"` block that resolves one path still drops the rest,
 rather than being skipped whole and silently losing them (`trim_resolved`,
 `bower-core/src/branch.rs`). A step on a branch after it has merged is
-`BranchAlreadyMerged`; merging a branch twice, or one the plan has not seen
-yet, is refused the same way (`MergeUnknownBranch`).
+`BranchAlreadyMerged`, and merging that branch again is refused the same
+way; merging a branch the plan has not seen yet is `MergeUnknownBranch`.
 
 # In the repository
 

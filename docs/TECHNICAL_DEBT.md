@@ -264,6 +264,42 @@
   (`bower-core/src/branch.rs`). Each error is true on its own terms, but a
   reader fixing a chapter sees two messages for one mistake.
 
+- [ ] **A PR block silently ignores keys that belong to other blocks.**
+  `resolve`'s `pr_block` arm only checks that a fence is present; unlike the
+  `output` and play-cell arms beside it, it never refuses `exercise=`,
+  `merge=`, or `from=` on a PR block — those keys are parsed and then simply
+  never read for that block, rather than raising `OutputConflictingKeys` or
+  `PlayCellConflictingKeys`'s equivalent (`bower-core/src/block.rs`).
+
+- [ ] **A branch forked from main's last step shows `STEPS.md`/`PULLS.md` as
+  deleted in its diff against main.** `final_blobs` swaps them into the tree
+  only at main's last step (EPIC-09 Decision 16); a branch forking there
+  carries the scaffolding tree without them, so `git diff main` against it
+  reports both files removed. A slice-2 pull request opened for that branch
+  would carry the same deletion (`bower/src/replay.rs`, `final_blobs`).
+
+- [ ] **Branch names are substituted into link templates unescaped.** `git
+  check-ref-format` allows `#` and `)` in a branch name, and `branch_link`
+  splices the name straight into the link template with `str::replace`, no
+  escaping (`bower/src/render.rs`). A branch named `try/fix)`, say, would
+  close the markdown link early.
+
+- [ ] **A branch named like a `<chapter>-end` tag makes `git checkout`
+  ambiguous.** `chapter_ends` names its tags `<stem>-end`; `branch_name_problem`
+  refuses `main`, `HEAD`, and `step-`, but nothing refuses a branch whose name
+  collides with a chapter-end tag a book will also create.
+
+- [ ] **`report_push`'s forwarding of branches to `Forge::push` is covered
+  only by the compiler.** The call at `bower/src/main.rs` passes `branches`
+  straight through; nothing exercises the execute path, because it is not a
+  testable library function the way `plan_push` and `push_commands` are.
+
+- [ ] **No golden pins a straight-line book's SHAs.** Decision 13's promise —
+  that a book without branches replays to the SHAs it always did — is
+  guarded by structural tests (parents, trailers, lock text) and a one-time
+  manual comparison at EPIC-09's own review, not by a committed golden SHA a
+  future change could diff against.
+
 ## 🤖 Automated review findings
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->

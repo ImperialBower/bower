@@ -21,7 +21,10 @@ asked about it.
 The key form rides on a branch step's own directive, with no body:
 
 ```markdown
-<!-- bower repo="failers" branch="try/lookup-table" pr="Try a lookup table for ranks" -->
+<!-- bower repo="failers" step="try-lookup" branch="try/lookup-table" file="src/rank.rs" pr="Try a lookup table for ranks" -->
+```rust
+// a lookup table instead of a match
+```
 ```
 
 The block form is its own directive, carrying `repo=`, `branch=`, and `pr=`,

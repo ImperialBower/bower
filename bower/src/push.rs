@@ -104,6 +104,12 @@ pub enum PushPlan {
         branches: Vec<String>,
         /// The remote does not exist yet and must be created first.
         create: bool,
+        /// The remote has no `main` yet, so a real push puts main first,
+        /// ahead of every branch (EPIC-09 Decision 9's corrigendum). True
+        /// for [`RemoteState::Absent`] and [`RemoteState::Empty`]; false once
+        /// main already exists, when branches go first instead. Exit
+        /// criterion 6: the dry run's report reads this to print the order.
+        main_first: bool,
         /// The site push, when this book ships one. `None` means the book
         /// declares no `site_branch`, which is a normal book.
         site: Option<SitePush>,
@@ -263,6 +269,7 @@ pub fn plan_push(
         tags: expected_tags(plan).len(),
         branches: expected_branches(plan),
         create: state == RemoteState::Absent,
+        main_first: matches!(state, RemoteState::Absent | RemoteState::Empty),
         site,
         release,
     })
@@ -995,6 +1002,7 @@ mod plan_tests {
             tags,
             branches,
             create,
+            main_first,
             ..
         } = got
         else {
@@ -1007,6 +1015,7 @@ mod plan_tests {
         // `branches` line must stay silent — see `report_push`.
         assert!(branches.is_empty(), "{branches:?}");
         assert!(create, "an absent remote must be created");
+        assert!(main_first, "an absent remote has no main yet");
         // Deciding is not doing.
         assert!(!forge.mutated(), "{:?}", forge.calls());
     }
@@ -1020,10 +1029,36 @@ mod plan_tests {
         let dir = built("ours-repo", &p, &root, &cfg);
 
         let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
-        assert!(
-            matches!(got, PushPlan::Ready { create: false, .. }),
-            "{got:?}"
-        );
+        let PushPlan::Ready {
+            create, main_first, ..
+        } = got
+        else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert!(!create, "{got:?}");
+        assert!(!main_first, "main already exists on this remote: {got:?}");
+    }
+
+    #[test]
+    fn plan__an_empty_remote_also_needs_main_first() {
+        // `RemoteState::Empty` is a repository GitHub already made (409 on an
+        // empty commit history), not one Bower must create — but main is
+        // still not there yet, so the order must still put it first.
+        let forge = FakeForge::new(RemoteState::Empty, None);
+        let root = book_root("empty-remote");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("empty-remote-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Ready {
+            create, main_first, ..
+        } = got
+        else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert!(!create, "an empty remote already exists");
+        assert!(main_first, "main is still absent from it: {got:?}");
     }
 
     #[test]

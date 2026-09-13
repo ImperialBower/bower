@@ -513,7 +513,7 @@ pub fn branch_name_problem(name: &str) -> Option<&'static str> {
     if name.to_ascii_lowercase().starts_with("main/") {
         return Some("it collides with the main line's ref");
     }
-    if name.starts_with("step-") {
+    if name.to_ascii_lowercase().starts_with("step-") {
         return Some("`step-` begins every step tag");
     }
     if name == "@" || name.contains("@{") {
@@ -567,6 +567,7 @@ mod branch_tests {
     #[case("main/x")]
     #[case("Main/x")]
     #[case("step-001-rank")]
+    #[case("Step-1")]
     #[case("@")]
     #[case("a@{b")]
     #[case("-x")]

@@ -35,13 +35,15 @@ broken first commit, the fix, the merge — every state visible.** Today an
 author narrates "imagine a branch" and the reader imagines it. The
 generated repository should contain it.
 
-The spike at `docs/spikes/spike-branches/` (zero dependencies, rustc 1.75, 16 tests)
-settles the model: a branch is a line of history the fold keeps a tree for;
-a merge is a main step whose tree is *the branch's blocks re-applied over
-main*; conflicts are plan-time errors; every step's parents are plan values,
-so SHAs stay byte-identical across runs and a change on a branch reaches only
-what descends from it. `docs/spikes/spike-branches/fixture-book.md` shows the same six
-steps as chapter directives.
+The spike that lived at `docs/spikes/spike-branches/` (zero dependencies,
+rustc 1.75, 16 tests) settled the model: a branch is a line of history the
+fold keeps a tree for; a merge is a main step whose tree is *the branch's
+blocks re-applied over main*; conflicts are plan-time errors; every step's
+parents are plan values, so SHAs stay byte-identical across runs and a change
+on a branch reaches only what descends from it.
+`docs/spikes/spike-branches/fixture-book.md` showed the same six steps as
+chapter directives. The directory was deleted in `d99ccf7`, once slice 1
+shipped; both files are still readable in the git history at `8f3057f`.
 
 **This EPIC does not** implement branches off branches, merges into
 branches, rebases, or review comments as book content; does not merge on the
@@ -185,16 +187,19 @@ and forge-side merging. Each is a backlog line when this ships.
    while it is open, and leaves a merged one alone. Bower never closes,
    merges, or deletes a PR. The book links the **branch** and the
    **compare**, never a PR number — numbers are the forge's to assign.
-9. **Push order is branches, tags, PRs, then main.** A PR needs its head to
-   exist and needs a diff against base, so branches go first and main —
-   which carries the merge commit — goes last. Both GitHub and Forgejo mark a
-   PR merged when its head becomes reachable from base by a push; this is
-   the last inch and open question 1. As built, a remote with no `main` yet
-   is the one exception: main is pushed first, ahead of every branch, because
-   the first branch pushed to an empty repository likely becomes its
-   default, and the push gate reads `STEPS.md` from the default branch —
-   pushing a side branch first would lock the book out of every later push
-   (see the corrigendum).
+9. **Push order is branches, PRs, main, then tags — tags always last.** A PR
+   needs its head to exist and needs a diff against base, so branches go
+   first; main, which carries the merge commit, goes before the tags rather
+   than after them, because a lease trip on main must never leave tags
+   already force-rewritten, and tags have no bearing on PR merge detection.
+   Both GitHub and Forgejo mark a PR merged when its head becomes reachable
+   from base by a push; this is the last inch and open question 1. As built,
+   a remote with no `main` yet is the one exception: main is pushed first,
+   ahead of every branch, then the branches, then the tags — because the
+   first branch pushed to an empty repository likely becomes its default,
+   and the push gate reads `STEPS.md` from the default branch — pushing a
+   side branch first would lock the book out of every later push (see the
+   corrigendum).
 10. **Verification does not change.** Every `PlannedStep` still carries a
     complete `tree`, and `verify::run` (`bower/src/verify.rs:376`) already
     checks each in isolation. A merge step is verified against its own
@@ -519,7 +524,7 @@ Slice 2: `push__branches_go_before_prs_and_main_goes_last`,
 
 | File | Role |
 |---|---|
-| `docs/spikes/spike-branches/` | the reference model; keep until Phase 0 lands, then delete |
+| `docs/spikes/spike-branches/` | the reference model; deleted in `d99ccf7`, readable in the git history at `8f3057f` |
 | `bower-core/src/directive.rs` | four keys |
 | `bower-core/src/block.rs`, `step.rs` | fields; `ConflictingLineInStep`; `composes` |
 | `bower-core/src/plan.rs` | the fold, `Line`, `parents`, `BranchSummary`, `PullRequest`, lock text |
@@ -618,8 +623,9 @@ Exit criteria (slice 1 unless marked):
 ## Corrigendum — as built, slice 1
 
 Deviations from this plan the tasks reported during execution, with where and
-why. The first four change behaviour from the plan's text; the rest are
-mechanical.
+why. The first four change behaviour from the plan's text; items 5 through 8
+are mechanical; item 9 clarifies the scope of an existing exit criterion
+rather than changing anything.
 
 1. **A merge's resolution skips only the resolved paths of a branch block,
    not the whole block.** The plan skipped a whole branch block when any file
@@ -641,13 +647,17 @@ mechanical.
    replay fail with an unlocated IO error, and `Main` on a case-insensitive
    filesystem silently repointed main. `branch_name_problem` and a repo-level
    `check_branch_refs` (`bower-core/src/plan.rs`), extending Decision 6.
-4. **On a remote with no `main`, main is pushed first**, then the branches,
-   then the tags; on an existing remote the order stays Decision 9's
-   (branches, tags, main). The first branch pushed to an empty GitHub or
-   Forgejo repository likely becomes its default, and the push gate reads
-   `STEPS.md` from the default branch — a side branch first would lock the
-   book out of every later push. `push_commands` (`bower/src/forge.rs`),
-   extending Decision 9.
+4. **Tags always push last.** On an existing remote, each branch pushes with
+   its own lease, then main with its own lease, then the tags, forced —
+   never tags before main, because a lease trip on main must not leave tags
+   already force-rewritten, and tags have no bearing on PR merge detection.
+   On a remote with no `main`, main is pushed first, then the branches, then
+   the tags — the first branch pushed to an empty GitHub or Forgejo
+   repository likely becomes its default, and the push gate reads
+   `STEPS.md` from the default branch, so a side branch first would lock the
+   book out of every later push. A straight-line book then pushes main, then
+   tags, on either remote — exactly the pre-branch order. `push_commands`
+   (`bower/src/forge.rs`), extending Decision 9.
 5. `cargo fmt --all` was not in the plan's per-task gate; it was added after
    Task 10's review found `make fmt-check` (which CI runs) failing on this
    branch. Task 10's commit carries formatting-only hunks in files from
@@ -662,8 +672,13 @@ mechanical.
    and was updated in Task 11 to add `ch07-try-it-on-a-branch.md`.
 8. The Task 3 commit was first recorded with an unrelated message and
    amended by the user (`b6b9688`).
+9. **The blast-radius promise (exit criterion 3) holds for a branch step's
+   *content*.** Editing any branch step's `msg` or id also moves main's last
+   commit, because `STEPS.md` on main lists every step, branch steps
+   included (Decision 16) — so a branch-only edit still touches one main SHA
+   even though nothing on main's own tree changed.
 
-None of the eight change the shape of what shipped; each is recorded here
+None of the nine change the shape of what shipped; each is recorded here
 because a task reported it as a deviation from this document's text at the
 moment it happened.
 
@@ -672,4 +687,5 @@ moment it happened.
 *Spike: `docs/spikes/spike-branches/` — 16 tests green on rustc 1.75, three hand-mutations
 each caught, `cargo run` prints the proposed lock and the graph. Drafted 9
 September 2026 against `ImperialBower/bower` @ HEAD ("docs: file the forge
-design and add it to the backlog").*
+design and add it to the backlog"). Deleted in `d99ccf7` once slice 1
+shipped; readable in the git history at `8f3057f`.*

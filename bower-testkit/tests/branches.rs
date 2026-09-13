@@ -310,6 +310,34 @@ fn plan__conflict_is_per_region_not_per_file() {
 }
 
 #[test]
+fn plan__a_conflict_can_arrive_through_an_earlier_merge() {
+    // `p` and `q` both fork at `base` and both touch region `one`. `p` merges
+    // first, re-applying its edit onto main; `q`'s own edit to `one` then
+    // conflicts not with `base` (its fork point) but with what `p`'s merge
+    // just put on main — a conflict that arrives through an earlier merge,
+    // not through main moving on its own.
+    let p = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n",
+        "```rust\n// bower:begin one\n// bower:end one\n```\n",
+        "<!-- bower repo=\"failers\" step=\"p-edit\" branch=\"p\" file=\"a.rs\" op=\"region\" region=\"one\" -->\n",
+        "```rust\nfn one_from_p() {}\n```\n",
+        "<!-- bower repo=\"failers\" step=\"q-edit\" branch=\"q\" file=\"a.rs\" op=\"region\" region=\"one\" -->\n",
+        "```rust\nfn one_from_q() {}\n```\n",
+        "<!-- bower repo=\"failers\" step=\"merge-p\" merge=\"p\" op=\"none\" msg=\"merge p\" -->\n",
+        "<!-- bower repo=\"failers\" step=\"merge-q\" merge=\"q\" op=\"none\" msg=\"merge q\" -->\n",
+    ));
+    let errs = p.unwrap_err();
+    assert!(
+        matches!(
+            &errs.0[0],
+            BowerError::MergeConflict { step, branch, file, region: Some(r), .. }
+                if step == "merge-q" && branch == "q" && file == "a.rs" && r == "one"
+        ),
+        "{errs}"
+    );
+}
+
+#[test]
 fn plan__two_appends_compose_at_a_merge() {
     let p = plan_of(concat!(
         "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nstart\n```\n",
@@ -525,6 +553,19 @@ fn plan__branch_names_that_collide_as_refs_are_refused() {
     ))
     .unwrap();
     assert_eq!(p.branches.len(), 2);
+
+    // A case-insensitive filesystem also resolves `Try/` and `try/` to one
+    // directory: the prefix check must compare lowercased names, not only
+    // the exact-equal-in-case one above.
+    let errs = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"one\" file=\"a.rs\" branch=\"Try\" -->\n```rust\nx\n```\n",
+        "<!-- bower repo=\"failers\" step=\"two\" file=\"b.rs\" branch=\"try/x\" -->\n```rust\ny\n```\n",
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::InvalidBranchName { name, .. } if name == "try/x"),
+        "{errs}"
+    );
 }
 
 #[test]
