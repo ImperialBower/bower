@@ -607,10 +607,16 @@ fn broken_outputs() -> Vec<(&'static str, Fixture)> {
 /// Errors raised by lines of history (EPIC-09): names, keys that disagree,
 /// the fold, and pull requests.
 fn broken_branches() -> Vec<(&'static str, Fixture)> {
-    vec![single(
-        "InvalidBranchName",
-        "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main\" -->\n```rust\nx\n```\n",
-    )]
+    vec![
+        single(
+            "InvalidBranchName",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "ConflictingLineInStep",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" branch=\"x\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" step=\"s\" branch=\"y\" -->\n```rust\ny\n```\n",
+        ),
+    ]
 }
 
 /// Broken books, one per error family. The paired name states the

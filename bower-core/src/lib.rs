@@ -208,6 +208,9 @@ pub enum BowerError {
         name: String,
         reason: String,
     },
+    /// Blocks sharing a step id declared different `branch`, `from`, or
+    /// `merge` values.
+    ConflictingLineInStep { loc: Location, step: String },
 }
 
 impl BowerError {
@@ -251,7 +254,8 @@ impl BowerError {
             | Self::OutputConflictingKeys { loc }
             | Self::OutputDuplicate { loc, .. }
             | Self::OutputNeverRuns { loc, .. }
-            | Self::InvalidBranchName { loc, .. } => Some(loc),
+            | Self::InvalidBranchName { loc, .. }
+            | Self::ConflictingLineInStep { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -416,6 +420,10 @@ impl std::fmt::Display for BowerError {
             Self::InvalidBranchName { loc, name, reason } => {
                 write!(f, "{loc}: `{name}` cannot name a branch: {reason}")
             }
+            Self::ConflictingLineInStep { loc, step } => write!(
+                f,
+                "{loc}: blocks in step `{step}` disagree about its line: `branch`, `from`, or `merge`"
+            ),
         }
     }
 }

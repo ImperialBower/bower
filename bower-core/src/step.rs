@@ -37,6 +37,12 @@ pub struct Step {
     pub anchor: Location,
     /// Document-order index of the step's first block, the ordering tiebreak.
     pub doc_order: usize,
+    /// `branch=`: the line this step's commit sits on; `None` is main.
+    pub branch: Option<String>,
+    /// `from=`: the main step a branch forks at, on the branch's first step.
+    pub from: Option<String>,
+    /// `merge=`: the branch this main step merges.
+    pub merge: Option<String>,
 }
 
 impl Step {
@@ -97,6 +103,9 @@ fn new_step(id: StepId, block: Block) -> Step {
         afters: block.after.clone().into_iter().collect(),
         anchor: block.loc.clone(),
         doc_order: block.seq_in_book,
+        branch: block.branch.clone(),
+        from: block.from.clone(),
+        merge: block.merge.clone(),
         blocks: vec![block],
     }
 }
@@ -121,6 +130,23 @@ fn merge_into(step: &mut Step, block: Block, errors: &mut Errors) {
             });
         } else {
             step.expect = e;
+        }
+    }
+    // As with `expect`: any block of a step may say it, and two that say
+    // different things are a contradiction.
+    let id = step.id.0.clone();
+    for (have, said) in [
+        (&mut step.branch, &block.branch),
+        (&mut step.from, &block.from),
+        (&mut step.merge, &block.merge),
+    ] {
+        match (have.as_ref(), said) {
+            (Some(a), Some(b)) if a != b => errors.push(BowerError::ConflictingLineInStep {
+                loc: block.loc.clone(),
+                step: id.clone(),
+            }),
+            (None, Some(b)) => *have = Some(b.clone()),
+            _ => {}
         }
     }
     if step.blocks.iter().all(|b| b.msg.is_none())
@@ -191,37 +217,86 @@ fn slugify(s: &str) -> String {
     }
 }
 
+/// How a block touches one file — the unit the composition rule reasons
+/// about (EPIC-09 Decision 14).
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum TouchKind {
+    /// `create`, `replace`, `delete`, or `copy`: the whole file.
+    Whole,
+    /// `region`: one named region of it.
+    Region(String),
+    /// `append`: its end.
+    Append,
+}
+
+/// One block's touch on one file.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Touch {
+    pub file: String,
+    pub kind: TouchKind,
+}
+
+/// Every file `block` writes, and how. A prose block writes nothing.
+#[must_use]
+pub fn touches(block: &Block) -> Vec<Touch> {
+    use crate::directive::Op;
+
+    let kind = match block.op {
+        Op::Prose => return Vec::new(),
+        Op::Append => TouchKind::Append,
+        // A region op with no region is already an error; call it the whole
+        // file rather than invent a name.
+        Op::Region => block
+            .region
+            .clone()
+            .map_or(TouchKind::Whole, TouchKind::Region),
+        Op::Create | Op::Replace | Op::Delete | Op::Copy => TouchKind::Whole,
+    };
+    block
+        .file
+        .iter()
+        .chain(block.paths.iter())
+        .map(|f| Touch {
+            file: f.clone(),
+            kind: kind.clone(),
+        })
+        .collect()
+}
+
+/// Do two touches on one file compose? Distinct regions and appends do; a
+/// whole-file write composes with nothing, and one region twice is a clash.
+///
+/// The one rule behind both a step's duplicate-file check and a merge's
+/// conflict check (EPIC-09 Decision 4): two copies would be two answers.
+#[must_use]
+pub fn composes(a: &TouchKind, b: &TouchKind) -> bool {
+    match (a, b) {
+        (TouchKind::Whole, _) | (_, TouchKind::Whole) => false,
+        (TouchKind::Region(x), TouchKind::Region(y)) => x != y,
+        _ => true,
+    }
+}
+
 /// Two blocks in one step may touch the same file only when the touches
 /// compose: distinct-region ops and appends. Whole-file writes (create,
 /// replace, delete, copy) never share a file with anything else in the
 /// same step, and two region ops on the same region are a conflict.
+///
+/// Reported once per file, at the block that clashes with an earlier one.
 fn check_duplicate_files(step: &Step, errors: &mut Errors) {
-    use crate::directive::Op;
-
-    let mut touches: BTreeMap<&String, Vec<(&Block, Op)>> = BTreeMap::new();
+    let mut seen: BTreeMap<String, Vec<TouchKind>> = BTreeMap::new();
+    let mut reported: BTreeSet<String> = BTreeSet::new();
     for b in &step.blocks {
-        for f in b.file.iter().chain(b.paths.iter()) {
-            touches.entry(f).or_default().push((b, b.op));
-        }
-    }
-    for (file, list) in touches {
-        if list.len() < 2 {
-            continue;
-        }
-        let whole_file = list
-            .iter()
-            .any(|(_, op)| matches!(op, Op::Create | Op::Replace | Op::Delete | Op::Copy));
-        let mut regions: BTreeSet<&str> = BTreeSet::new();
-        let region_clash = list.iter().any(|(b, op)| {
-            *op == Op::Region && b.region.as_deref().is_some_and(|r| !regions.insert(r))
-        });
-        if whole_file || region_clash {
-            let offender = list[1].0;
-            errors.push(BowerError::DuplicateFileInStep {
-                loc: offender.loc.clone(),
-                step: step.id.0.clone(),
-                file: file.clone(),
-            });
+        for t in touches(b) {
+            let prior = seen.entry(t.file.clone()).or_default();
+            if prior.iter().any(|k| !composes(k, &t.kind)) && reported.insert(t.file.clone()) {
+                errors.push(BowerError::DuplicateFileInStep {
+                    loc: b.loc.clone(),
+                    step: step.id.0.clone(),
+                    file: t.file.clone(),
+                });
+            }
+            prior.push(t.kind);
         }
     }
 }
@@ -356,6 +431,78 @@ mod step_tests {
             errors.0[0],
             BowerError::DuplicateFileInStep { .. }
         ));
+    }
+
+    #[test]
+    fn composes__distinct_regions_and_appends_compose_whole_files_never_do() {
+        use TouchKind::{Append, Region, Whole};
+        let r = |n: &str| Region(n.to_string());
+        assert!(composes(&r("a"), &r("b")));
+        assert!(!composes(&r("a"), &r("a")));
+        assert!(composes(&Append, &Append));
+        assert!(composes(&Append, &r("a")));
+        for k in [Append, r("a"), Whole] {
+            assert!(!composes(&Whole, &k), "{k:?}");
+            assert!(!composes(&k, &Whole), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn touches__names_every_file_a_block_writes() {
+        let mut b = block(0, None, "a.rs");
+        b.op = Op::Delete;
+        b.paths = vec!["b.rs".to_string()];
+        let t = touches(&b);
+        assert_eq!(
+            t,
+            vec![
+                Touch { file: "a.rs".into(), kind: TouchKind::Whole },
+                Touch { file: "b.rs".into(), kind: TouchKind::Whole },
+            ]
+        );
+        b.op = Op::Prose;
+        assert!(touches(&b).is_empty());
+    }
+
+    #[test]
+    fn group__distinct_regions_of_one_file_share_a_step() {
+        let mut errors = Errors::default();
+        let mut a = block(0, Some("s"), "a.rs");
+        a.op = Op::Region;
+        a.region = Some("one".into());
+        let mut b = block(1, Some("s"), "a.rs");
+        b.op = Op::Region;
+        b.region = Some("two".into());
+        let _ = group(vec![a, b], &mut errors);
+        assert!(errors.is_empty(), "{errors}");
+    }
+
+    #[test]
+    fn group__line_keys_carry_onto_the_step() {
+        let mut errors = Errors::default();
+        let a = block(0, Some("s"), "a.rs");
+        let mut b = block(1, Some("s"), "b.rs");
+        b.branch = Some("try/x".into());
+        b.from = Some("base".into());
+        let steps = group(vec![a, b], &mut errors);
+        assert!(errors.is_empty(), "{errors}");
+        assert_eq!(steps[0].branch.as_deref(), Some("try/x"));
+        assert_eq!(steps[0].from.as_deref(), Some("base"));
+        assert_eq!(steps[0].merge, None);
+    }
+
+    #[test]
+    fn group__blocks_that_disagree_about_the_line_are_refused() {
+        let mut errors = Errors::default();
+        let mut a = block(0, Some("s"), "a.rs");
+        a.branch = Some("x".into());
+        let mut b = block(1, Some("s"), "b.rs");
+        b.branch = Some("y".into());
+        let _ = group(vec![a, b], &mut errors);
+        assert!(
+            matches!(&errors.0[0], BowerError::ConflictingLineInStep { step, loc } if step == "s" && loc.line == 2),
+            "{errors}"
+        );
     }
 
     #[test]
