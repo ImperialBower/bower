@@ -404,6 +404,40 @@ pub fn captured_outputs() -> Fixture {
     )
 }
 
+/// The branch saga (EPIC-09): the spike's six steps as a chapter. One branch
+/// fails and is left standing; one is broken, fixed, and merged; main moves on
+/// a different file in between. Public so tests can derive variants from the
+/// text instead of restating it.
+pub const BRANCH_SAGA: &str = concat!(
+    "# The rank saga, with branches\n\n",
+    "<!-- bower repo=\"failers\" step=\"rank-enum\" file=\"src/rank.rs\" msg=\"ch01: the Rank enum\" -->\n",
+    "```rust\n#[derive(Clone, Copy, Debug, Eq, PartialEq)]\npub enum Rank { Ace, King, Queen, Blank }\n```\n",
+    "<!-- bower repo=\"failers\" step=\"rank-enum\" file=\"src/lib.rs\" -->\n",
+    "```rust\npub mod rank;\n```\n\n",
+    "## A branch that fails, and stays\n\n",
+    "<!-- bower repo=\"failers\" step=\"lookup-table\" branch=\"try/lookup-table\" file=\"src/rank.rs\" op=\"append\" expect=\"test_fail\" msg=\"ch01: try a lookup table instead\" -->\n",
+    "```rust\npub const RANKS: [Rank; 3] = [Rank::Ace, Rank::King, Rank::Queen];\n#[test] fn lookup_covers_every_char() { assert_eq!(RANKS.len(), 4); }\n```\n\n",
+    "## Meanwhile, on main\n\n",
+    "<!-- bower repo=\"failers\" step=\"lib-doc\" file=\"src/lib.rs\" op=\"replace\" msg=\"ch01: document the crate\" -->\n",
+    "```rust\n//! A deck of cards, built the failing way.\npub mod rank;\n```\n\n",
+    "## The pull request\n\n",
+    "<!-- bower repo=\"failers\" step=\"from-char-broken\" branch=\"from-char\" file=\"src/rank.rs\" op=\"append\" expect=\"compile_fail\" msg=\"ch02: From<char>, non-exhaustive\" -->\n",
+    "```rust\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen }\n    }\n}\n```\n\n",
+    "<!-- bower repo=\"failers\" step=\"from-char-fixed\" branch=\"from-char\" file=\"src/rank.rs\" op=\"replace\" msg=\"ch02: From<char>, every arm answered\" -->\n",
+    "```rust\n#[derive(Clone, Copy, Debug, Eq, PartialEq)]\npub enum Rank { Ace, King, Queen, Blank }\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen, _ => Rank::Blank }\n    }\n}\n```\n\n",
+    "<!-- bower repo=\"failers\" step=\"merge-from-char\" merge=\"from-char\" op=\"none\" msg=\"ch02: merge from-char\" -->\n",
+);
+
+/// [`BRANCH_SAGA`] as a fixture.
+#[must_use]
+pub fn branch_saga() -> Fixture {
+    Fixture::new(
+        "branch_saga",
+        BookSource::from_chapters(vec![chapter("ch01-saga.md", BRANCH_SAGA)]),
+        failers(),
+    )
+}
+
 /// Every valid fixture, for corpus-wide properties and the coverage report.
 #[must_use]
 pub fn valid() -> Vec<Fixture> {
@@ -615,6 +649,34 @@ fn broken_branches() -> Vec<(&'static str, Fixture)> {
         single(
             "ConflictingLineInStep",
             "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" branch=\"x\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" step=\"s\" branch=\"y\" -->\n```rust\ny\n```\n",
+        ),
+        single(
+            "MergeUnknownBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"ghost\" op=\"none\" -->\n",
+        ),
+        single(
+            "MergeOnBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"m\" branch=\"b\" merge=\"b\" op=\"none\" -->\n",
+        ),
+        single(
+            "BranchAlreadyMerged",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"b\" op=\"none\" -->\n<!-- bower repo=\"failers\" step=\"late\" branch=\"b\" file=\"b.rs\" op=\"append\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "UnknownFrom",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" from=\"ghost\" file=\"b.rs\" -->\n```rust\ny\n```\n",
+        ),
+        single(
+            "FromNotOnMain",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"x\" branch=\"x\" file=\"x.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" from=\"x\" file=\"b.rs\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "FromOnLaterStep",
+            "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"s1\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"s2\" branch=\"b\" from=\"base\" file=\"b.rs\" op=\"append\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "MergeConflict",
+            "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"a.rs\" op=\"append\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"later\" file=\"a.rs\" op=\"replace\" -->\n```rust\nz\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"b\" op=\"none\" -->\n",
         ),
     ]
 }

@@ -86,6 +86,31 @@ impl TreeState {
         }
     }
 
+    /// Apply a whole-file block as a merge's resolution (EPIC-09 Decision 3):
+    /// whatever either side left at the path, the block's content is what
+    /// stays. Only whole-file blocks reach here — `create`, `replace`,
+    /// `delete`, `copy` — and none of them asks what was there first.
+    pub fn resolve_block(
+        &mut self,
+        block: &Block,
+        step: &str,
+        assets: &BTreeMap<String, Vec<u8>>,
+        errors: &mut Errors,
+    ) {
+        for path in block.file.iter().chain(block.paths.iter()) {
+            self.0.remove(path);
+        }
+        match block.op {
+            Op::Delete => {}
+            Op::Replace => {
+                let mut create = block.clone();
+                create.op = Op::Create;
+                self.apply_block(&create, step, assets, errors);
+            }
+            _ => self.apply_block(block, step, assets, errors),
+        }
+    }
+
     fn apply_delete(&mut self, block: &Block, step: &str, errors: &mut Errors) {
         let targets: Vec<&String> = block.file.iter().chain(block.paths.iter()).collect();
         for path in targets {
@@ -621,6 +646,43 @@ mod tree_tests {
         tree.apply_block(&d, "s", &no_assets(), &mut errors);
         assert!(errors.is_empty(), "{errors}");
         assert!(tree.is_empty());
+    }
+
+    #[test]
+    fn resolve_block__writes_whatever_either_side_left() {
+        // A merge's resolution does not ask what was there: `create` over an
+        // existing file, `replace` of a missing one, and `delete` of a missing
+        // one all succeed (EPIC-09 Decision 3).
+        let mut tree = TreeState::default();
+        let mut errors = Errors::default();
+        tree.apply_block(
+            &block(Op::Create, "a.rs", &["old"]),
+            "s",
+            &no_assets(),
+            &mut errors,
+        );
+
+        tree.resolve_block(
+            &block(Op::Create, "a.rs", &["new"]),
+            "m",
+            &no_assets(),
+            &mut errors,
+        );
+        assert_eq!(tree.text("a.rs"), Some("new\n"));
+        tree.resolve_block(
+            &block(Op::Replace, "b.rs", &["b"]),
+            "m",
+            &no_assets(),
+            &mut errors,
+        );
+        assert_eq!(tree.text("b.rs"), Some("b\n"));
+        tree.resolve_block(
+            &block(Op::Delete, "gone.rs", &[]),
+            "m",
+            &no_assets(),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "{errors}");
     }
 
     #[test]

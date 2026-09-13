@@ -44,6 +44,7 @@ pub mod prelude {
 
     pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
+    pub use crate::branch::{BranchSummary, Line};
     pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, rewrite, tidy};
     pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
@@ -211,6 +212,49 @@ pub enum BowerError {
     /// Blocks sharing a step id declared different `branch`, `from`, or
     /// `merge` values.
     ConflictingLineInStep { loc: Location, step: String },
+    /// `merge=` names a branch no earlier step of the repo is on.
+    MergeUnknownBranch {
+        loc: Location,
+        step: String,
+        branch: String,
+    },
+    /// A step declares both `branch=` and `merge=`; a merge sits on main.
+    MergeOnBranch { loc: Location, step: String },
+    /// A step joins, or merges again, a branch a merge step already closed.
+    BranchAlreadyMerged {
+        loc: Location,
+        step: String,
+        branch: String,
+        merged_at: String,
+    },
+    /// `from=` names no earlier step of the repo.
+    UnknownFrom {
+        loc: Location,
+        step: String,
+        from: String,
+    },
+    /// `from=` names a step on a branch; a branch forks from main.
+    FromNotOnMain {
+        loc: Location,
+        step: String,
+        from: String,
+    },
+    /// `from=` on a step that is not a branch's first — a later branch step,
+    /// or a main or merge step: nothing reads it.
+    FromOnLaterStep {
+        loc: Location,
+        step: String,
+        branch: String,
+    },
+    /// The branch and main both changed `file` since the fork in ways that do
+    /// not compose, and the merge step does not write the whole file.
+    MergeConflict {
+        loc: Location,
+        step: String,
+        branch: String,
+        file: String,
+        region: Option<String>,
+    },
 }
 
 impl BowerError {
@@ -255,7 +299,14 @@ impl BowerError {
             | Self::OutputDuplicate { loc, .. }
             | Self::OutputNeverRuns { loc, .. }
             | Self::InvalidBranchName { loc, .. }
-            | Self::ConflictingLineInStep { loc, .. } => Some(loc),
+            | Self::ConflictingLineInStep { loc, .. }
+            | Self::MergeUnknownBranch { loc, .. }
+            | Self::MergeOnBranch { loc, .. }
+            | Self::BranchAlreadyMerged { loc, .. }
+            | Self::UnknownFrom { loc, .. }
+            | Self::FromNotOnMain { loc, .. }
+            | Self::FromOnLaterStep { loc, .. }
+            | Self::MergeConflict { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -424,6 +475,51 @@ impl std::fmt::Display for BowerError {
                 f,
                 "{loc}: blocks in step `{step}` disagree about its line: `branch`, `from`, or `merge`"
             ),
+            Self::MergeUnknownBranch { loc, step, branch } => write!(
+                f,
+                "{loc}: step `{step}` merges `{branch}`, but no earlier step is on that branch; if the branch comes later in the book, give this step after=\"<the branch's last step>\""
+            ),
+            Self::MergeOnBranch { loc, step } => write!(
+                f,
+                "{loc}: step `{step}` declares both branch= and merge=; a merge sits on main"
+            ),
+            Self::BranchAlreadyMerged {
+                loc,
+                step,
+                branch,
+                merged_at,
+            } => write!(
+                f,
+                "{loc}: step `{step}`: branch `{branch}` was already merged at step `{merged_at}`"
+            ),
+            Self::UnknownFrom { loc, step, from } => write!(
+                f,
+                "{loc}: step `{step}` says from=\"{from}\", but no earlier step has that id"
+            ),
+            Self::FromNotOnMain { loc, step, from } => write!(
+                f,
+                "{loc}: step `{step}` says from=\"{from}\", which is on a branch; a branch forks from a main step"
+            ),
+            Self::FromOnLaterStep { loc, step, branch } => write!(
+                f,
+                "{loc}: step `{step}` says from=, but only a branch's first step forks; this step is on `{branch}`"
+            ),
+            Self::MergeConflict {
+                loc,
+                step,
+                branch,
+                file,
+                region,
+            } => {
+                let what = region.as_ref().map_or_else(
+                    || format!("`{file}`"),
+                    |r| format!("region `{r}` of `{file}`"),
+                );
+                write!(
+                    f,
+                    "{loc}: step `{step}` merges `{branch}`, but both sides changed {what} since the fork; write the whole file on the merge step to resolve it"
+                )
+            }
         }
     }
 }

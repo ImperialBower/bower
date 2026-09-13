@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::block::Block;
+use crate::branch::{BranchSummary, Fold, Line};
 use crate::capture;
 use crate::directive::{Capture, Expect, Op};
 use crate::display::{self, BlockDisplay};
@@ -32,6 +33,9 @@ impl BookPlan {
 pub struct RepoPlan {
     pub repo: RepoName,
     pub steps: Vec<PlannedStep>,
+    /// Every branch the repo's steps sit on, in the order each first appears
+    /// (EPIC-09). Empty for a straight line.
+    pub branches: Vec<BranchSummary>,
 }
 
 /// One commit-to-be, fully resolved: subject, expectation, book anchor,
@@ -57,6 +61,13 @@ pub struct PlannedStep {
     /// What the compiler said at this step, as the book records it: every
     /// `output="…"` block bound here, in document order (EPIC-11).
     pub outputs: Vec<CapturedOutput>,
+    /// The line this step's commit sits on (EPIC-09).
+    pub line: Line,
+    /// Parent seqs: `0` is the scaffolding commit. One, or two for a merge —
+    /// main's head, then the branch's.
+    pub parents: Vec<usize>,
+    /// The branch this step merges, when it is a merge.
+    pub merges: Option<String>,
 }
 
 /// One `notebook="play"` cell: live code the ipynb target renders as an
@@ -160,13 +171,12 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         }
         let ordered = step::order(name, mine, &mut errors);
 
-        let mut tree = TreeState::default();
+        let mut fold = Fold::new(&book.assets);
         let mut planned = Vec::new();
         for (i, s) in ordered.iter().enumerate() {
-            for b in &s.blocks {
-                tree.apply_block(b, &s.id.0, &book.assets, &mut errors);
-            }
-            let materialized = tree.materialized(spec.keep_region_markers);
+            let seq = i + 1;
+            let folded = fold.step(seq, s, &mut errors);
+            let materialized = folded.tree.materialized(spec.keep_region_markers);
 
             let mut displays = Vec::new();
             for b in &s.blocks {
@@ -185,7 +195,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
             }
 
             planned.push(PlannedStep {
-                seq: i + 1,
+                seq,
                 id: s.id.clone(),
                 msg: s.msg.clone(),
                 expect: s.expect,
@@ -196,8 +206,12 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
                 play_cells: Vec::new(),
                 exercise: None,
                 outputs: Vec::new(),
+                line: folded.line,
+                parents: folded.parents,
+                merges: folded.merges,
             });
         }
+        let branches = fold.finish();
 
         let index = StepIndex::new(&ordered, &planned);
         bind_play_cells(&play_blocks, name, &index, &mut planned, &mut errors);
@@ -214,6 +228,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         repos.push(RepoPlan {
             repo: name.clone(),
             steps: planned,
+            branches,
         });
     }
 
