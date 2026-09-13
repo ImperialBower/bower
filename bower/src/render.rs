@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use bower_core::prelude::{
     BlockDisplay, BookPlan, Capture, CapturedOutput, Directive, Exercise, ExerciseForm, Expect,
-    LineRange, PlannedStep, ShowMark, StepId, error_codes, show_marker,
+    Line, LineRange, PlannedStep, RepoPlan, ShowMark, StepId, error_codes, show_marker,
 };
 
 use crate::config::{DEFAULT_CHECK, DEFAULT_VERIFY, LinkTemplates};
@@ -28,6 +28,7 @@ pub fn chapter(
     target: Target,
 ) -> String {
     let anchors = anchors_by_line(plan, chapter_path);
+    let merges = merges_by_line(plan, chapter_path);
     let blocks = blocks_by_line(plan, chapter_path);
     let exercises = exercises_by_line(plan, chapter_path);
     let folds = folds_by_line(plan, chapter_path);
@@ -76,6 +77,8 @@ pub fn chapter(
                 out.push(String::new());
             }
         }
+
+        push_merge_line(&mut out, merges.get(&directive_line), forge);
         i += 1; // the directive itself never reaches the page
 
         let entry = exercises.get(&directive_line);
@@ -344,6 +347,12 @@ pub fn footer(
 
     parts.push(format!("step {:03} of {repo}", step.seq));
 
+    // Only a branch step says where it is: a main step's footer is what it was
+    // before branches existed (EPIC-09 Decision 13).
+    if let Line::Branch(name) = &step.line {
+        parts.push(format!("on {}", branch_link(name, links)));
+    }
+
     if let Some(url) = subst(links.commit.as_deref(), &tag, None) {
         parts.push(format!("[diff]({url} \"View diff\")"));
     }
@@ -372,6 +381,50 @@ pub fn footer(
 pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Option<String> {
     let cmd = subst(links?.checkout.as_deref(), &step.tag(), None)?;
     Some(format!("<span class=\"step-checkout\">$> `{cmd}`</span>"))
+}
+
+/// A branch's name, linked to the branch when the repo has a `branch`
+/// template, and plain code text when it has none.
+fn branch_link(name: &str, links: &LinkTemplates) -> String {
+    match links.branch.as_deref() {
+        Some(t) => format!("[{name}]({} \"Browse branch\")", t.replace("{branch}", name)),
+        None => format!("`{name}`"),
+    }
+}
+
+/// The line every merge step renders at its anchor (EPIC-09 Decision 18): the
+/// step, the branch it merges, and what that branch did since its fork. A pure
+/// `op="none"` merge has no code block, so no footer; without this line it
+/// would not appear on the page at all.
+///
+/// The compare runs from main's head before the merge to the branch's head,
+/// with three dots, so it shows the branch's own work. It is left out without a
+/// template, and when main had no step of its own to compare from.
+#[must_use]
+pub fn merge_line(
+    step: &PlannedStep,
+    repo: &RepoPlan,
+    links: Option<&LinkTemplates>,
+) -> Option<String> {
+    let merged = step.merges.as_deref()?;
+    let empty = LinkTemplates::default();
+    let links = links.unwrap_or(&empty);
+    let tag_of = |seq: usize| repo.steps.iter().find(|s| s.seq == seq).map(PlannedStep::tag);
+
+    let mut parts = vec![
+        format!("step {:03} of {}", step.seq, repo.repo),
+        format!("merges {}", branch_link(merged, links)),
+    ];
+    if let (Some(template), [from, to]) = (links.compare.as_deref(), step.parents.as_slice())
+        && let (Some(from), Some(to)) = (tag_of(*from), tag_of(*to))
+    {
+        let url = template.replace("{from}", &from).replace("{to}", &to);
+        parts.push(format!("[compare]({url} \"Compare\")"));
+    }
+    Some(format!(
+        "<span class=\"step-meta\"><sub>{}</sub></span>",
+        parts.join(" · ")
+    ))
 }
 
 /// The line above a recorded output: the command that printed it, the step,
@@ -539,6 +592,27 @@ fn push_key_box(
     }
 }
 
+/// A merge says so where it stands, code or none. A pure merge has no fence,
+/// and so no checkout line of its own either; this gives it one.
+fn push_merge_line(
+    out: &mut Vec<String>,
+    merge: Option<&(&RepoPlan, &PlannedStep)>,
+    forge: &BTreeMap<String, LinkTemplates>,
+) {
+    let Some((repo, step)) = merge else { return };
+    let Some(line) = merge_line(step, repo, forge.get(&repo.repo.0)) else {
+        return;
+    };
+    out.push(line);
+    if step.displays.is_empty()
+        && let Some(cmd) = checkout_line(step, forge.get(&repo.repo.0))
+    {
+        out.push(String::new());
+        out.push(cmd);
+    }
+    out.push(String::new());
+}
+
 /// A block-form exercise: its fence is the box's detail, not code. Print the
 /// box where the author put the directive and return where scanning resumes,
 /// past the fence that never renders. `None` for every other directive.
@@ -657,6 +731,22 @@ fn outputs_by_line<'a>(
                 if o.loc.chapter == chapter_path {
                     out.insert(o.loc.line, (repo.repo.0.clone(), step, o));
                 }
+            }
+        }
+    }
+    out
+}
+
+/// Every merge step anchored in this chapter, by the line of its anchor.
+fn merges_by_line<'a>(
+    plan: &'a BookPlan,
+    chapter_path: &str,
+) -> BTreeMap<usize, (&'a RepoPlan, &'a PlannedStep)> {
+    let mut out = BTreeMap::new();
+    for repo in &plan.repos {
+        for step in &repo.steps {
+            if step.merges.is_some() && step.anchor.chapter == chapter_path {
+                out.insert(step.anchor.line, (repo, step));
             }
         }
     }
@@ -1368,6 +1458,66 @@ mod render_tests {
             "{out}"
         );
         assert!(!out.contains("](http"), "{out}");
+    }
+
+    const BRANCH_CH: &str = concat!(
+        "# Branches\n\n",
+        "<!-- bower repo=\"r\" step=\"base\" file=\"src/lib.rs\" -->\n",
+        "```rust\npub fn base() {}\n```\n\n",
+        "<!-- bower repo=\"r\" step=\"side\" branch=\"try/side\" file=\"src/side.rs\" -->\n",
+        "```rust\npub fn side() {}\n```\n\n",
+        "<!-- bower repo=\"r\" step=\"join\" merge=\"try/side\" op=\"none\" msg=\"merge try/side\" -->\n\n",
+        "After the merge.\n",
+    );
+
+    fn branch_links() -> BTreeMap<String, LinkTemplates> {
+        let mut m = github_links();
+        let r = m.get_mut("r").unwrap();
+        r.compare = Some("https://x.invalid/compare/{from}...{to}".to_string());
+        r.branch = Some("https://x.invalid/tree/{branch}".to_string());
+        m
+    }
+
+    #[test]
+    fn footer__names_the_branch_of_a_branch_step() {
+        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &branch_links(), Target::Html);
+        assert!(
+            out.contains("step 002 of r · on [try/side](https://x.invalid/tree/try/side \"Browse branch\")"),
+            "{out}"
+        );
+        assert!(
+            out.contains("step 001 of r · [diff]"),
+            "a main step's footer is unchanged: {out}"
+        );
+    }
+
+    #[test]
+    fn render__a_pure_merge_renders_its_line() {
+        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &branch_links(), Target::Html);
+        assert!(
+            out.contains(concat!(
+                "<span class=\"step-meta\"><sub>step 003 of r · merges ",
+                "[try/side](https://x.invalid/tree/try/side \"Browse branch\") · ",
+                "[compare](https://x.invalid/compare/step-001-base...step-002-side \"Compare\")",
+                "</sub></span>"
+            )),
+            "{out}"
+        );
+        assert!(out.contains("$> `git checkout step-003-join`"), "{out}");
+        let anchor = out.find("<a id=\"step-join\"></a>").unwrap();
+        let line = out.find("merges [try/side]").unwrap();
+        assert!(anchor < line, "{out}");
+        assert!(out.contains("After the merge."), "{out}");
+    }
+
+    #[test]
+    fn merge_line__is_plain_text_without_templates() {
+        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &no_links(), Target::Html);
+        assert!(
+            out.contains("<sub>step 003 of r · merges `try/side`</sub>"),
+            "{out}"
+        );
+        assert!(!out.contains("compare"), "{out}");
     }
 
     #[test]
