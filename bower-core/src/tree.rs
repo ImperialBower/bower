@@ -409,6 +409,11 @@ mod tree_tests {
             exercise: None,
             exercise_block: false,
             output: None,
+            branch: None,
+            from: None,
+            merge: None,
+            pr: None,
+            pr_block: false,
         }
     }
 

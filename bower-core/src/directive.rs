@@ -209,6 +209,19 @@ pub struct Directive {
     /// `output="check"|"verify"` — the fence holds what that command printed
     /// at the bound step, normalized. Never repo content (EPIC-11).
     pub output: Option<Capture>,
+    /// `branch="name"` — this step's commit sits on that branch, not on main
+    /// (EPIC-09).
+    pub branch: Option<String>,
+    /// `from="step-id"` — fork a branch at that main step instead of the one
+    /// before the branch's first step.
+    pub from: Option<String>,
+    /// `merge="name"` — this main step merges that branch; blocks on it are
+    /// the resolution, applied after the branch's changes.
+    pub merge: Option<String>,
+    /// `pr="Title"` — declare a pull request for a branch: the key form on a
+    /// branch step, or, with no tree keys, the block form whose fence is the
+    /// description.
+    pub pr: Option<String>,
 }
 
 impl Directive {
@@ -279,6 +292,10 @@ impl Directive {
                 "include" => d.include = Some(value),
                 "after" => d.after = Some(value),
                 "exercise" => d.exercise = Some(value),
+                "branch" => d.branch = Some(value),
+                "from" => d.from = Some(value),
+                "merge" => d.merge = Some(value),
+                "pr" => d.pr = Some(value),
                 "output" => match value.parse::<Capture>() {
                     Ok(c) => d.output = Some(c),
                     Err(v) => errors.push(BowerError::BadValue {
@@ -341,6 +358,10 @@ impl Directive {
             notebook: self.notebook.clone().or_else(|| defaults.notebook.clone()),
             exercise: self.exercise.clone().or_else(|| defaults.exercise.clone()),
             output: self.output.or(defaults.output),
+            branch: self.branch.clone().or_else(|| defaults.branch.clone()),
+            from: self.from.clone().or_else(|| defaults.from.clone()),
+            merge: self.merge.clone().or_else(|| defaults.merge.clone()),
+            pr: self.pr.clone().or_else(|| defaults.pr.clone()),
             paths: if self.paths.is_empty() {
                 defaults.paths.clone()
             } else {
@@ -546,5 +567,36 @@ mod directive_tests {
         let merged = chapter.overlaid_on(&lib);
         assert_eq!(merged.repo.as_deref(), Some("failers"));
         assert_eq!(merged.file.as_deref(), Some("b.rs"));
+    }
+
+    #[test]
+    fn parse__line_keys_are_plain_strings() {
+        let d = Directive::parse(
+            "<!-- bower repo=\"failers\" branch=\"try/lookup-table\" from=\"rank-enum\" merge=\"from-char\" pr=\"Try it\" -->",
+            &loc(),
+        )
+        .unwrap();
+        assert_eq!(d.branch.as_deref(), Some("try/lookup-table"));
+        assert_eq!(d.from.as_deref(), Some("rank-enum"));
+        assert_eq!(d.merge.as_deref(), Some("from-char"));
+        assert_eq!(d.pr.as_deref(), Some("Try it"));
+    }
+
+    #[test]
+    fn overlaid_on__carries_the_line_keys() {
+        let lib = Directive {
+            branch: Some("b".into()),
+            pr: Some("T".into()),
+            ..Directive::default()
+        };
+        let chapter = Directive {
+            merge: Some("m".into()),
+            ..Directive::default()
+        };
+        let merged = chapter.overlaid_on(&lib);
+        assert_eq!(merged.branch.as_deref(), Some("b"));
+        assert_eq!(merged.merge.as_deref(), Some("m"));
+        assert_eq!(merged.pr.as_deref(), Some("T"));
+        assert_eq!(merged.from, None);
     }
 }

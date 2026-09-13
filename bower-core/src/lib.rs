@@ -29,6 +29,7 @@
 )]
 
 pub mod block;
+pub mod branch;
 pub mod capture;
 pub mod directive;
 pub mod display;
@@ -161,8 +162,9 @@ pub enum BowerError {
     /// A `notebook="play"` cell names a step that does not exist.
     PlayCellUnknownStep { loc: Location, step: String },
     /// A `notebook="play"` cell carries tree-affecting keys (`file`, `op`,
-    /// `region`, `src`, `paths`) — a category confusion the kernel refuses:
-    /// play cells never touch a repo tree.
+    /// `region`, `src`, `paths`) or line keys (`branch`, `from`, `merge`,
+    /// `pr`) — a category confusion the kernel refuses: play cells never
+    /// touch a repo tree.
     PlayCellConflictingKeys { loc: Location },
     /// A block-form exercise has no preceding step of its repo to attach
     /// to, and names none explicitly.
@@ -183,7 +185,7 @@ pub enum BowerError {
     /// An `output` block names a step that does not exist.
     OutputUnknownStep { loc: Location, step: String },
     /// An `output` block carries a key that belongs to another kind of block:
-    /// a tree key, `notebook`, `exercise`, `expect`, or `include`.
+    /// a tree key, `notebook`, `exercise`, `expect`, `include`, or a line key.
     OutputConflictingKeys { loc: Location },
     /// A step already has an output block for this capture; reported at the
     /// second one.
@@ -199,6 +201,12 @@ pub enum BowerError {
         step: String,
         capture: Capture,
         expect: Expect,
+    },
+    /// A `branch=` or `merge=` value cannot name a branch (EPIC-09).
+    InvalidBranchName {
+        loc: Location,
+        name: String,
+        reason: String,
     },
 }
 
@@ -242,7 +250,8 @@ impl BowerError {
             | Self::OutputUnknownStep { loc, .. }
             | Self::OutputConflictingKeys { loc }
             | Self::OutputDuplicate { loc, .. }
-            | Self::OutputNeverRuns { loc, .. } => Some(loc),
+            | Self::OutputNeverRuns { loc, .. }
+            | Self::InvalidBranchName { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -404,6 +413,9 @@ impl std::fmt::Display for BowerError {
                 f,
                 "{loc}: step `{step}` declares expect=\"{expect}\", so its `{capture}` command never runs"
             ),
+            Self::InvalidBranchName { loc, name, reason } => {
+                write!(f, "{loc}: `{name}` cannot name a branch: {reason}")
+            }
         }
     }
 }

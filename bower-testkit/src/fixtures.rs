@@ -604,6 +604,15 @@ fn broken_outputs() -> Vec<(&'static str, Fixture)> {
     ]
 }
 
+/// Errors raised by lines of history (EPIC-09): names, keys that disagree,
+/// the fold, and pull requests.
+fn broken_branches() -> Vec<(&'static str, Fixture)> {
+    vec![single(
+        "InvalidBranchName",
+        "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main\" -->\n```rust\nx\n```\n",
+    )]
+}
+
 /// Broken books, one per error family. The paired name states the
 /// [`BowerError`] variant the fixture must produce.
 #[must_use]
@@ -613,6 +622,7 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
     cases.extend(broken_display());
     cases.extend(broken_exercises());
     cases.extend(broken_outputs());
+    cases.extend(broken_branches());
 
     let mut malformed_include = BookSource::from_chapters(vec![chapter(
         "bad.md",
