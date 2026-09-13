@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use bower_core::prelude::{BookPlan, RepoPlan, lock_text};
 
 use crate::materialize::{Blobs, read_dir_recursive};
-use crate::replay::expected_tags;
+use crate::replay::{BRANCH, expected_branches, expected_tags};
 
 #[derive(Debug)]
 pub enum StatusError {
@@ -108,6 +108,10 @@ pub enum RepoDrift {
     Stale {
         missing_tags: Vec<String>,
         unexpected_tags: Vec<String>,
+        /// Branches the plan has and the repository lacks, and the reverse —
+        /// by name, as tags are (EPIC-09 Decision 17). `main` is never either.
+        missing_branches: Vec<String>,
+        unexpected_branches: Vec<String>,
         differing_files: Vec<String>,
         missing_files: Vec<String>,
         unexpected_files: Vec<String>,
@@ -126,6 +130,10 @@ pub enum RepoDrift {
 /// a drift report that shares a library with the thing it inspects can share a
 /// bug with it.
 ///
+/// Branches are compared by name, as tags are. A branch that moved is not
+/// reported: saying so needs the SHA a replay would produce, and `status`
+/// never replays (EPIC-09 Decision 17).
+///
 /// # Errors
 ///
 /// Returns [`StatusError`] if the directory exists but cannot be walked.
@@ -136,7 +144,7 @@ pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoD
     }
 
     let tags_dir = git.join("refs").join("tags");
-    let found_tags = match loose_tags(&tags_dir) {
+    let found_tags = match loose_refs(&tags_dir) {
         Ok(t) => t,
         Err(source) => {
             return Err(StatusError::Io {
@@ -158,6 +166,28 @@ pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoD
     let unexpected_tags: Vec<String> = found_tags
         .iter()
         .filter(|t| !want_tags.contains(t))
+        .cloned()
+        .collect();
+
+    let heads_dir = git.join("refs").join("heads");
+    let main = BRANCH.trim_start_matches("refs/heads/");
+    let found_branches: Vec<String> = loose_refs(&heads_dir)
+        .map_err(|source| StatusError::Io {
+            path: heads_dir.clone(),
+            source,
+        })?
+        .into_iter()
+        .filter(|b| b != main)
+        .collect();
+    let want_branches = expected_branches(plan);
+    let missing_branches: Vec<String> = want_branches
+        .iter()
+        .filter(|b| !found_branches.contains(b))
+        .cloned()
+        .collect();
+    let unexpected_branches: Vec<String> = found_branches
+        .iter()
+        .filter(|b| !want_branches.contains(b))
         .cloned()
         .collect();
 
@@ -185,6 +215,8 @@ pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoD
 
     if missing_tags.is_empty()
         && unexpected_tags.is_empty()
+        && missing_branches.is_empty()
+        && unexpected_branches.is_empty()
         && differing_files.is_empty()
         && missing_files.is_empty()
         && unexpected_files.is_empty()
@@ -195,15 +227,17 @@ pub fn repo_drift(dir: &Path, plan: &RepoPlan, expected: &Blobs) -> Result<RepoD
     Ok(RepoDrift::Stale {
         missing_tags,
         unexpected_tags,
+        missing_branches,
+        unexpected_branches,
         differing_files,
         missing_files,
         unexpected_files,
     })
 }
 
-/// Loose tag names under `.git/refs/tags`, recursively — a tag may be
-/// `release/1.0`, which git stores as a nested path.
-fn loose_tags(dir: &Path) -> std::io::Result<Vec<String>> {
+/// Loose ref names under `dir`, recursively — a tag may be `release/1.0` and a
+/// branch `try/lookup-table`, which git stores as nested paths.
+fn loose_refs(dir: &Path) -> std::io::Result<Vec<String>> {
     if !dir.is_dir() {
         return Ok(Vec::new());
     }
@@ -363,6 +397,8 @@ impl fmt::Display for StatusReport {
             RepoDrift::Stale {
                 missing_tags,
                 unexpected_tags,
+                missing_branches,
+                unexpected_branches,
                 differing_files,
                 missing_files,
                 unexpected_files,
@@ -370,6 +406,8 @@ impl fmt::Display for StatusReport {
                 writeln!(f, "  repo      STALE — run `bower build`")?;
                 list(f, "missing tag", missing_tags)?;
                 list(f, "extra tag", unexpected_tags)?;
+                list(f, "missing branch", missing_branches)?;
+                list(f, "extra branch", unexpected_branches)?;
                 list(f, "differs", differing_files)?;
                 list(f, "missing", missing_files)?;
                 list(f, "extra", unexpected_files)?;
@@ -514,7 +552,8 @@ mod status_tests {
 mod repo_tests {
     use super::*;
     use crate::materialize::blobs_of;
-    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
+    use crate::replay::expected_branches;
+    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, Line, plan};
 
     fn scratch(case: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("bower-repodrift-{case}"));
@@ -537,7 +576,8 @@ mod repo_tests {
     }
 
     fn expected_blobs(plan: &RepoPlan) -> Blobs {
-        blobs_of(&plan.steps.last().unwrap().tree)
+        let last = plan.steps.iter().rev().find(|s| s.line == Line::Main).unwrap();
+        blobs_of(&last.tree)
     }
 
     /// A repository shaped like one `bower build` would leave, without running
@@ -549,8 +589,77 @@ mod repo_tests {
         for tag in expected_tags(plan) {
             std::fs::write(tags.join(tag), "0000000\n").unwrap();
         }
+        for branch in expected_branches(plan) {
+            let head = dir.join(".git").join("refs").join("heads").join(&branch);
+            std::fs::create_dir_all(head.parent().unwrap()).unwrap();
+            std::fs::write(head, "0000000\n").unwrap();
+        }
         crate::materialize::write_files(&dir, blobs).unwrap();
         dir
+    }
+
+    fn branch_plan() -> RepoPlan {
+        let text = concat!(
+            "<!-- bower repo=\"r\" step=\"base\" file=\"src/lib.rs\" -->\n```rust\npub fn f() {}\n```\n",
+            "<!-- bower repo=\"r\" step=\"side\" branch=\"try/side\" file=\"src/side.rs\" -->\n```rust\npub fn g() {}\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("src/ch01.md", text)]);
+        plan(&book, &RepoCatalog::from_names(&["r"]))
+            .unwrap()
+            .repos
+            .remove(0)
+    }
+
+    #[test]
+    fn repo__a_matching_repo_with_branches_is_in_sync() {
+        let p = branch_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("branches-insync", &p, &blobs);
+        assert_eq!(repo_drift(&dir, &p, &blobs).unwrap(), RepoDrift::InSync);
+    }
+
+    #[test]
+    fn status__reports_a_missing_branch_ref() {
+        let p = branch_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("missbranch", &p, &blobs);
+        std::fs::remove_file(dir.join(".git/refs/heads/try/side")).unwrap();
+
+        let RepoDrift::Stale {
+            missing_branches, ..
+        } = repo_drift(&dir, &p, &blobs).unwrap()
+        else {
+            panic!("expected Stale");
+        };
+        assert_eq!(missing_branches, vec!["try/side"]);
+    }
+
+    #[test]
+    fn status__names_a_branch_the_plan_does_not_have() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("strayhead", &p, &blobs);
+        std::fs::create_dir_all(dir.join(".git/refs/heads")).unwrap();
+        std::fs::write(dir.join(".git/refs/heads/stray"), "0\n").unwrap();
+
+        let RepoDrift::Stale {
+            unexpected_branches,
+            ..
+        } = repo_drift(&dir, &p, &blobs).unwrap()
+        else {
+            panic!("expected Stale");
+        };
+        assert_eq!(unexpected_branches, vec!["stray"]);
+    }
+
+    #[test]
+    fn status__main_is_not_an_unexpected_branch() {
+        let p = one_step_plan();
+        let blobs = expected_blobs(&p);
+        let dir = fake_repo("mainhead", &p, &blobs);
+        std::fs::create_dir_all(dir.join(".git/refs/heads")).unwrap();
+        std::fs::write(dir.join(".git/refs/heads/main"), "0\n").unwrap();
+        assert_eq!(repo_drift(&dir, &p, &blobs).unwrap(), RepoDrift::InSync);
     }
 
     #[test]
@@ -726,6 +835,8 @@ mod report_tests {
             RepoDrift::Stale {
                 missing_tags: vec!["step-001-a".to_string()],
                 unexpected_tags: vec![],
+                missing_branches: vec![],
+                unexpected_branches: vec![],
                 differing_files: vec!["src/lib.rs".to_string()],
                 missing_files: vec![],
                 unexpected_files: vec![],
@@ -738,6 +849,24 @@ mod report_tests {
     }
 
     #[test]
+    fn report__a_missing_branch_is_named() {
+        let r = report(
+            LockDrift::InSync,
+            RepoDrift::Stale {
+                missing_tags: vec![],
+                unexpected_tags: vec![],
+                missing_branches: vec!["try/side".to_string()],
+                unexpected_branches: vec![],
+                differing_files: vec![],
+                missing_files: vec![],
+                unexpected_files: vec![],
+            },
+        );
+        assert!(r.has_drift());
+        assert!(r.to_string().contains("missing branch try/side"), "{r}");
+    }
+
+    #[test]
     fn report__long_lists_are_capped() {
         // A report longer than a screen is a report nobody reads.
         let many: Vec<String> = (0..12).map(|i| format!("file{i}.rs")).collect();
@@ -746,6 +875,8 @@ mod report_tests {
             RepoDrift::Stale {
                 missing_tags: vec![],
                 unexpected_tags: vec![],
+                missing_branches: vec![],
+                unexpected_branches: vec![],
                 differing_files: many,
                 missing_files: vec![],
                 unexpected_files: vec![],
