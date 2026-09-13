@@ -485,6 +485,45 @@ fn plan__exercise_on_an_unmerged_head_has_no_answer() {
 }
 
 #[test]
+fn plan__branch_names_that_collide_as_refs_are_refused() {
+    let errs =
+        plan_of("<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main/x\" -->\n```rust\nx\n```\n")
+            .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::InvalidBranchName { name, .. } if name == "main/x"),
+        "{errs}"
+    );
+
+    let errs = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"one\" file=\"a.rs\" branch=\"a\" -->\n```rust\nx\n```\n",
+        "<!-- bower repo=\"failers\" step=\"two\" file=\"b.rs\" branch=\"a/b\" -->\n```rust\ny\n```\n",
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::InvalidBranchName { name, .. } if name == "a/b"),
+        "{errs}"
+    );
+
+    let errs = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"one\" file=\"a.rs\" branch=\"Foo\" -->\n```rust\nx\n```\n",
+        "<!-- bower repo=\"failers\" step=\"two\" file=\"b.rs\" branch=\"foo\" -->\n```rust\ny\n```\n",
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::InvalidBranchName { name, .. } if name == "foo"),
+        "{errs}"
+    );
+
+    // Siblings under one prefix do not collide.
+    let p = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"one\" file=\"a.rs\" branch=\"try/x\" -->\n```rust\nx\n```\n",
+        "<!-- bower repo=\"failers\" step=\"two\" file=\"b.rs\" branch=\"try/y\" -->\n```rust\ny\n```\n",
+    ))
+    .unwrap();
+    assert_eq!(p.branches.len(), 2);
+}
+
+#[test]
 fn plan__a_straight_line_has_one_parent_each_and_no_branches() {
     let f = fixtures::rank_saga();
     let p = plan(&f.book, &f.catalog).unwrap();

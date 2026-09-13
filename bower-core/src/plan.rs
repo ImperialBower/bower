@@ -214,6 +214,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         }
         let mut branches = fold.finish();
         branch::bind_prs(&mut branches, &ordered, &pr_blocks, name, &mut errors);
+        check_branch_refs(&branches, &planned, &mut errors);
 
         let index = StepIndex::new(&ordered, &planned);
         bind_play_cells(&play_blocks, name, &index, &mut planned, &mut errors);
@@ -238,6 +239,49 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         Ok(BookPlan { repos })
     } else {
         Err(errors)
+    }
+}
+
+/// Refuse a repo's branches that would collide once they are git refs
+/// (EPIC-09): one a `/`-prefix of another (`refs/heads/a` is a file where
+/// `refs/heads/a/b` needs a directory), or two that are equal ignoring ASCII
+/// case but not identical (a case-insensitive filesystem resolves both to one
+/// ref). `branch_name_problem` already refuses anything under `main/` or
+/// spelled like `main`, so this only ever compares branch to branch.
+///
+/// Reported once per colliding pair, at the branch whose first step comes
+/// later in plan order — the earlier branch is the one already there.
+fn check_branch_refs(branches: &[BranchSummary], planned: &[PlannedStep], errors: &mut Errors) {
+    let first_step = |name: &str| -> Option<&PlannedStep> {
+        planned
+            .iter()
+            .filter(|s| s.line == Line::Branch(name.to_string()))
+            .min_by_key(|s| s.seq)
+    };
+    for (i, a) in branches.iter().enumerate() {
+        for b in &branches[..i] {
+            let collides = a.name.starts_with(&format!("{}/", b.name))
+                || b.name.starts_with(&format!("{}/", a.name))
+                || (a.name.eq_ignore_ascii_case(&b.name) && a.name != b.name);
+            if !collides {
+                continue;
+            }
+            // The later branch in plan order is the one that collides with
+            // what was already there.
+            let (later, other) = match (first_step(&a.name), first_step(&b.name)) {
+                (Some(sa), Some(sb)) if sb.seq < sa.seq => (a, b),
+                (Some(_), Some(_)) => (b, a),
+                _ => (a, b),
+            };
+            let Some(step) = first_step(&later.name) else {
+                continue;
+            };
+            errors.push(BowerError::InvalidBranchName {
+                loc: step.anchor.clone(),
+                name: later.name.clone(),
+                reason: format!("it collides with branch `{}` as a git ref", other.name),
+            });
+        }
     }
 }
 

@@ -507,8 +507,11 @@ pub fn branch_name_problem(name: &str) -> Option<&'static str> {
     if name.is_empty() {
         return Some("it is empty");
     }
-    if name == "main" || name == "HEAD" {
-        return Some("the main line already has that name");
+    if name.eq_ignore_ascii_case("main") || name.eq_ignore_ascii_case("HEAD") {
+        return Some("it collides with the main line's ref");
+    }
+    if name.to_ascii_lowercase().starts_with("main/") {
+        return Some("it collides with the main line's ref");
     }
     if name.starts_with("step-") {
         return Some("`step-` begins every step tag");
@@ -548,6 +551,8 @@ mod branch_tests {
     #[case("feat/greet-many")]
     #[case("from-char")]
     #[case("a.b")]
+    #[case("mainline")]
+    #[case("domain/x")]
     fn branch_name_problem__accepts_ordinary_names(#[case] name: &str) {
         assert_eq!(branch_name_problem(name), None, "{name}");
     }
@@ -556,6 +561,11 @@ mod branch_tests {
     #[case("")]
     #[case("main")]
     #[case("HEAD")]
+    #[case("Main")]
+    #[case("MAIN")]
+    #[case("head")]
+    #[case("main/x")]
+    #[case("Main/x")]
     #[case("step-001-rank")]
     #[case("@")]
     #[case("a@{b")]
