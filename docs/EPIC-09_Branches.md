@@ -12,15 +12,16 @@
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
 - **Status:** Planned; model settled by `docs/spikes/spike-branches/`, filed
-  10 September 2026, no phase started.
+  10 September 2026. Slice 1 designed 13 September 2026 (Decisions 12–19,
+  re-grounded after EPIC-11); no phase started.
 
 ---
 
 ## Context
 
-Eight EPICs shipped. A Bower plan is a straight line: `step::order`
+Nine EPICs shipped. A Bower plan is a straight line: `step::order`
 (`bower-core/src/step.rs:233`) produces one sequence per repo, `plan()`
-(`bower-core/src/plan.rs:123`) folds one `TreeState` forward through it, and
+(`bower-core/src/plan.rs:141`) folds one `TreeState` forward through it, and
 `Replayer::run` (`bower/src/replay.rs:84`) turns it into one chain of commits
 on one branch — `BRANCH` (`bower/src/replay.rs:27`) is a constant, and
 `Replayer::commit` (`bower/src/replay.rs:170`) takes exactly one parent.
@@ -51,17 +52,24 @@ says exactly how far Bower's contract with them goes.
 
 ## Status
 
-| Component | Status |
-|---|---|
-| Kernel: four directive keys, `Line`, per-line fold, merge semantics | **Planned** |
-| Kernel: `MergeConflict` at region granularity | **Planned** |
-| Kernel: `PullRequest` on `RepoPlan.branches`, lock text | **Planned** |
-| Testkit: branch textures and the `line` coverage axis | **Planned** |
-| Replay: parents from the plan, branch refs, `PULLS.md`, trailers | **Planned** |
-| `status`: branch-ref drift | **Planned** |
-| Render: line and compare links in the footer | **Planned** |
-| `push`: branch refs with lease, `Forge::ensure_pull_request` | **Planned** |
-| Sample book chapter and slow-lane verify | **Planned** |
+| Component | Slice | Status |
+|---|---|---|
+| Kernel: four directive keys, `Line`, per-line fold, merge semantics | 1 | **Planned** |
+| Kernel: `MergeConflict` at region granularity | 1 | **Planned** |
+| Kernel: `PullRequest` on `RepoPlan.branches`, lock text | 1 | **Planned** |
+| Testkit: branch textures and the `line` coverage axis | 1 | **Planned** |
+| Replay: parents from the plan, branch refs, `PULLS.md`, trailers | 1 | **Planned** |
+| `status`: branch-ref drift | 1 | **Planned** |
+| Render: line and compare links in the footer; the merge line | 1 | **Planned** |
+| `push`: branch refs with lease, branches before main | 1 | **Planned** |
+| Sample book chapter and slow-lane verify | 1 | **Planned** |
+| `push`: `Forge::ensure_pull_request`, the PR section of the dry run | 2 | **Planned** |
+| *Rust for Failures* `from-char` PR | 2 | **Planned** |
+
+Slice 1 is everything local and deterministic: a reader can check out the
+abandoned branch, and `bower push` publishes it. Slice 2 is the pull request
+on the forge, which waits on open questions 1 and 2 — both need a real remote
+(Decision 12).
 
 ---
 
@@ -109,7 +117,8 @@ Faster? Maybe. Correct? The test says no.
 - A real merge commit on `main` with two parents, tagged like every step.
 - `PULLS.md` beside `STEPS.md`: every PR, its branch, its state, its book
   link — deterministic, in the repo, forge or no forge.
-- On the forge: the branches, and a PR per declared `pr=`, open or merged.
+- On the forge: the branches (slice 1), and a PR per declared `pr=`, open or
+  merged (slice 2).
 
 ### Not in scope
 
@@ -147,7 +156,7 @@ and forge-side merging. Each is a backlog line when this ships.
    already exists at `bower-core/src/step.rs:198`. The conflict check reuses
    it rather than restating it; the spike works at file level and says so.
 5. **Tags are unchanged; branches are refs; `-end` tags anchor on main.**
-   `PlannedStep::tag` (`plan.rs:108`) stays `step-{seq:03}-{id}` with `seq`
+   `PlannedStep::tag` (`plan.rs:126`) stays `step-{seq:03}-{id}` with `seq`
    global across lines, so a merge always has a larger `seq` than both
    parents. Replay writes `refs/heads/<branch>` at each branch step; the ref
    persists after the merge. `chapter_ends` (`replay.rs:366`) anchors
@@ -175,14 +184,73 @@ and forge-side merging. Each is a backlog line when this ships.
    PR merged when its head becomes reachable from base by a push; this is
    the last inch and open question 1.
 10. **Verification does not change.** Every `PlannedStep` still carries a
-    complete `tree`, and `verify::run` (`bower/src/verify.rs:145`) already
+    complete `tree`, and `verify::run` (`bower/src/verify.rs:376`) already
     checks each in isolation. A merge step is verified against its own
     `expect` like any other.
-11. **Exercises follow the line.** `bind_exercises` (`plan.rs:291`) currently
-    answers with `planned[idx + 1]`; it becomes the next step on the same
-    line, or the merge step for a merged branch's head. A branch head that is
-    never merged has no answer — `ExerciseWithoutAnswer`, the existing rule.
-    Play cells bind to a step regardless of line and are unchanged.
+11. **Exercises follow the line.** `bind_exercises` (`plan.rs:313`) currently
+    answers with `planned[idx + 1]` (`plan.rs:358`); it becomes the next step
+    on the same line, or the merge step for a merged branch's head. A branch
+    head that is never merged has no answer — `ExerciseWithoutAnswer`, the
+    existing rule. Play cells and recorded outputs (`bind_outputs`,
+    `plan.rs:392`, EPIC-11) bind to a step regardless of line and are
+    unchanged.
+
+*Decisions 12–19 were added 13 September 2026, when slice 1 was designed
+against the code as EPIC-11 left it.*
+
+12. **Two slices.** Slice 1 is Phases 0–2, the branch half of Phase 3, and
+    Phase 4: everything a reader needs to check out a branch, and everything
+    `bower push` needs to publish one. `pr=` is part of slice 1 as a plan
+    value — parsed, bound, in the lock and in `PULLS.md` — so the lock format
+    changes once. Slice 2 is `Forge::ensure_pull_request` and the forge's last
+    inch, after open questions 1 and 2 are answered on a real remote.
+13. **A linear book is byte-identical.** Nothing new is printed where it would
+    say only the default. The lock gains `line=` and `parents=` on branch steps
+    and `parents=` and `merges=` on merges, the way `play=N` appears only when
+    non-zero; `[<repo>.branches]` appears only for a repo with branches.
+    `Bower-Line` and `Bower-Merges` trailers go on branch and merge commits
+    only. `PULLS.md` exists only for a repo that declares a PR; compare links
+    only on merges. So every existing lock, rendered chapter, and published SHA
+    is unchanged by this EPIC. Appending a chapter moves the old last main step
+    and its `-end` tag, because `STEPS.md` moves with it — true of any appended
+    chapter, not of branches.
+14. **One composition rule.** A touch is whole-file, `Region(name)`, or append.
+    `composes(a, b)` is lifted out of `check_duplicate_files` (`step.rs:198`)
+    and both callers use it: within a step, every pair must compose; at a
+    merge, every (branch touch, main-since-fork touch) pair on one file must
+    compose, unless the merge step writes that whole file. Two appends
+    compose — main's lands first, then the branch's, as the re-application
+    order says.
+15. **A PR belongs to a branch, not a step.** The key form is `pr="Title"` on a
+    branch step's own directive, with no body. The block form is a directive
+    carrying `repo=`, `branch=`, and `pr=`, followed by a fenced markdown body,
+    and it binds by its `branch=` name — not through `StepIndex::locate`, which
+    would find a step and then have to check its line against the block's
+    `branch=`. A block naming a branch no step is on is `PrUnknownBranch`.
+    `from=` on any step but a branch's first is `FromOnLaterStep`: a key
+    nothing reads is a typo. Twelve error variants, not ten.
+16. **The worktree and `STEPS.md` come from the last main step.** Today
+    `Replayer::run` and `final_blobs` take them from `plan.steps.last()`
+    (`replay.rs:121`, `replay.rs:336`); a
+    book ending on an unmerged branch step would otherwise give main a branch's
+    tree and check the abandoned experiment out as HEAD. `STEPS.md` lists every
+    step, since tags resolve on any line; a branch row's subject gains
+    `· on <branch>`, a merge row's `· merges <branch>`.
+17. **`status` compares branch names, not branch SHAs.** `repo_drift`
+    (`status.rs:132`) compares tags by name, read from loose refs; branches
+    follow the same rule. "Moved" would need the expected SHA, and that needs
+    a replay, which `status` never does — so `status` reports a missing or an
+    unexpected branch, and not a moved one.
+18. **A pure merge renders a line of its own.** `footer` (`render.rs:316`) is
+    per code block, so an `op="none"` merge would render nothing but its
+    anchor. A merge step's directive therefore renders one `step-meta` line
+    where it stands: the step, the branch it merges, the compare link, and the
+    checkout command. Other `op="none"` steps are unchanged. The compare is
+    `{parent0_tag}...{parent1_tag}` — three dots, so it shows what the branch
+    did since the fork — and is omitted when parent 0 is the scaffolding.
+19. **Open questions 5 and 6 are settled.** The v1 fences stay:
+    `FromNotOnMain` and `MergeOnBranch`. The spike is deleted on the slice-1
+    branch once its sixteen tests pass as ported into `bower-core`.
 
 ---
 
@@ -194,17 +262,19 @@ and forge-side merging. Each is a backlog line when this ships.
 | A step's parents | `PlannedStep::parents: Vec<usize>` (0 = scaffolding) | 🔴 new |
 | Fork point | `BranchSummary::forked_from`, `from=` | 🔴 new |
 | The merge tree | per-line fold in `plan()` | 🔴 new |
-| A conflict | `BowerError::MergeConflict` + `check_duplicate_files` `step.rs:198` | 🟡 rule exists, reuse |
+| A conflict | `BowerError::MergeConflict` + `composes`, lifted from `check_duplicate_files` `step.rs:198` | 🟡 rule exists, reuse |
 | A pull request | `PullRequest` on `RepoPlan::branches` | 🔴 new |
 | One parent per commit | `Replayer::commit` `replay.rs:170` | 🟡 becomes `Vec<ObjectId>` |
 | The only branch | `BRANCH` `replay.rs:27` | 🟡 becomes the main line's ref |
+| The final tree | `final_blobs` `replay.rs:330` | 🟡 last *main* step |
 | Chapter-end anchors | `chapter_ends` `replay.rs:366` | 🟡 main steps only |
 | What must be pushed | `expected_tags` `replay.rs:351` | 🟡 plus `expected_branches` |
-| Is the build current? | `repo_drift` `status.rs:132` | 🟡 plus branch refs |
-| The footer | `render::footer` `render.rs:286` | 🟡 line, compare |
-| Link vocabulary | `LinkTemplates` `config.rs:85` | 🟡 plus `compare`, `branch` |
+| Is the build current? | `repo_drift` `status.rs:132` | 🟡 plus branch names |
+| The footer | `render::footer` `render.rs:316` | 🟡 line, compare |
+| A pure merge's line | beside `checkout_line` `render.rs:372` | 🔴 new |
+| Link vocabulary | `LinkTemplates` `config.rs:94` | 🟡 plus `compare`, `branch` |
 | Publishing | `Forge::push` `forge.rs:134`, `push_branch_args` `forge.rs:953` | 🟡 per branch |
-| Ensuring a PR | `Forge::ensure_pull_request` | 🔴 new |
+| Ensuring a PR (slice 2) | `Forge::ensure_pull_request` | 🔴 new |
 
 ---
 
@@ -212,10 +282,11 @@ and forge-side merging. Each is a backlog line when this ships.
 
 ### Kernel — `bower-core`
 
-`Directive` (`directive.rs:138`) and `Block` (`block.rs:25`) gain `branch`,
+`Directive` (`directive.rs:188`) and `Block` (`block.rs:25`) gain `branch`,
 `from`, `merge`, `pr`. `Step` (`step.rs:28`) carries them through `group`,
 which also rejects a step whose blocks disagree on `branch` or `merge`
-(`ConflictingLineInStep`, beside `ConflictingRepoInStep`).
+(`ConflictingLineInStep`, beside `ConflictingRepoInStep`). As with `expect`,
+any block of a step may carry the value; two different values conflict.
 
 `plan()` restructures the per-repo loop into a fold with state — the spike's
 `plan()` is the reference implementation:
@@ -234,26 +305,36 @@ struct BranchState {
 }
 ```
 
+The fold runs over the raw `TreeState` (region markers kept), and each step's
+tree is materialized (`tree.rs:55`) and its display ranges resolved exactly as
+today. Re-applying the branch's blocks at a merge goes through the same
+`apply_block` (`tree.rs:72`); a failure there — a region main removed, an
+append to a file main deleted — is reported at the merge step.
+
 `PlannedStep` gains `line`, `parents`, `merges`; `RepoPlan` gains
-`branches: Vec<BranchSummary>`. `lock_text` (`plan.rs:369`) prints
-`line=… parents=…[ merges=…]` per step and a `[repo.branches]` table — the
-spike's `lock_text` is the shape:
+`branches: Vec<BranchSummary>`. `lock_text` (`plan.rs:446`) prints
+`line=` and `parents=` on branch steps, `parents=` and `merges=` on merges,
+nothing new on any other step, and a `[repo.branches]` table only when the
+repo has a branch (Decision 13):
 
 ```
-006 merge-from-char expect=pass line=main parents=003,005 merges=from-char
+002 lookup-table expect=test_fail anchor=… files=src/rank.rs line=try/lookup-table parents=001
+006 merge-from-char expect=pass anchor=… files= parents=003,005 merges=from-char
 
 [failers.branches]
 try/lookup-table from=001 head=002 merged=no pr="Try a lookup table for ranks" state=open
 from-char from=003 head=005 merged=006 pr="Rank::from(char)" state=merged
 ```
 
-New `BowerError` variants (`lib.rs:63`), all with a `Location`:
+New `BowerError` variants (`lib.rs:67`), all with a `Location`:
 `InvalidBranchName`, `MergeUnknownBranch`, `MergeOnBranch`,
-`BranchAlreadyMerged`, `UnknownFrom`, `FromNotOnMain`, `MergeConflict`,
-`PrWithoutBranch`, `PrDuplicate`, `ConflictingLineInStep`.
+`BranchAlreadyMerged`, `UnknownFrom`, `FromNotOnMain`, `FromOnLaterStep`,
+`MergeConflict`, `PrWithoutBranch`, `PrUnknownBranch`, `PrDuplicate`,
+`ConflictingLineInStep`.
 
-`StepIndex::locate` (`plan.rs:241`) binds the `pr=` block form exactly as it
-binds play cells; the key form rides on a branch step's own directive.
+The `pr=` block form is partitioned out in `plan()` beside play, output, and
+exercise blocks (`plan.rs:147-151`) and binds by its `branch=` name; the key
+form rides on a branch step's own directive (Decision 15).
 
 ### Testkit — `bower-testkit`
 
@@ -271,32 +352,46 @@ nothing since the fork; every `parents` entry is smaller than its step's
 
 `Replayer::commit` takes `parents: &[ObjectId]` and the ref to advance;
 `run` keeps `sha_of: BTreeMap<usize, ObjectId>` and resolves each step's
-parents from it. Branch steps advance `refs/heads/<name>`; main steps and
-merges advance `BRANCH`. `trailers::commit_message` (`trailers.rs:19`) adds
-`Bower-Line: <line>` and, on merges, `Bower-Merges: <branch>`.
-`trailers::pulls_md` writes `PULLS.md`; `final_blobs` (`replay.rs:330`)
-includes it. `expected_branches(plan)` sits beside `expected_tags`, and
-`repo_drift` compares both.
+parents from it; parent 0 is the scaffolding commit, or no parent when there
+is none. Branch steps advance `refs/heads/<name>`; main steps and merges
+advance `BRANCH`. `trailers::commit_message` (`trailers.rs:19`) adds
+`Bower-Line: <line>` on branch commits and `Bower-Merges: <branch>` on merges
+— nothing on a main step (Decision 13). `final_blobs` (`replay.rs:330`) and the
+worktree take the last *main* step (Decision 16); `STEPS.md` marks branch and
+merge rows; `trailers::pulls_md` writes `PULLS.md` into the same final tree
+when the repo declares a PR. `chapter_ends` anchors on main steps only.
+`expected_branches(plan)` sits beside `expected_tags`, and `repo_drift`
+compares both by name (Decision 17).
 
 ### Render — `bower`
 
-`footer` (`render.rs:286`) appends `· on try/lookup-table` for branch steps
-and `· merges from-char · [compare]` for merges. `LinkTemplates` gains
-`compare` (`{base}/compare/{prev_tag}...{tag}` — the same shape
-`DESIGN_Forges.md` § 6.1 proposes) and `branch` (`{base}/tree/{branch}`).
-The reader's `checkout` line is unchanged: tags resolve on any line.
+`footer` (`render.rs:316`) appends `· on [try/lookup-table](…)` for branch
+steps and `· merges from-char · [compare](…)` for merges that carry code. A
+merge step's directive renders one `step-meta` line where it stands, so a pure
+`op="none"` merge is visible too (Decision 18). `LinkTemplates` gains
+`compare` (`{base}/compare/{from}...{to}` — the shape `DESIGN_Forges.md`
+§ 6.1 proposes, filled with the merge's two parents' tags) and `branch`
+(`{base}/tree/{branch}`), both derived from `github` like `tree` and `commit`
+and both declarable in `[links]`. The reader's `checkout` line is unchanged:
+tags resolve on any line.
 
 ### Push — `bower`
 
-`Forge::push` pushes every branch in `expected_branches` with its own lease
-via `push_branch_args` — already parameterised by branch — then tags, then
-ensures PRs, then main. `Forge::ensure_pull_request(repo, &PullRequest) ->
-Result<PrAction, ForgeError>` with `PrAction { Created, Updated, Unchanged,
-LeftMerged }`; `FakeForge` records it. `plan_push` (`push.rs:162`) grows a
-PR section; dry-run lists what each PR would get. `GitHubForge`: `gh pr list
---head`, `gh pr create`, `gh pr edit`. `ForgejoForge`: `GET/POST/PATCH
-/repos/{o}/{r}/pulls`, per `DESIGN_Forges.md` § 5. The marker gate is not
-touched — a repo that fails it gets no branches and no PRs either.
+**Slice 1.** `Forge::push` takes the plan's branches: it pushes each with its
+own lease via `remote_head` and `push_branch_args` — already parameterised by
+branch — then the tags, unchanged, then main with its lease. `FakeForge`
+records the order. `plan_push` (`push.rs:162`) lists every branch in the dry
+run. A remote branch the plan does not name is left alone; Bower never
+deletes. The marker gate is not touched — a repo that fails it gets no
+branches either.
+
+**Slice 2.** The order becomes branches, tags, PRs, then main.
+`Forge::ensure_pull_request(repo, &PullRequest) -> Result<PrAction,
+ForgeError>` with `PrAction { Created, Updated, Unchanged, LeftMerged }`;
+`FakeForge` records it. `plan_push` grows a PR section; dry-run lists what
+each PR would get. `GitHubForge`: `gh pr list --head`, `gh pr create`, `gh pr
+edit`. `ForgejoForge`: `GET/POST/PATCH /repos/{o}/{r}/pulls`, per
+`DESIGN_Forges.md` § 5. A repo that fails the gate gets no PRs.
 
 ---
 
@@ -304,46 +399,67 @@ touched — a repo that fails it gets no branches and no PRs either.
 
 ### Phase 0 — Kernel
 
+Every item is slice 1 unless marked **(slice 2)**.
+
 - [ ] **0a.** Directive keys, `Block` and `Step` fields, `ConflictingLineInStep`,
   `InvalidBranchName` (pure ref-name check).
 - [ ] **0b.** The fold: `Line`, `parents`, per-line trees, merge tree,
-  `BranchSummary`. Port the spike's `plan()` and every spike test by name.
-- [ ] **0c.** `MergeConflict` at region granularity, reusing
-  `check_duplicate_files`'s composition rule.
-- [ ] **0d.** `pr=` binding, `PullRequest`, `PrWithoutBranch`, `PrDuplicate`.
-- [ ] **0e.** `lock_text` line/parents/branches; exercises follow the line.
-- [ ] **0f.** Testkit fixtures, the `line` coverage axis, the three properties.
+  `BranchSummary`, `FromOnLaterStep`. Port the spike's `plan()` and every
+  spike test by name.
+- [ ] **0c.** `MergeConflict` at region granularity: lift `composes` out of
+  `check_duplicate_files` and call it from both (Decision 14).
+- [ ] **0d.** `pr=` key and block forms, `PullRequest`, `PrWithoutBranch`,
+  `PrUnknownBranch`, `PrDuplicate`.
+- [ ] **0e.** `lock_text` line/parents/branches, printed only where not the
+  default; exercises follow the line.
+- [ ] **0f.** Testkit fixtures, the `line` coverage axis, the three
+  properties. Delete `docs/spikes/spike-branches/` (Decision 19).
 
 ### Phase 1 — Replay and status
 
-- [ ] **1a.** `commit` with `Vec` parents and a ref; branch refs; trailers.
-- [ ] **1b.** `chapter_ends` anchors on main; `expected_branches`; `PULLS.md`.
+- [ ] **1a.** `commit` with `Vec` parents and a ref; branch refs; trailers on
+  branch and merge commits only.
+- [ ] **1b.** The worktree and `STEPS.md` from the last main step; `STEPS.md`
+  branch and merge rows; `PULLS.md`; `chapter_ends` on main;
+  `expected_branches`.
 - [ ] **1c.** Determinism golden (`bower/tests/determinism.rs`) over the branch
   fixture: identical SHAs across runs, and the blast-radius assertion —
-  editing a branch step leaves every unrelated tag's SHA alone.
-- [ ] **1d.** `repo_drift` checks branch refs; `status` names a missing or
-  moved branch.
+  editing a branch step leaves every unrelated tag's SHA alone. A linear
+  book's SHAs are unchanged by this EPIC.
+- [ ] **1d.** `repo_drift` compares branch names; `status` names a missing or
+  unexpected branch.
 
 ### Phase 2 — Render
 
-- [ ] **2a.** `compare` and `branch` templates, derived per forge kind.
-- [ ] **2b.** Footer line and compare link; preprocessor test.
+- [ ] **2a.** `compare` and `branch` templates, derived from `github` and
+  declarable in `[links]`.
+- [ ] **2b.** Footer line and compare link; the merge line for a pure merge;
+  preprocessor test.
 
 ### Phase 3 — Push and pull requests
 
-- [ ] **3a.** `Forge::ensure_pull_request`, `PrAction`, `FakeForge` recording.
-- [ ] **3b.** `plan_push` PR section; push order branches → tags → PRs → main.
-- [ ] **3c.** `GitHubForge` and `ForgejoForge` last inches; the
+- [ ] **3a.** `Forge::push` takes the branches: each with its own lease, then
+  tags, then main. `FakeForge` records the order; the dry run lists branches.
+- [ ] **3b.** Golden: a refused gate pushes no branch.
+- [ ] **3c. (slice 2)** `Forge::ensure_pull_request`, `PrAction`, `FakeForge`
+  recording.
+- [ ] **3d. (slice 2)** `plan_push` PR section; push order branches → tags →
+  PRs → main.
+- [ ] **3e. (slice 2)** `GitHubForge` and `ForgejoForge` last inches; the
   no-override test extended (`--merge-pr`, `--close-pr` absent).
-- [ ] **3d.** Goldens: a refused gate creates no PR and pushes no branch.
+- [ ] **3f. (slice 2)** Golden: a refused gate creates no PR.
 
 ### Phase 4 — Book and docs
 
-- [ ] **4a.** A branch chapter in `books/hello-playbook` (the abandoned
-  experiment) and the `from-char` PR in `books/rust4failures/src/ch03-rank.md`.
-- [ ] **4b.** `.okf/model/branch.md`, `.okf/model/pull-request.md`, the key
+- [ ] **4a.** `books/hello-playbook/src/ch07-try-it-on-a-branch.md`, before
+  the appendix: `try/shout` (one `test_fail` step and a `pr=` block, never
+  merged) and `feat/greet-many` (two steps, merged by an `op="none"` step
+  after one unrelated main step).
+- [ ] **4b. (slice 2)** The `from-char` PR in
+  `books/rust4failures/src/ch03-rank.md`, once that chapter is listed.
+- [ ] **4c.** `.okf/model/branch.md`, `.okf/model/pull-request.md`, the key
   table in `.okf/model/directive.md`, `BACKLOG.md`, `README.md`.
-- [ ] **4c.** Flip Status rows, append the corrigendum.
+- [ ] **4d.** Flip slice 1's Status rows, append the corrigendum.
 
 ---
 
@@ -366,11 +482,21 @@ Carried from the spike, one per name:
 `replay__a_change_on_the_branch_changes_only_what_descends_from_it`.
 
 New here: `plan__conflict_is_per_region_not_per_file`,
+`plan__two_appends_compose_at_a_merge`,
 `plan__pr_on_a_main_step_is_refused`, `plan__two_prs_on_one_branch_is_refused`,
+`plan__pr_block_for_an_unknown_branch_is_refused`,
+`plan__from_on_a_later_step_is_refused`,
 `plan__branch_named_main_is_refused`, `plan__exercise_on_a_merged_head_answers_with_the_merge`,
+`plan__lock_text_of_a_linear_book_is_unchanged`,
 `replay__chapter_end_tag_never_points_at_a_branch`,
+`replay__worktree_is_main_when_the_book_ends_on_a_branch`,
+`replay__a_linear_book_keeps_its_shas`,
 `status__reports_a_missing_branch_ref`,
-`push__branches_go_before_prs_and_main_goes_last`,
+`render__a_pure_merge_renders_its_line`,
+`push__branches_go_before_main`,
+`push__gate_refusal_pushes_no_branch`.
+
+Slice 2: `push__branches_go_before_prs_and_main_goes_last`,
 `push__ensures_a_pr_per_declared_branch_and_never_closes_one`,
 `push__gate_refusal_creates_no_pr`.
 
@@ -380,9 +506,9 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 |---|---|
 | `docs/spikes/spike-branches/` | the reference model; keep until Phase 0 lands, then delete |
 | `bower-core/src/directive.rs` | four keys |
-| `bower-core/src/block.rs`, `step.rs` | fields; `ConflictingLineInStep`; conflict rule reuse |
+| `bower-core/src/block.rs`, `step.rs` | fields; `ConflictingLineInStep`; `composes` |
 | `bower-core/src/plan.rs` | the fold, `Line`, `parents`, `BranchSummary`, `PullRequest`, lock text |
-| `bower-core/src/lib.rs` | ten error variants |
+| `bower-core/src/lib.rs` | twelve error variants |
 | `bower-testkit/src/{fixtures,coverage}.rs` | textures, the `line` axis |
 | `bower/src/replay.rs` | parents, branch refs, `chapter_ends`, `expected_branches` |
 | `bower/src/trailers.rs` | `Bower-Line`, `Bower-Merges`, `pulls_md` |
@@ -393,10 +519,10 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 ## Reuse (do NOT recreate)
 
 - `step.rs:198` `check_duplicate_files` — the region composition rule *is*
-  the conflict rule; do not write a second one.
-- `plan.rs:241` `StepIndex::locate` — binds `pr=` blocks; do not invent a
-  second binding rule.
-- `plan.rs:108` `PlannedStep::tag` — the only tag format.
+  the conflict rule; lift it into `composes`, do not write a second one.
+- `plan.rs:126` `PlannedStep::tag` — the only tag format.
+- `tree.rs:72` `apply_block` — the merge re-applies blocks through it; there
+  is no second apply.
 - `replay.rs:351` `expected_tags` — `expected_branches` sits beside it and
   `status` reads both from replay, never re-derives.
 - `forge.rs:953` `push_branch_args` — one lease per branch, same function.
@@ -405,11 +531,12 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 
 ## Compatibility
 
-- **Preserves** every existing book: no `branch=` means one line, one parent
-  each, `parents=` in the lock is the only visible change. `bower.lock`
-  changes shape for every book, once.
-- **Adds** four keys, ten errors, two templates, one `Forge` method, one
-  generated file (`PULLS.md`).
+- **Preserves** every existing book byte for byte: no `branch=` means one
+  line and one parent each, and nothing new is printed for either — not in
+  the lock, not in a trailer, not in a rendered chapter, so no published SHA
+  moves (Decision 13).
+- **Adds** four keys, twelve errors, two templates, one generated file
+  (`PULLS.md`), and — in slice 2 — one `Forge` method.
 - **Breaks** nothing in `bower-core`'s purity: `cargo tree -p bower-core -e
   normal` still prints one line.
 
@@ -426,8 +553,9 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 ## Verification
 
 ```bash
-cargo test --workspace --all-features
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+make ayce                     # clean, fmt, build, test, lint, security-scan, docs
+make slow                     # the #[ignore]d lanes
+make book && make failures    # both books through the preprocessor and verify
 cargo tree -p bower-core -e normal
 cargo run -p bower -- --book books/hello-playbook build -o /tmp/hp
 git -C /tmp/hp log --graph --oneline --all --decorate --date-order
@@ -435,10 +563,10 @@ cargo run -p bower -- --book books/hello-playbook verify
 cargo run -p bower -- --book books/hello-playbook push -o /tmp/hp   # dry run
 ```
 
-Exit criteria:
+Exit criteria (slice 1 unless marked):
 
 1. The sample book's graph shows one unmerged branch and one two-parent merge;
-   `git checkout try/lookup-table && cargo test` fails as the book claims.
+   `git checkout try/shout && cargo test` fails as the book claims.
 2. Two builds of the same book produce identical SHAs for every ref, branches
    included.
 3. Editing a branch step changes the SHAs of that step, its successors on the
@@ -447,9 +575,12 @@ Exit criteria:
    naming the step, the branch, the file, and the region.
 5. `verify` reports the same verdicts with branches as without; a merge step
    is verified on its own tree.
-6. A dry-run `push` lists every branch, every PR with its action, and the
-   order; a gate refusal lists none of them and `FakeForge` records no call.
+6. A dry-run `push` lists every branch and the order; a gate refusal lists
+   none of them and `FakeForge` records no call. **(Slice 2:** every PR with
+   its action, too.**)**
 7. `cargo tree -p bower-core -e normal` still prints one line.
+8. `hello-playbook`'s steps 001–019, its existing lock lines, and its existing
+   rendered chapters are byte-identical before and after (Decision 13).
 
 ---
 
@@ -461,8 +592,8 @@ Exit criteria:
 | 2 | **PR churn on regeneration.** A merged PR is immutable, and every regeneration gives the branch new SHAs. Decision 8 leaves the old PR alone; the alternative — one fresh PR per regeneration — is a forge full of duplicates. Live with drift reported by `status`, or accept churn? |
 | 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
-| 5 | **Branches from branches, merges into branches.** `FromNotOnMain` and `MergeOnBranch` are the v1 fences. Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
-| 6 | **The spike's home.** Keep `docs/spikes/spike-branches/` out of the workspace members (edition 2021, no clippy-pedantic), or promote it to a `bower-testkit` fixture and delete it? Delete after Phase 0 is the lean. |
+| 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
+| 6 | ~~**The spike's home.**~~ Settled 13 September 2026: its `rank_saga` becomes a `bower-testkit` fixture, and the spike is deleted once its tests pass as ported (Decision 19). |
 
 ---
 
