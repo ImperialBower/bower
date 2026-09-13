@@ -722,7 +722,8 @@ mod block_tests {
 
     #[test]
     fn extract__pr_block_form_needs_its_fence() {
-        let src = book("<!-- bower repo=\"failers\" branch=\"try/x\" pr=\"Try x\" -->\nprose instead\n");
+        let src =
+            book("<!-- bower repo=\"failers\" branch=\"try/x\" pr=\"Try x\" -->\nprose instead\n");
         let (blocks, errors) = extract(&src, &catalog());
         assert!(blocks.is_empty());
         assert!(

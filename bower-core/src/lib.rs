@@ -535,7 +535,10 @@ impl std::fmt::Display for BowerError {
                 "{loc}: pr= declares a pull request, but not for a branch; put it on a branch step, or give the block branch=\"…\""
             ),
             Self::PrUnknownBranch { loc, branch } => {
-                write!(f, "{loc}: pr= is for branch `{branch}`, which no step is on")
+                write!(
+                    f,
+                    "{loc}: pr= is for branch `{branch}`, which no step is on"
+                )
             }
             Self::PrDuplicate { loc, branch } => {
                 write!(f, "{loc}: branch `{branch}` already has a pull request")

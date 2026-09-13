@@ -126,12 +126,20 @@ pub trait Forge {
     /// If the directory cannot be staged or the push is rejected.
     fn push_tree(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError>;
 
-    /// Force-push-with-lease `dir`'s `branch` and every tag to `owner/name`.
+    /// Force-push-with-lease `dir`'s branches, every tag, and `branch` to
+    /// `owner/name`: each of `branches` with its own lease, then the tags,
+    /// then `branch` — last, because it carries the merges (EPIC-09).
     ///
     /// # Errors
     ///
-    /// If the push is rejected or the tooling fails.
-    fn push(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError>;
+    /// If a push is rejected or the tooling fails.
+    fn push(
+        &self,
+        dir: &Path,
+        repo: &str,
+        branch: &str,
+        branches: &[String],
+    ) -> Result<PushOutcome, ForgeError>;
 
     /// Create the release at `release.tag`, or refresh the one already there.
     ///
@@ -181,6 +189,7 @@ pub struct FakeForge {
     pub pages: Option<PagesState>,
     calls: std::cell::RefCell<Vec<String>>,
     releases: std::cell::RefCell<Vec<Release>>,
+    pushed_branches: std::cell::RefCell<Vec<String>>,
 }
 
 impl FakeForge {
@@ -195,6 +204,7 @@ impl FakeForge {
             pages: None,
             calls: std::cell::RefCell::new(Vec::new()),
             releases: std::cell::RefCell::new(Vec::new()),
+            pushed_branches: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -217,6 +227,7 @@ impl FakeForge {
             pages: None,
             calls: std::cell::RefCell::new(Vec::new()),
             releases: std::cell::RefCell::new(Vec::new()),
+            pushed_branches: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -230,6 +241,12 @@ impl FakeForge {
     #[must_use]
     pub fn releases(&self) -> Vec<Release> {
         self.releases.borrow().clone()
+    }
+
+    /// Every branch this forge was asked to push, in order.
+    #[must_use]
+    pub fn pushed_branches(&self) -> Vec<String> {
+        self.pushed_branches.borrow().clone()
     }
 
     /// Whether anything that changes the remote was called.
@@ -312,8 +329,17 @@ impl Forge for FakeForge {
         })
     }
 
-    fn push(&self, _dir: &Path, _repo: &str, _branch: &str) -> Result<PushOutcome, ForgeError> {
+    fn push(
+        &self,
+        _dir: &Path,
+        _repo: &str,
+        _branch: &str,
+        branches: &[String],
+    ) -> Result<PushOutcome, ForgeError> {
         self.record("push");
+        self.pushed_branches
+            .borrow_mut()
+            .extend(branches.iter().cloned());
         Ok(PushOutcome {
             commits: 0,
             tags: 0,
@@ -639,7 +665,13 @@ impl Forge for GitHubForge {
         })
     }
 
-    fn push(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError> {
+    fn push(
+        &self,
+        dir: &Path,
+        repo: &str,
+        branch: &str,
+        branches: &[String],
+    ) -> Result<PushOutcome, ForgeError> {
         let url = remote_url(repo);
         let run = |args: Vec<String>| -> Result<(bool, String), ForgeError> {
             let out = std::process::Command::new("git")
@@ -657,31 +689,20 @@ impl Forge for GitHubForge {
             ))
         };
 
-        // The branch, with a lease: refuse if the remote moved under us. The
-        // lease needs the value we read, because there is no remote-tracking
-        // ref to read it from — see `push_branch_args`.
-        let head = remote_head(dir, &url, branch);
-        let (ok, stderr) = run(push_branch_args(&url, branch, head.as_deref()))?;
-        if !ok {
-            return Err(ForgeError::Failed {
-                what: "git push --force-with-lease".into(),
-                stderr: stderr.trim().to_string(),
-            });
-        }
-
-        // Tags, plainly forced. A replay recreates every tag with the same name
-        // and a new SHA, and the gate has already established that this remote
-        // is ours — a lease on a tag we always rewrite would only ever say no.
-        let (ok, stderr) = run(vec!["push".into(), "--force".into(), url, "--tags".into()])?;
-        if !ok {
-            return Err(ForgeError::Failed {
-                what: "git push --force --tags".into(),
-                stderr: stderr.trim().to_string(),
-            });
+        // Every lease carries the value we read, because there is no
+        // remote-tracking ref to read it from — see `push_branch_args`.
+        for args in push_commands(&url, branch, branches, |r| remote_head(dir, &url, r)) {
+            let (ok, stderr) = run(args.clone())?;
+            if !ok {
+                return Err(ForgeError::Failed {
+                    what: format!("git {}", args.join(" ")),
+                    stderr: stderr.trim().to_string(),
+                });
+            }
         }
 
         Ok(PushOutcome {
-            commits: count(dir, &["rev-list", "--count", "HEAD"]),
+            commits: count(dir, &["rev-list", "--count", "--all"]),
             tags: count(dir, &["tag", "--list"]),
         })
     }
@@ -936,6 +957,59 @@ fn remote_head(dir: &Path, url: &str, branch: &str) -> Option<String> {
     let text = String::from_utf8_lossy(&out.stdout);
     let sha = text.split_whitespace().next()?;
     (!sha.is_empty()).then(|| sha.to_string())
+}
+
+/// Every `git` invocation [`Forge::push`] makes, in order (EPIC-09 Decision
+/// 9). Pure given `head_of`, which answers what a ref points at on the
+/// remote.
+///
+/// When main already exists on the remote: each branch with its own lease,
+/// then the tags, then main. When it does not — a first publish to a new or
+/// empty remote — main goes *first*, ahead of every branch, then the tags.
+/// GitHub and Forgejo make the first branch pushed to an empty repository its
+/// default, and [`GitHubForge::read_steps_md`](Forge::read_steps_md) reads
+/// `STEPS.md` from the default branch; `STEPS.md` lives only on main, so
+/// pushing a branch first would make the default branch one without it, and
+/// every later `bower push` would fail the marker gate as "not generated by
+/// this tool".
+///
+/// Tags are plainly forced. A replay recreates every tag with the same name
+/// and a new SHA, and the gate has already established that this remote is
+/// ours — a lease on a tag we always rewrite would only ever say no.
+#[must_use]
+pub fn push_commands(
+    url: &str,
+    main: &str,
+    branches: &[String],
+    head_of: impl Fn(&str) -> Option<String>,
+) -> Vec<Vec<String>> {
+    let main_head = head_of(main);
+    let main_args = push_branch_args(url, main, main_head.as_deref());
+    let branch_args: Vec<Vec<String>> = branches
+        .iter()
+        .map(|b| {
+            let full = format!("refs/heads/{b}");
+            push_branch_args(url, &full, head_of(&full).as_deref())
+        })
+        .collect();
+    let tags = vec![
+        "push".into(),
+        "--force".into(),
+        url.to_string(),
+        "--tags".into(),
+    ];
+
+    let mut out = Vec::with_capacity(branch_args.len() + 2);
+    if main_head.is_none() {
+        out.push(main_args);
+        out.extend(branch_args);
+        out.push(tags);
+    } else {
+        out.extend(branch_args);
+        out.push(tags);
+        out.push(main_args);
+    }
+    out
 }
 
 /// The arguments that push `branch` to `url`, given what the remote's branch
@@ -1198,6 +1272,97 @@ mod forge_tests {
             ]
         );
         assert!(!args.iter().any(|a| a.contains("force")), "{args:?}");
+    }
+
+    #[test]
+    fn push__branches_go_before_main() {
+        // Branches, then tags, then main: main carries the merges, and slice 2
+        // puts the pull requests between the two (EPIC-09 Decision 9). This is
+        // the order once main already exists on the remote — see
+        // `push_commands__a_fresh_remote_gets_main_first` for a first publish.
+        let cmds = push_commands(
+            URL,
+            "refs/heads/main",
+            &["try/x".to_string(), "feat/y".to_string()],
+            |r| (r == "refs/heads/main").then(|| "m".to_string()),
+        );
+        let last: Vec<&str> = cmds.iter().map(|c| c.last().unwrap().as_str()).collect();
+        assert_eq!(
+            last,
+            [
+                "refs/heads/try/x:refs/heads/try/x",
+                "refs/heads/feat/y:refs/heads/feat/y",
+                "--tags",
+                "refs/heads/main:refs/heads/main",
+            ]
+        );
+    }
+
+    #[test]
+    fn push_commands__each_branch_carries_its_own_lease() {
+        let cmds = push_commands(URL, "refs/heads/main", &["try/x".to_string()], |r| {
+            Some(format!("sha-of-{r}"))
+        });
+        assert!(
+            cmds[0].contains(
+                &"--force-with-lease=refs/heads/try/x:sha-of-refs/heads/try/x".to_string()
+            ),
+            "{cmds:?}"
+        );
+        assert!(
+            cmds[2]
+                .contains(&"--force-with-lease=refs/heads/main:sha-of-refs/heads/main".to_string()),
+            "{cmds:?}"
+        );
+    }
+
+    #[test]
+    fn push_commands__a_straight_line_pushes_tags_then_main() {
+        // Main already exists on the remote, so the ordinary order holds.
+        let cmds = push_commands(URL, "refs/heads/main", &[], |r| {
+            (r == "refs/heads/main").then(|| "m".to_string())
+        });
+        assert_eq!(cmds.len(), 2, "{cmds:?}");
+        assert!(cmds[0].contains(&"--tags".to_string()), "{cmds:?}");
+    }
+
+    #[test]
+    fn push_commands__a_straight_line_to_a_fresh_remote_is_main_then_tags() {
+        // Nothing is there yet: main goes first so it becomes the remote's
+        // default, and there are no branches to reorder around it.
+        let cmds = push_commands(URL, "refs/heads/main", &[], |_| None);
+        assert_eq!(cmds.len(), 2, "{cmds:?}");
+        assert!(
+            cmds[0].contains(&"refs/heads/main:refs/heads/main".to_string()),
+            "{cmds:?}"
+        );
+        assert!(cmds[1].contains(&"--tags".to_string()), "{cmds:?}");
+    }
+
+    #[test]
+    fn push_commands__a_fresh_remote_gets_main_first() {
+        // A first publish: main is absent on the remote, so it must be pushed
+        // before any branch. GitHub and Forgejo make the first branch pushed
+        // to an empty repository the default branch, and `read_steps_md`
+        // reads `STEPS.md` from the default branch — `STEPS.md` lives only on
+        // main, so a branch pushed first would make every later `bower push`
+        // fail the marker gate.
+        let cmds = push_commands(
+            URL,
+            "refs/heads/main",
+            &["try/x".to_string(), "feat/y".to_string()],
+            |_| None,
+        );
+        let last: Vec<&str> = cmds.iter().map(|c| c.last().unwrap().as_str()).collect();
+        assert_eq!(
+            last,
+            [
+                "refs/heads/main:refs/heads/main",
+                "refs/heads/try/x:refs/heads/try/x",
+                "refs/heads/feat/y:refs/heads/feat/y",
+                "--tags",
+            ]
+        );
     }
 
     #[test]

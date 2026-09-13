@@ -572,8 +572,14 @@ mod config_tests {
         ))
         .unwrap();
         let links = &cfg.repos.get("r").unwrap().links;
-        assert_eq!(links.compare.as_deref(), Some("https://f.invalid/c/{from}..{to}"));
-        assert_eq!(links.branch.as_deref(), Some("https://f.invalid/b/{branch}"));
+        assert_eq!(
+            links.compare.as_deref(),
+            Some("https://f.invalid/c/{from}..{to}")
+        );
+        assert_eq!(
+            links.branch.as_deref(),
+            Some("https://f.invalid/b/{branch}")
+        );
     }
 
     #[test]

@@ -44,7 +44,12 @@ fn plan_of(text: &str) -> RepoPlan {
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .unwrap();
     assert!(
         out.status.success(),
         "git {args:?}: {}",
@@ -68,7 +73,10 @@ fn replay(plan: &RepoPlan, case: &str) -> (PathBuf, BTreeMap<String, String>) {
     .unwrap();
     let refs = git(
         &out,
-        &["for-each-ref", "--format=%(refname) %(objectname) %(*objectname)"],
+        &[
+            "for-each-ref",
+            "--format=%(refname) %(objectname) %(*objectname)",
+        ],
     )
     .lines()
     .map(|l| {
@@ -93,7 +101,10 @@ fn replay__is_byte_identical_across_runs() {
 #[test]
 fn replay__merge_commit_has_two_parents_and_branches_are_refs() {
     let (dir, refs) = replay(&plan_of(fixtures::BRANCH_SAGA), "graph");
-    let line = git(&dir, &["rev-list", "--parents", "-n", "1", "refs/heads/main"]);
+    let line = git(
+        &dir,
+        &["rev-list", "--parents", "-n", "1", "refs/heads/main"],
+    );
     let parts: Vec<&str> = line.split_whitespace().collect();
     assert_eq!(parts.len(), 3, "the merge and its two parents: {line}");
     assert_eq!(parts[1], refs["refs/tags/step-003-lib-doc"]);
@@ -139,8 +150,7 @@ fn replay__a_change_on_the_branch_changes_only_what_descends_from_it() {
         b["refs/tags/step-005-from-char-fixed"]
     );
     assert_ne!(
-        a["refs/heads/main"],
-        b["refs/heads/main"],
+        a["refs/heads/main"], b["refs/heads/main"],
         "the merge descends from the edit"
     );
     assert_eq!(
@@ -162,7 +172,10 @@ fn ends_on_a_branch() -> RepoPlan {
 #[test]
 fn replay__worktree_is_main_when_the_book_ends_on_a_branch() {
     let (dir, _) = replay(&ends_on_a_branch(), "ends-on-branch");
-    assert_eq!(git(&dir, &["symbolic-ref", "HEAD"]).trim(), "refs/heads/main");
+    assert_eq!(
+        git(&dir, &["symbolic-ref", "HEAD"]).trim(),
+        "refs/heads/main"
+    );
     assert!(
         !dir.join("src/after.rs").exists(),
         "the working tree is a branch's, not main's"

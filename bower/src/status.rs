@@ -553,7 +553,7 @@ mod repo_tests {
     use super::*;
     use crate::materialize::blobs_of;
     use crate::replay::expected_branches;
-    use bower_core::prelude::{BookSource, Chapter, RepoCatalog, Line, plan};
+    use bower_core::prelude::{BookSource, Chapter, Line, RepoCatalog, plan};
 
     fn scratch(case: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("bower-repodrift-{case}"));
@@ -576,7 +576,12 @@ mod repo_tests {
     }
 
     fn expected_blobs(plan: &RepoPlan) -> Blobs {
-        let last = plan.steps.iter().rev().find(|s| s.line == Line::Main).unwrap();
+        let last = plan
+            .steps
+            .iter()
+            .rev()
+            .find(|s| s.line == Line::Main)
+            .unwrap();
         blobs_of(&last.tree)
     }
 

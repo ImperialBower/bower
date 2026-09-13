@@ -427,7 +427,10 @@ fn plan__lock_text_shows_lines_parents_and_branches() {
         t.contains(" files=src/rank.rs line=try/lookup-table parents=001\n"),
         "{t}"
     );
-    assert!(t.contains(" files= parents=003,005 merges=from-char\n"), "{t}");
+    assert!(
+        t.contains(" files= parents=003,005 merges=from-char\n"),
+        "{t}"
+    );
     let lib_doc = t.lines().find(|l| l.starts_with("003 lib-doc ")).unwrap();
     assert!(
         lib_doc.ends_with(" files=src/lib.rs"),
@@ -486,9 +489,10 @@ fn plan__exercise_on_an_unmerged_head_has_no_answer() {
 
 #[test]
 fn plan__branch_names_that_collide_as_refs_are_refused() {
-    let errs =
-        plan_of("<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main/x\" -->\n```rust\nx\n```\n")
-            .unwrap_err();
+    let errs = plan_of(
+        "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main/x\" -->\n```rust\nx\n```\n",
+    )
+    .unwrap_err();
     assert!(
         matches!(&errs.0[0], BowerError::InvalidBranchName { name, .. } if name == "main/x"),
         "{errs}"

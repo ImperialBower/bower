@@ -456,8 +456,14 @@ mod step_tests {
         assert_eq!(
             t,
             vec![
-                Touch { file: "a.rs".into(), kind: TouchKind::Whole },
-                Touch { file: "b.rs".into(), kind: TouchKind::Whole },
+                Touch {
+                    file: "a.rs".into(),
+                    kind: TouchKind::Whole
+                },
+                Touch {
+                    file: "b.rs".into(),
+                    kind: TouchKind::Whole
+                },
             ]
         );
         b.op = Op::Prose;

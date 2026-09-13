@@ -15,7 +15,7 @@ use bower::forge::{FakeForge, RemoteState};
 use bower::loader::BookLoader;
 use bower::materialize::write_files;
 use bower::push::{PushPlan, plan_push};
-use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
+use bower::replay::{book_name, expected_branches, expected_tags, final_blobs, scaffolding};
 use bower::trailers::marker_line;
 use bower_core::prelude::{RepoPlan, plan};
 
@@ -60,6 +60,11 @@ fn built(case: &str, p: &RepoPlan, cfg: &BookConfig) -> PathBuf {
     std::fs::create_dir_all(&tags).unwrap();
     for tag in expected_tags(p) {
         std::fs::write(tags.join(tag), "0\n").unwrap();
+    }
+    for branch in expected_branches(p) {
+        let head = dir.join(".git").join("refs").join("heads").join(&branch);
+        std::fs::create_dir_all(head.parent().unwrap()).unwrap();
+        std::fs::write(head, "0\n").unwrap();
     }
     let name = book_name(&book_root(), &p.repo.0);
     let scaffold = scaffolding(cfg, &book_root(), &p.repo.0).unwrap();

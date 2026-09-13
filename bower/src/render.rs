@@ -387,7 +387,10 @@ pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Optio
 /// template, and plain code text when it has none.
 fn branch_link(name: &str, links: &LinkTemplates) -> String {
     match links.branch.as_deref() {
-        Some(t) => format!("[{name}]({} \"Browse branch\")", t.replace("{branch}", name)),
+        Some(t) => format!(
+            "[{name}]({} \"Browse branch\")",
+            t.replace("{branch}", name)
+        ),
         None => format!("`{name}`"),
     }
 }
@@ -409,7 +412,12 @@ pub fn merge_line(
     let merged = step.merges.as_deref()?;
     let empty = LinkTemplates::default();
     let links = links.unwrap_or(&empty);
-    let tag_of = |seq: usize| repo.steps.iter().find(|s| s.seq == seq).map(PlannedStep::tag);
+    let tag_of = |seq: usize| {
+        repo.steps
+            .iter()
+            .find(|s| s.seq == seq)
+            .map(PlannedStep::tag)
+    };
 
     let mut parts = vec![
         format!("step {:03} of {}", step.seq, repo.repo),
@@ -1480,9 +1488,17 @@ mod render_tests {
 
     #[test]
     fn footer__names_the_branch_of_a_branch_step() {
-        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &branch_links(), Target::Html);
+        let out = chapter(
+            BRANCH_CH,
+            "src/ch01.md",
+            &tiny_plan(BRANCH_CH),
+            &branch_links(),
+            Target::Html,
+        );
         assert!(
-            out.contains("step 002 of r · on [try/side](https://x.invalid/tree/try/side \"Browse branch\")"),
+            out.contains(
+                "step 002 of r · on [try/side](https://x.invalid/tree/try/side \"Browse branch\")"
+            ),
             "{out}"
         );
         assert!(
@@ -1493,7 +1509,13 @@ mod render_tests {
 
     #[test]
     fn render__a_pure_merge_renders_its_line() {
-        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &branch_links(), Target::Html);
+        let out = chapter(
+            BRANCH_CH,
+            "src/ch01.md",
+            &tiny_plan(BRANCH_CH),
+            &branch_links(),
+            Target::Html,
+        );
         assert!(
             out.contains(concat!(
                 "<span class=\"step-meta\"><sub>step 003 of r · merges ",
@@ -1512,7 +1534,13 @@ mod render_tests {
 
     #[test]
     fn merge_line__is_plain_text_without_templates() {
-        let out = chapter(BRANCH_CH, "src/ch01.md", &tiny_plan(BRANCH_CH), &no_links(), Target::Html);
+        let out = chapter(
+            BRANCH_CH,
+            "src/ch01.md",
+            &tiny_plan(BRANCH_CH),
+            &no_links(),
+            Target::Html,
+        );
         assert!(
             out.contains("<sub>step 003 of r · merges `try/side`</sub>"),
             "{out}"
