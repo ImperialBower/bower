@@ -326,7 +326,8 @@ fn bind_play_cells(
 /// Attach every exercise of `repo` to its step, in document order so a
 /// duplicate is reported at the second one. Key forms ride on their own
 /// step's blocks; block forms bind exactly as play cells do. The answer is
-/// the next step of the repo, so the last step cannot carry one.
+/// the next step on the exercise's line (EPIC-09 Decision 11), so the last
+/// step of a line cannot carry one.
 fn bind_exercises(
     exercise_blocks: &[Block],
     repo: &RepoName,
@@ -372,7 +373,7 @@ fn bind_exercises(
             });
             continue;
         }
-        let Some(answer) = planned.get(idx + 1).map(|s| s.id.clone()) else {
+        let Some(answer) = next_on_line(planned, idx).map(|s| s.id.clone()) else {
             errors.push(BowerError::ExerciseWithoutAnswer {
                 loc: b.loc.clone(),
                 step: step_id,
@@ -399,6 +400,17 @@ fn bind_exercises(
             answer,
         });
     }
+}
+
+/// The step that answers an exercise on `planned[idx]` (EPIC-09 Decision 11):
+/// the next step on the same line — or, for a branch's head, the step that
+/// merges it. An unmerged head has none.
+fn next_on_line(planned: &[PlannedStep], idx: usize) -> Option<&PlannedStep> {
+    let here = planned.get(idx)?;
+    planned.get(idx + 1..)?.iter().find(|s| {
+        s.line == here.line
+            || matches!(&here.line, Line::Branch(b) if s.merges.as_deref() == Some(b.as_str()))
+    })
 }
 
 /// Attach every output block of `repo` to its step, with the play-cell rule:
@@ -469,7 +481,7 @@ pub fn lock_text(plan: &BookPlan) -> String {
         for s in &repo.steps {
             let _ = writeln!(
                 out,
-                "{:03} {} expect={} anchor={} files={}{}",
+                "{:03} {} expect={} anchor={} files={}{}{}",
                 s.seq,
                 s.id,
                 s.expect,
@@ -479,7 +491,8 @@ pub fn lock_text(plan: &BookPlan) -> String {
                     String::new()
                 } else {
                     format!(" play={}", s.play_cells.len())
-                }
+                },
+                line_suffix(s)
             );
             if let Some(x) = &s.exercise {
                 let _ = writeln!(
@@ -500,8 +513,47 @@ pub fn lock_text(plan: &BookPlan) -> String {
                 }
             }
         }
+        // Only for a repo that has one: a straight line's lock gains nothing.
+        if !repo.branches.is_empty() {
+            let _ = writeln!(out, "\n[{}.branches]", repo.repo);
+            for b in &repo.branches {
+                let merged = b
+                    .merged_at
+                    .map_or_else(|| "no".to_string(), |m| format!("{m:03}"));
+                let pr = b.pr.as_ref().map_or_else(String::new, |p| {
+                    format!(" pr={:?} state={}", p.title, p.state)
+                });
+                let _ = writeln!(
+                    out,
+                    "{} from={:03} head={:03} merged={merged}{pr}",
+                    b.name, b.forked_from, b.head
+                );
+                // The description, line by line, so a rewording shows up in
+                // review as a diff of the lock, as an exercise's detail does.
+                for line in b.pr.iter().flat_map(|p| &p.body) {
+                    let _ = writeln!(out, "    | {line}");
+                }
+            }
+        }
     }
     out
+}
+
+/// A step's line in the lock, where it has one to state (EPIC-09 Decision 13):
+/// a branch step's line and parent, a merge's parents and branch, and nothing
+/// for a main step — so a straight line's lock is what it always was.
+fn line_suffix(s: &PlannedStep) -> String {
+    let parents = s
+        .parents
+        .iter()
+        .map(|p| format!("{p:03}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    match (&s.line, &s.merges) {
+        (Line::Branch(b), _) => format!(" line={b} parents={parents}"),
+        (Line::Main, Some(m)) => format!(" parents={parents} merges={m}"),
+        (Line::Main, None) => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -598,6 +650,22 @@ mod plan_tests {
             lock.contains("001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs")
         );
         assert!(lock.contains("002"));
+    }
+
+    #[test]
+    fn plan__lock_text_of_a_linear_book_is_unchanged() {
+        // Byte for byte what the lock said before branches existed (EPIC-09
+        // Decision 13): no `line=`, no `parents=`, no branch table.
+        let book = BookSource::from_chapters(vec![ranks_chapter()]);
+        assert_eq!(
+            lock_text(&plan(&book, &catalog()).unwrap()),
+            concat!(
+                "# bower.lock — generated; review, don't edit\n",
+                "\n[failers]\n",
+                "001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs\n",
+                "002 ch01-ranks-from-char expect=compile_fail anchor=ch01-ranks.md:12 files=src/rank.rs\n",
+            )
+        );
     }
 
     fn exercise_chapter() -> Chapter {

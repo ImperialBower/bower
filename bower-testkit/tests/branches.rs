@@ -421,6 +421,70 @@ fn plan__pr_block_for_an_unknown_branch_is_refused() {
 }
 
 #[test]
+fn plan__lock_text_shows_lines_parents_and_branches() {
+    let t = lock_text(&plan(&fixtures::branch_saga().book, &catalog()).unwrap());
+    assert!(
+        t.contains(" files=src/rank.rs line=try/lookup-table parents=001\n"),
+        "{t}"
+    );
+    assert!(t.contains(" files= parents=003,005 merges=from-char\n"), "{t}");
+    let lib_doc = t.lines().find(|l| l.starts_with("003 lib-doc ")).unwrap();
+    assert!(
+        lib_doc.ends_with(" files=src/lib.rs"),
+        "a main step's line gains nothing: {lib_doc}"
+    );
+    assert!(t.contains("\n\n[failers.branches]\n"), "{t}");
+    assert!(
+        t.contains(concat!(
+            "try/lookup-table from=001 head=002 merged=no pr=\"Try a lookup table for ranks\" state=open\n",
+            "    | Faster? Maybe. Correct? The test says no.\n",
+        )),
+        "{t}"
+    );
+    assert!(
+        t.contains("from-char from=003 head=005 merged=006 pr=\"Rank::from(char)\" state=merged\n"),
+        "{t}"
+    );
+}
+
+#[test]
+fn plan__exercise_on_a_merged_head_answers_with_the_merge() {
+    let p = plan_of(&edited(&[(
+        "msg=\"ch02: From<char>, every arm answered\"",
+        "msg=\"ch02: From<char>, every arm answered\" exercise=\"Merge it\"",
+    )]))
+    .unwrap();
+    let x = p.steps[4].exercise.as_ref().unwrap();
+    assert_eq!(x.answer, StepId("merge-from-char".into()));
+}
+
+#[test]
+fn plan__exercise_on_a_main_step_is_answered_on_main() {
+    // The next step in the book is on a branch; the answer is the next one on
+    // main.
+    let p = plan_of(&edited(&[(
+        "msg=\"ch01: the Rank enum\"",
+        "msg=\"ch01: the Rank enum\" exercise=\"Document the crate\"",
+    )]))
+    .unwrap();
+    let x = p.steps[0].exercise.as_ref().unwrap();
+    assert_eq!(x.answer, StepId("lib-doc".into()));
+}
+
+#[test]
+fn plan__exercise_on_an_unmerged_head_has_no_answer() {
+    let errs = plan_of(&edited(&[(
+        "msg=\"ch01: try a lookup table instead\"",
+        "msg=\"ch01: try a lookup table instead\" exercise=\"Make the test pass\"",
+    )]))
+    .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::ExerciseWithoutAnswer { step, .. } if step == "lookup-table"),
+        "{errs}"
+    );
+}
+
+#[test]
 fn plan__a_straight_line_has_one_parent_each_and_no_branches() {
     let f = fixtures::rank_saga();
     let p = plan(&f.book, &f.catalog).unwrap();

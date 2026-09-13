@@ -174,8 +174,8 @@ pub enum BowerError {
     ExerciseUnknownStep { loc: Location, step: String },
     /// A step already carries an exercise; reported at the second one.
     ExerciseDuplicate { loc: Location, step: String },
-    /// The exercise's step is the last of its repo: nothing follows it to
-    /// be the answer.
+    /// The exercise's step is the last on its line — on a straight line, the
+    /// last of its repo: nothing follows it to be the answer.
     ExerciseWithoutAnswer { loc: Location, step: String },
     /// A play cell also declares `exercise=`. A cell is one thing or the
     /// other.
@@ -449,7 +449,7 @@ impl std::fmt::Display for BowerError {
             }
             Self::ExerciseWithoutAnswer { loc, step } => write!(
                 f,
-                "{loc}: step `{step}` is the last of its repo; no next step can be the answer"
+                "{loc}: step `{step}` is the last on its line; no next step can be the answer"
             ),
             Self::ExerciseConflictingKeys { loc } => {
                 write!(f, "{loc}: a play cell cannot also be an exercise")
