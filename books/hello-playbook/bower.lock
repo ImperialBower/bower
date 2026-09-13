@@ -40,3 +40,14 @@
 018 tool-versions expect=pass anchor=src/ch06-ci.md:8 files=.tool-versions
 019 ci-workflow expect=pass anchor=src/ch06-ci.md:20 files=.github/workflows/ci.yml
 020 drop-scratch expect=pass anchor=src/ch06-ci.md:56 files=src/scratch.rs,src/lib.rs
+021 shout expect=test_fail anchor=src/ch07-try-it-on-a-branch.md:10 files=src/lib.rs line=try/shout parents=020
+022 greet-many expect=pass anchor=src/ch07-try-it-on-a-branch.md:44 files=src/lib.rs line=feat/greet-many parents=020
+023 greet-many-test expect=pass anchor=src/ch07-try-it-on-a-branch.md:64 files=src/lib.rs line=feat/greet-many parents=022
+024 changelog expect=pass anchor=src/ch07-try-it-on-a-branch.md:90 files=CHANGELOG.md
+025 merge-greet-many expect=pass anchor=src/ch07-try-it-on-a-branch.md:105 files= parents=024,023 merges=feat/greet-many
+
+[hello-playbook.branches]
+try/shout from=020 head=021 merged=no pr="Shout the greeting" state=open
+    | Louder is not better when the tests pin the exact words. Left open, on
+    | purpose: this is the attempt that did not work.
+feat/greet-many from=020 head=023 merged=025

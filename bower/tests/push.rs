@@ -230,7 +230,7 @@ fn a_declared_edition_ships_its_downloads_and_the_dry_run_still_sends_nothing() 
         "the epub and the pdf, and nothing else: {:?}",
         release.assets
     );
-    assert!(release.notes.contains("20 steps"), "{}", release.notes);
+    assert!(release.notes.contains("25 steps"), "{}", release.notes);
     // Deciding is not doing — and on this trait a release counts as doing.
     assert!(!forge.mutated(), "{:?}", forge.calls());
     assert!(forge.releases().is_empty(), "nothing may be uploaded");
@@ -268,7 +268,7 @@ fn our_own_remote_is_ready_and_the_dry_run_still_sends_nothing() {
     let PushPlan::Ready { tags, create, .. } = got else {
         panic!("expected Ready, got {got:?}");
     };
-    assert_eq!(tags, 26, "20 step tags plus 6 chapter-end tags");
+    assert_eq!(tags, 32, "25 step tags plus 7 chapter-end tags");
     assert!(!create, "the remote already exists");
     // Deciding is not doing.
     assert!(!forge.mutated(), "{:?}", forge.calls());

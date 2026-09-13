@@ -165,3 +165,39 @@ fn makefile_ends_with_the_full_gate() {
 fn planning_twice_is_byte_identical() {
     assert_eq!(book_plan(), book_plan());
 }
+
+#[test]
+fn plans_the_branches_the_chapter_declares() {
+    let p = book_plan();
+    let repo = p.repo(REPO).expect("repo present");
+    let names: Vec<&str> = repo.branches.iter().map(|b| b.name.as_str()).collect();
+    assert_eq!(names, ["try/shout", "feat/greet-many"]);
+
+    let shout = &repo.branches[0];
+    assert_eq!(
+        (shout.forked_from, shout.head, shout.merged_at),
+        (20, 21, None)
+    );
+    assert_eq!(shout.pr.as_ref().map(|pr| pr.state), Some(PrState::Open));
+
+    let many = &repo.branches[1];
+    assert_eq!(
+        (many.forked_from, many.head, many.merged_at),
+        (20, 23, Some(25))
+    );
+
+    let step = |id: &str| repo.steps.iter().find(|s| s.id.0 == id).unwrap();
+    assert_eq!(step("shout").expect, Expect::TestFail);
+    let merge = step("merge-greet-many");
+    assert_eq!(merge.parents, vec![24, 23]);
+    let lib = merge.tree.text("src/lib.rs").unwrap();
+    assert!(lib.contains("pub fn greet_all"), "{lib}");
+    assert!(
+        !lib.contains("HELLO"),
+        "the experiment never reaches main: {lib}"
+    );
+    assert!(
+        merge.tree.text("CHANGELOG.md").is_some(),
+        "main's own step survives the merge"
+    );
+}

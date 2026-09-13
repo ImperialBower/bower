@@ -120,11 +120,11 @@ fn both_targets_carry_every_chapter_and_its_metadata() {
         assert_eq!(p.meta.title, "Hello, Playbook");
         assert_eq!(
             p.chapters.len(),
-            7,
+            8,
             "a dropped chapter is one nobody misses"
         );
         assert_eq!(p.chapters[0].title, "A repo that builds");
-        assert_eq!(p.chapters[6].title, "Appendix: credits");
+        assert_eq!(p.chapters[7].title, "Appendix: credits");
         assert!(
             p.meta.cover.is_some(),
             "the sample book ships a cover, and every target carries it"

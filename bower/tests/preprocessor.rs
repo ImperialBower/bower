@@ -155,7 +155,7 @@ fn a_resolvable_book_survives_planning() {
     );
 }
 
-/// The real six chapters, wrapped in an mdBook envelope.
+/// The real seven chapters, wrapped in an mdBook envelope.
 fn real_book_envelope() -> String {
     let src = book_root().join("src");
     let order = [
@@ -165,6 +165,7 @@ fn real_book_envelope() -> String {
         "ch04-tests-and-failing-on-purpose.md",
         "ch05-supply-chain.md",
         "ch06-ci.md",
+        "ch07-try-it-on-a-branch.md",
     ];
     let sections: Vec<serde_json::Value> = order
         .iter()

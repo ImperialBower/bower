@@ -332,7 +332,7 @@ mod trailer_tests {
         let md = steps_md(&plan, "hello-playbook", Some("https://example.invalid"));
         assert_eq!(
             md.matches("| step-").count() + md.matches("| `step-").count(),
-            20
+            25
         );
         assert!(md.contains("`step-011-test-that-fails`"));
         assert!(md.contains("test_fail"));

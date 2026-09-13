@@ -55,13 +55,20 @@ pub const HELLO_PLAYBOOK_TAGS: &[&str] = &[
     "step-018-tool-versions",
     "step-019-ci-workflow",
     "step-020-drop-scratch",
+    "step-021-shout",
+    "step-022-greet-many",
+    "step-023-greet-many-test",
+    "step-024-changelog",
+    "step-025-merge-greet-many",
 ];
 
-/// Every path the book's twenty steps leave behind. The generated repository
-/// adds `STEPS.md` on top of these; the kernel never sees that file.
+/// Every path the book's main line leaves behind. The generated repository
+/// adds `STEPS.md` and `PULLS.md` on top of these; the kernel never sees
+/// either.
 pub const HELLO_PLAYBOOK_FINAL_PATHS: &[&str] = &[
     ".github/workflows/ci.yml",
     ".tool-versions",
+    "CHANGELOG.md",
     "Cargo.toml",
     "Makefile",
     "bin/security-scan",
@@ -76,10 +83,11 @@ fn hello_playbook_catalog() -> RepoCatalog {
     RepoCatalog::from_names(&["hello-playbook"])
 }
 
-/// The sample book: a dev-playbook-shaped Rust hello world, taught in six
-/// chapters that build the repository they describe, plus an appendix that
-/// credits the cover artwork and carries no directives at all — which is what
-/// makes it the fixture's one prose-only chapter.
+/// The sample book: a dev-playbook-shaped Rust hello world, taught in seven
+/// chapters — the last of them on branches — that build the repository they
+/// describe, plus an appendix that credits the cover artwork and carries no
+/// directives at all — which is what makes it the fixture's one prose-only
+/// chapter.
 ///
 /// The chapters live on disk under `books/hello-playbook/src/` and are pulled
 /// in with `include_str!`, which resolves at compile time — the kernel still
@@ -112,6 +120,10 @@ pub fn hello_playbook() -> Fixture {
             chapter(
                 "src/ch06-ci.md",
                 include_str!("../../books/hello-playbook/src/ch06-ci.md"),
+            ),
+            chapter(
+                "src/ch07-try-it-on-a-branch.md",
+                include_str!("../../books/hello-playbook/src/ch07-try-it-on-a-branch.md"),
             ),
             chapter(
                 "src/appendix-credits.md",

@@ -62,7 +62,7 @@ plan: ## regenerate the sample books' locks, so an edited chapter never leaves a
 	cargo run -q -p bower -- --book books/hello-playbook plan
 	cargo run -q -p bower -- --book books/rust4failures plan
 
-slow: ## the #[ignore]d lanes: the 20-step verify sweep and a real mdbook build
+slow: ## the #[ignore]d lanes: the 25-step verify sweep and a real mdbook build
 	cargo test -p bower --test verification -- --ignored
 	cargo build -p bower --all-features
 	PATH="$(CURDIR)/target/debug:$$PATH" cargo test -p bower --test preprocessor -- --ignored

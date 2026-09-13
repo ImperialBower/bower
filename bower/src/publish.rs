@@ -1567,7 +1567,7 @@ mod publish_tests {
 
         assert_eq!(fake.seen().len(), 1);
         assert_eq!(fake.seen()[0].target, Target::Epub);
-        assert_eq!(fake.seen()[0].chapters.len(), 7);
+        assert_eq!(fake.seen()[0].chapters.len(), 8);
         assert_eq!(artifact.bytes, 0, "a fake writes nothing");
     }
 
@@ -1813,14 +1813,15 @@ mod publish_tests {
         let dir = std::env::temp_dir().join("bower-write-chapters");
         let files = write_chapters(&dir, &rp).unwrap();
 
-        assert_eq!(files.len(), 7);
+        assert_eq!(files.len(), 8);
         let names: Vec<String> = files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
         assert_eq!(names[0], "001-ch01-a-repo-that-builds.md");
         assert_eq!(names[5], "006-ch06-ci.md");
-        assert_eq!(names[6], "007-appendix-credits.md", "the appendix is last");
+        assert_eq!(names[6], "007-ch07-try-it-on-a-branch.md");
+        assert_eq!(names[7], "008-appendix-credits.md", "the appendix is last");
     }
 
     #[test]

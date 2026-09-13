@@ -183,10 +183,11 @@ fn tags_match_the_planned_tags() {
     for tag in HELLO_PLAYBOOK_TAGS {
         assert!(found.contains(*tag), "missing tag {tag}");
     }
-    // Twenty step tags plus one `<chapter>-end` tag per chapter.
+    // Twenty-five step tags plus one `<chapter>-end` tag per chapter with a
+    // main step.
     assert_eq!(
         found.len(),
-        HELLO_PLAYBOOK_TAGS.len() + 6,
+        HELLO_PLAYBOOK_TAGS.len() + 7,
         "unexpected tag set: {found:?}"
     );
 }
@@ -204,6 +205,7 @@ fn final_worktree_is_the_kernels_tree_plus_scaffolding_and_steps_md() {
     // generated index back into the book, and the scaffolding the template
     // contributes at step 0 and every step thereafter.
     expected.insert("STEPS.md".to_string());
+    expected.insert("PULLS.md".to_string());
     for scaffold in [
         ".gitignore",
         "CODE_OF_CONDUCT.md",
@@ -258,4 +260,68 @@ fn the_scaffolding_survives_every_step() {
             "the scaffolding lost `{expected}` — a generated repo with no licence"
         );
     }
+}
+
+#[test]
+fn hello_playbook_keeps_its_branches_as_refs() {
+    let dir = scratch("branches");
+    build(&dir);
+    for b in ["try/shout", "feat/greet-many"] {
+        assert!(
+            dir.join(".git/refs/heads").join(b).is_file(),
+            "missing branch {b}"
+        );
+    }
+    // The working tree is main's: the merged feature, never the experiment.
+    let lib = std::fs::read_to_string(dir.join("src/lib.rs")).unwrap();
+    assert!(lib.contains("greet_all"), "{lib}");
+    assert!(!lib.contains("HELLO"), "{lib}");
+}
+
+/// Exit criterion 3: editing a branch step moves that step, its successors on
+/// its line, and the merge — and nothing else. Refs are read as loose files, so
+/// the check shares no code with the replay.
+#[test]
+fn editing_a_branch_step_moves_only_what_descends_from_it() {
+    let book = scratch("blast-book");
+    copy_dir(&book_root(), &book);
+    let before = scratch("blast-before");
+    build_from(&book, &before);
+
+    let chapter = book.join("src").join("ch07-try-it-on-a-branch.md");
+    let text = std::fs::read_to_string(&chapter).unwrap();
+    let edited = text.replacen(
+        "fn greet_all_keeps_the_order() {",
+        "fn greet_all_keeps_the_order() {\n        // edited on the branch",
+        1,
+    );
+    assert_ne!(text, edited);
+    std::fs::write(&chapter, edited).unwrap();
+    let after = scratch("blast-after");
+    build_from(&book, &after);
+
+    let sha = |dir: &Path, r: &str| std::fs::read_to_string(dir.join(".git").join(r)).unwrap();
+    for tag in HELLO_PLAYBOOK_TAGS
+        .iter()
+        .filter(|t| !["step-023-greet-many-test", "step-025-merge-greet-many"].contains(t))
+    {
+        let r = format!("refs/tags/{tag}");
+        assert_eq!(
+            sha(&before, &r),
+            sha(&after, &r),
+            "{tag} does not descend from the edit"
+        );
+    }
+    for tag in ["step-023-greet-many-test", "step-025-merge-greet-many"] {
+        let r = format!("refs/tags/{tag}");
+        assert_ne!(
+            sha(&before, &r),
+            sha(&after, &r),
+            "{tag} descends from the edit"
+        );
+    }
+    assert_eq!(
+        sha(&before, "refs/heads/try/shout"),
+        sha(&after, "refs/heads/try/shout")
+    );
 }
