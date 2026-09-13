@@ -3,7 +3,9 @@
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
-> Created 1 September 2026 at `b3def07`. Last refreshed 5 September 2026, after
+> Created 1 September 2026 at `b3def07`. Re-checked 13 September 2026 at
+> `d8f24a4`: EPIC-11 closed two 🤖 findings; the other four were re-read against
+> the code and still stand. Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
 > `--force-with-lease` that could never push twice, and a site branch that was
@@ -233,14 +235,13 @@ Each was checked against the cited lines. Each EPIC that owns a fix says so.
   helper upholds an exercise, and a solution that deletes the failing test
   passes. Suggested: name the tests that must fail. EPIC-13 Phase 2.
   (`bower/src/verify.rs:261`)
-- [ ] 🤖 **Test output is thrown away.** `Outcome` keeps stderr only
-  (`bower/src/verify.rs:311-315`). libtest writes its per-test results to
-  stdout. EPIC-02 Phase 2a said stdout would be captured. Suggested: keep
-  stdout. EPIC-11 Phase 0. (`bower/src/verify.rs:311`)
-- [ ] 🤖 **A CI comment promises a check that does not exist.**
-  `.github/workflows/slow.yml:130-133` says CI catches a changed compiler
-  diagnostic. Nothing compares diagnostics today. Suggested: soften the comment
-  now; EPIC-11 makes it true. (`.github/workflows/slow.yml:130`)
+- [x] 🤖 ~~**Test output is thrown away.**~~ Closed 12 September 2026 by
+  EPIC-11 Phase 0: `Outcome::output` now holds both streams, interleaved in
+  the order they were written (`bower/src/verify.rs:48-55`).
+- [x] 🤖 ~~**A CI comment promises a check that does not exist.**~~ Closed
+  12 September 2026 by EPIC-11: `make failures` in `slow.yml` now verifies the
+  recorded `output=` blocks, so the comment at `.github/workflows/slow.yml:130`
+  is true as written.
 - [ ] 🤖 **A shipped release can be overwritten.** `release upload --clobber`
   (`bower/src/forge.rs:707-716`) replaces the 0.1.0 PDF with a changed book if
   `[book] version` is not bumped. `release create` has no `--target`

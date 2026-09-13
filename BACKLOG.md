@@ -1,8 +1,9 @@
 # Backlog
 
-> Refreshed 10 September 2026. Eight EPICs closed: replay, verification, the
-> mdBook preprocessor, status, push, publish (html + epub), PDF via Typst, and
-> the site branch. Since then, three unnumbered pieces of work landed on top:
+> Refreshed 13 September 2026, after EPIC-11 (captured diagnostics) merged as
+> PR #5 (`d8f24a4`). Nine EPICs closed: replay, verification, the mdBook
+> preprocessor, status, push, publish (html + epub), PDF via Typst, the site
+> branch, and captured diagnostics. Three unnumbered pieces of work landed on top:
 > covers, a verify defect fix, and releases. `hello-playbook` is live at
 > <https://github.com/abstecker/hello-playbook> with its book served from
 > `gh-pages`.
@@ -22,11 +23,16 @@
 
 - **Migration — *Rust for Failures*** (spec § 11 Phase 5). The book lives in
   `books/rust4failures/`, beside the sample, and publishes both its code and
-  its rendered site to `abstecker/rust4failures`. Chapter 1 is written and
-  green: five steps, one of them a declared `compile_fail`, all five verified
-  against a real compiler (`make failures`). Next is the chapter map — the
-  teaching order over `pkcore`'s `DIARY.md`, which is deliberately not the
-  order the work was done in. Nothing has been pushed to GitHub yet.
+  its rendered site to `abstecker/rust4failures`. `SUMMARY.md` lists
+  `ch01-local_development.md` (five steps, one a declared `compile_fail`) and
+  `ch02-cicd.md` (one step), all verified against a real compiler
+  (`make failures`), with `toolchain = "1.98.1"` pinned since EPIC-11.
+  `ch02-init.md` and `ch03-rank.md` are commented out, so ch03's eight steps
+  and its `output="check"` E0004 block are planned by nobody until it is
+  listed. Next is the chapter map — the teaching order over `pkcore`'s
+  `DIARY.md`, which is deliberately not the order the work was done in.
+  🤖 *Check before a push:* two `REJECTED_` drafts are listed in `SUMMARY.md`,
+  so they would render into the published site.
 
 ## Next up — not started
 
@@ -192,7 +198,7 @@ repository. See `bower-spec.md` § 12.
 
 ## Recently completed
 
-- **[EPIC-11 — captured diagnostics](docs/EPIC-11_Diagnostics.md)** (12 September 2026) — 9/9 components. `output="check"|"verify"` records what the compiler said as book content; `verify` fails on drift, `--record` writes it, `[...]` trims it. Found and fixed: `verify` under `make` ignored every tree's toolchain pin.
+- **[EPIC-11 — captured diagnostics](docs/EPIC-11_Diagnostics.md)** (12 September 2026, merged as PR #5) — 9/9 components. `output="check"|"verify"` records what the compiler said as book content; `verify` fails on drift, `--record` writes it, `[...]` trims it. Found and fixed: `verify` under `make` ignored every tree's toolchain pin.
 - **Releases** (3 September 2026) — `bower push` hangs a GitHub release off
   `[book] version` and attaches every `.pdf`/`.epub` in the repo's `assets`
   directory. Decided locally, published last, refused when half-configured.
@@ -218,8 +224,8 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 358 passing, 0 failing (`make ayce` green from clean) |
-| Slow lanes | 6 `#[ignore]`d, all green (`make slow`) |
+| Tests | 445 passing, 0 failing (`cargo test --workspace`, 13 September 2026) |
+| Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
