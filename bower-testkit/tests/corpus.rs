@@ -48,6 +48,10 @@ fn corpus_state_coverage_is_complete() {
         report.missing_capture_expects().is_empty(),
         "coverage gaps:\n{report}"
     );
+    assert!(
+        report.missing_line_expects().is_empty(),
+        "coverage gaps:\n{report}"
+    );
 }
 
 #[test]

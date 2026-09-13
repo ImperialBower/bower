@@ -442,6 +442,35 @@ pub fn branch_saga() -> Fixture {
     )
 }
 
+/// Every `line × expect` pair (EPIC-09): four main steps, four branches, and
+/// four merges, each set on `pass`, `compile_fail`, `test_fail`, and `none`.
+/// Every branch writes its own file, so nothing conflicts.
+#[must_use]
+pub fn line_textures() -> Fixture {
+    Fixture::new(
+        "line_textures",
+        BookSource::from_chapters(vec![chapter(
+            "ch09-lines.md",
+            concat!(
+                "# Every line, every claim\n\n",
+                "<!-- bower repo=\"failers\" step=\"m-pass\" file=\"a.rs\" -->\n```rust\na\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-cf\" file=\"a.rs\" op=\"append\" expect=\"compile_fail\" -->\n```rust\nb\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-tf\" file=\"a.rs\" op=\"append\" expect=\"test_fail\" -->\n```rust\nc\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-none\" op=\"none\" expect=\"none\" msg=\"a narrated step\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-pass\" branch=\"b-pass\" file=\"b1.rs\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-pass\" merge=\"b-pass\" op=\"none\" msg=\"merge b-pass\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-cf\" branch=\"b-cf\" file=\"b2.rs\" expect=\"compile_fail\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-cf\" merge=\"b-cf\" op=\"none\" expect=\"compile_fail\" msg=\"merge b-cf\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-tf\" branch=\"b-tf\" file=\"b3.rs\" expect=\"test_fail\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-tf\" merge=\"b-tf\" op=\"none\" expect=\"test_fail\" msg=\"merge b-tf\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-none\" branch=\"b-none\" file=\"b4.rs\" expect=\"none\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-none\" merge=\"b-none\" op=\"none\" expect=\"none\" msg=\"merge b-none\" -->\n",
+            ),
+        )]),
+        failers(),
+    )
+}
+
 /// Every valid fixture, for corpus-wide properties and the coverage report.
 #[must_use]
 pub fn valid() -> Vec<Fixture> {
@@ -456,6 +485,8 @@ pub fn valid() -> Vec<Fixture> {
         notebook_play(),
         exercise_forms(),
         captured_outputs(),
+        branch_saga(),
+        line_textures(),
         hello_playbook(),
     ]
 }

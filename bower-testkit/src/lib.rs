@@ -27,6 +27,8 @@ pub mod prelude {
     //! One import for a test file.
     pub use crate::coverage::{CoverageReport, Mechanism};
     pub use crate::fixtures::{self, Fixture};
-    pub use crate::generators::{arb_book, arb_plain_lines, arb_raw_output, arb_words};
+    pub use crate::generators::{
+        arb_book, arb_branch_book, arb_plain_lines, arb_raw_output, arb_words,
+    };
     pub use bower_core::prelude::*;
 }

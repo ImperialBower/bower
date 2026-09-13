@@ -3,6 +3,8 @@
 //! legally write — the generators are the state-space walker, the
 //! properties in `tests/` are the invariants.
 
+use std::fmt::Write as _;
+
 use bower_core::prelude::*;
 use proptest::prelude::*;
 
@@ -93,6 +95,63 @@ fn build(files: &[GenFile]) -> (BookSource, RepoCatalog) {
 fn directive_line(file_idx: usize, op: &str, step: Option<&str>) -> String {
     let step_key = step.map(|s| format!(" step=\"{s}\"")).unwrap_or_default();
     format!("<!-- bower repo=\"gen\" file=\"f{file_idx}.rs\" op=\"{op}\"{step_key} -->\n")
+}
+
+/// An arbitrary valid book with one branch (EPIC-09): a main file, a branch
+/// that creates and grows its own file, sometimes a main step after the fork,
+/// and sometimes a merge. Main and the branch never write one file, so every
+/// generated book plans cleanly.
+pub fn arb_branch_book() -> impl Strategy<Value = (BookSource, RepoCatalog)> {
+    (
+        lines(3),
+        prop::collection::vec(lines(3), 1..=3),
+        prop::option::of(lines(2)),
+        any::<bool>(),
+    )
+        .prop_map(|(base, side, main_after, merged)| {
+            build_branching(&base, &side, main_after.as_deref(), merged)
+        })
+}
+
+fn build_branching(
+    base: &[String],
+    side: &[Vec<String>],
+    main_after: Option<&[String]>,
+    merged: bool,
+) -> (BookSource, RepoCatalog) {
+    fn fence(text: &mut String, lines: &[String]) {
+        text.push_str("```rust\n");
+        for l in lines {
+            text.push_str(l);
+            text.push('\n');
+        }
+        text.push_str("```\n\n");
+    }
+
+    let mut text = String::from("# Branching\n\n");
+    text.push_str("<!-- bower repo=\"gen\" step=\"base\" file=\"base.rs\" -->\n");
+    fence(&mut text, base);
+    for (i, lines) in side.iter().enumerate() {
+        let op = if i == 0 { "create" } else { "append" };
+        let _ = writeln!(
+            text,
+            "<!-- bower repo=\"gen\" step=\"side-{i}\" branch=\"side\" file=\"side.rs\" op=\"{op}\" -->"
+        );
+        fence(&mut text, lines);
+    }
+    if let Some(lines) = main_after {
+        text.push_str("<!-- bower repo=\"gen\" step=\"main-after\" file=\"main.rs\" -->\n");
+        fence(&mut text, lines);
+    }
+    if merged {
+        text.push_str(
+            "<!-- bower repo=\"gen\" step=\"join\" merge=\"side\" op=\"none\" msg=\"merge side\" -->\n",
+        );
+    }
+    (
+        BookSource::from_chapters(vec![Chapter::new("branching.md", &text)]),
+        RepoCatalog::from_names(&["gen"]),
+    )
 }
 
 /// Arbitrary command output: printable ASCII lines — backticks and brackets

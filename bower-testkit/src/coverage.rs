@@ -87,6 +87,21 @@ pub struct CoverageReport {
     pub exercise_expects: BTreeSet<String>,
     /// The legal `capture × expect` pairs the corpus binds, as `"check×pass"`.
     pub capture_expects: BTreeSet<String>,
+    /// The `line × expect` pairs the corpus plans, as `"branch×test_fail"`
+    /// (EPIC-09). A merge is its own kind: it is on main, but it is not a
+    /// step main wrote.
+    pub line_expects: BTreeSet<String>,
+}
+
+/// The kinds of line a step can be on, as the coverage axis names them.
+pub const LINE_KINDS: [&str; 3] = ["main", "branch", "merge"];
+
+fn line_kind(s: &PlannedStep) -> &'static str {
+    match (&s.line, &s.merges) {
+        (_, Some(_)) => "merge",
+        (Line::Branch(_), None) => "branch",
+        (Line::Main, None) => "main",
+    }
 }
 
 impl CoverageReport {
@@ -115,7 +130,7 @@ impl CoverageReport {
                 self.mechanisms
                     .insert(Mechanism::CapturedOutput.to_string());
             }
-            if b.play || b.exercise_block || b.output.is_some() {
+            if b.play || b.exercise_block || b.pr_block || b.output.is_some() {
                 if b.play {
                     self.mechanisms.insert(Mechanism::PlayCell.to_string());
                 }
@@ -175,6 +190,8 @@ impl CoverageReport {
                     self.capture_expects
                         .insert(format!("{}×{}", o.capture, s.expect));
                 }
+                self.line_expects
+                    .insert(format!("{}×{}", line_kind(s), s.expect));
             }
         }
     }
@@ -235,6 +252,16 @@ impl CoverageReport {
             .collect()
     }
 
+    /// `line × expect` pairs no step in the corpus sits on.
+    #[must_use]
+    pub fn missing_line_expects(&self) -> Vec<String> {
+        LINE_KINDS
+            .iter()
+            .flat_map(|l| Expect::all().into_iter().map(move |e| format!("{l}×{e}")))
+            .filter(|pair| !self.line_expects.contains(pair))
+            .collect()
+    }
+
     /// Full coverage means every op, expect, and mechanism appears at
     /// least once across the corpus, and an exercise sits on every expect.
     #[must_use]
@@ -244,6 +271,7 @@ impl CoverageReport {
             && self.missing_mechanisms().is_empty()
             && self.missing_exercise_expects().is_empty()
             && self.missing_capture_expects().is_empty()
+            && self.missing_line_expects().is_empty()
     }
 }
 
@@ -286,6 +314,15 @@ impl std::fmt::Display for CoverageReport {
                 "capture × expect",
                 &self.capture_expects,
                 &self.missing_capture_expects()
+            )
+        )?;
+        writeln!(
+            f,
+            "{}",
+            line(
+                "line × expect",
+                &self.line_expects,
+                &self.missing_line_expects()
             )
         )
     }
