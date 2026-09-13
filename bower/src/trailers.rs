@@ -8,7 +8,7 @@
 
 use std::fmt::Write as _;
 
-use bower_core::prelude::{PlannedStep, RepoPlan};
+use bower_core::prelude::{BranchSummary, Line, PlannedStep, PullRequest, RepoPlan};
 
 /// The tool version, stamped into every commit so a repository says what built
 /// it without anyone having to guess.
@@ -31,6 +31,18 @@ pub fn commit_message(
         let _ = writeln!(out, "Book-Url: {url}");
     }
     let _ = writeln!(out, "Bower-Step: {repo_name}/{:03}", step.seq);
+    // Only where the history has a shape: a straight line's commits carry no
+    // line at all, so their SHAs are what they were before branches existed
+    // (EPIC-09 Decision 13).
+    match (&step.line, &step.merges) {
+        (Line::Branch(b), _) => {
+            let _ = writeln!(out, "Bower-Line: {b}");
+        }
+        (Line::Main, Some(m)) => {
+            let _ = writeln!(out, "Bower-Merges: {m}");
+        }
+        (Line::Main, None) => {}
+    }
     let _ = writeln!(out, "Generated-By: {GENERATOR}");
     out
 }
@@ -88,12 +100,22 @@ pub fn steps_md(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> String 
             Some(url) => format!("[{}]({url})", step.anchor.chapter),
             None => format!("`{}`", step.anchor.chapter),
         };
-        // The code side's pointer to the "your turn" points: a reader
-        // browsing the repo finds them without opening the book.
-        let subject = match &step.exercise {
-            Some(x) => format!("{} · exercise: {}", step.msg, x.task),
-            None => step.msg.clone(),
-        };
+        // A branch or a merge says so; a main step's row is unchanged. Then
+        // the code side's pointer to the "your turn" points: a reader browsing
+        // the repo finds them without opening the book.
+        let mut subject = step.msg.clone();
+        match (&step.line, &step.merges) {
+            (Line::Branch(b), _) => {
+                let _ = write!(subject, " · on {b}");
+            }
+            (Line::Main, Some(m)) => {
+                let _ = write!(subject, " · merges {m}");
+            }
+            (Line::Main, None) => {}
+        }
+        if let Some(x) = &step.exercise {
+            let _ = write!(subject, " · exercise: {}", x.task);
+        }
         let _ = writeln!(
             out,
             "| {:03} | `{}` | {} | {subject} | {source} |",
@@ -103,6 +125,55 @@ pub fn steps_md(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> String 
         );
     }
     out
+}
+
+/// The pull requests the book declares, as a file in the repository (EPIC-09
+/// Decision 8): a table, then each description. Deterministic, forge or no
+/// forge. `None` when the book declares none, so such a book gains no file.
+#[must_use]
+pub fn pulls_md(plan: &RepoPlan, book_name: &str) -> Option<String> {
+    let prs: Vec<(&BranchSummary, &PullRequest)> = plan
+        .branches
+        .iter()
+        .filter_map(|b| b.pr.as_ref().map(|pr| (b, pr)))
+        .collect();
+    if prs.is_empty() {
+        return None;
+    }
+    let tag_of = |seq: usize| {
+        plan.steps
+            .iter()
+            .find(|s| s.seq == seq)
+            .map_or_else(|| "—".to_string(), |s| format!("`{}`", s.tag()))
+    };
+
+    let mut out = String::new();
+    let _ = writeln!(out, "# Pull requests\n");
+    let _ = writeln!(
+        out,
+        "Declared by the book *{book_name}*. Each is a branch in this repository,\n\
+         and its state is the book's, not a forge's.\n"
+    );
+    let _ = writeln!(out, "| Branch | State | Title | Head | Merged by |");
+    let _ = writeln!(out, "|---|---|---|---|---|");
+    for (b, pr) in &prs {
+        let merged = b.merged_at.map_or_else(|| "—".to_string(), &tag_of);
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} | {merged} |",
+            b.name,
+            pr.state,
+            pr.title,
+            tag_of(b.head)
+        );
+    }
+    for (b, pr) in &prs {
+        let _ = writeln!(out, "\n## {}\n\n`{}` — {}\n", pr.title, b.name, pr.state);
+        for line in &pr.body {
+            let _ = writeln!(out, "{line}");
+        }
+    }
+    Some(out)
 }
 
 /// The rendered book's URL for a chapter anchor, when the book declares a site.
@@ -164,6 +235,25 @@ mod trailer_tests {
         assert!(
             md.contains("| 002 | `step-002-fixed` | pass | fix: fixed |"),
             "{md}"
+        );
+    }
+
+    #[test]
+    fn steps_md__marks_branch_and_merge_rows() {
+        let f = bower_testkit::fixtures::branch_saga();
+        let p = plan(&f.book, &f.catalog).unwrap();
+        let md = steps_md(p.repo("failers").unwrap(), "book", None);
+        assert!(
+            md.contains("| 002 | `step-002-lookup-table` | test_fail | ch01: try a lookup table instead · on try/lookup-table |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| 006 | `step-006-merge-from-char` | pass | ch02: merge from-char · merges from-char |"),
+            "{md}"
+        );
+        assert!(
+            md.contains("| 003 | `step-003-lib-doc` | pass | ch01: document the crate |"),
+            "a main row is unchanged: {md}"
         );
     }
 

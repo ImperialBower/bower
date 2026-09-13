@@ -321,10 +321,16 @@ fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path)
         };
         match replayer.run(repo) {
             Ok(report) => println!(
-                "{}: {} commits, {} tags, HEAD {} → {}",
+                "{}: {} commits, {} tags{}, HEAD {} → {}",
                 report.repo,
                 report.commits,
                 report.tags.len(),
+                // Only when there are any: a straight line's report is unchanged.
+                if report.branches.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {} branches", report.branches.len())
+                },
                 report.head,
                 dir.display()
             ),
