@@ -11,9 +11,10 @@
   so replay stays byte-identical.
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
-- **Status:** Planned; model settled by `docs/spikes/spike-branches/`, filed
-  10 September 2026. Slice 1 designed 13 September 2026 (Decisions 12–19,
-  re-grounded after EPIC-11); no phase started.
+- **Status:** Slice 1 shipped on `feat/branches`, 13 September 2026; slice 2
+  (the forge's pull requests) planned. Model settled by
+  `docs/spikes/spike-branches/`, filed 10 September 2026. Slice 1 designed
+  13 September 2026 (Decisions 12–19, re-grounded after EPIC-11).
 
 ---
 
@@ -54,15 +55,15 @@ says exactly how far Bower's contract with them goes.
 
 | Component | Slice | Status |
 |---|---|---|
-| Kernel: four directive keys, `Line`, per-line fold, merge semantics | 1 | **Planned** |
-| Kernel: `MergeConflict` at region granularity | 1 | **Planned** |
-| Kernel: `PullRequest` on `RepoPlan.branches`, lock text | 1 | **Planned** |
-| Testkit: branch textures and the `line` coverage axis | 1 | **Planned** |
-| Replay: parents from the plan, branch refs, `PULLS.md`, trailers | 1 | **Planned** |
-| `status`: branch-ref drift | 1 | **Planned** |
-| Render: line and compare links in the footer; the merge line | 1 | **Planned** |
-| `push`: branch refs with lease, branches before main | 1 | **Planned** |
-| Sample book chapter and slow-lane verify | 1 | **Planned** |
+| Kernel: four directive keys, `Line`, per-line fold, merge semantics | 1 | **Done** |
+| Kernel: `MergeConflict` at region granularity | 1 | **Done** |
+| Kernel: `PullRequest` on `RepoPlan.branches`, lock text | 1 | **Done** |
+| Testkit: branch textures and the `line` coverage axis | 1 | **Done** |
+| Replay: parents from the plan, branch refs, `PULLS.md`, trailers | 1 | **Done** |
+| `status`: branch-ref drift | 1 | **Done** |
+| Render: line and compare links in the footer; the merge line | 1 | **Done** |
+| `push`: branch refs with lease, branches before main | 1 | **Done** |
+| Sample book chapter and slow-lane verify | 1 | **Done** |
 | `push`: `Forge::ensure_pull_request`, the PR section of the dry run | 2 | **Planned** |
 | *Rust for Failures* `from-char` PR | 2 | **Planned** |
 
@@ -164,7 +165,13 @@ and forge-side merging. Each is a backlog line when this ships.
    out `ch01-end` expects the mainline, not an abandoned branch.
 6. **Branch names are validated at plan time**, against git's ref-name rules
    as a pure function, and may not be `main` or start with `step-`.
-   `InvalidBranchName` carries the location.
+   `InvalidBranchName` carries the location. As built, the check also covers
+   names that collide as git refs even when neither is literally `main` or
+   `step-`-prefixed: `main`/`HEAD` in any letter case, anything under
+   `main/`, one branch name that is a `/`-prefix of another, and two names
+   equal only in case — each would otherwise fail late as an unlocated IO
+   error or silently repoint main on a case-insensitive filesystem (see the
+   corrigendum).
 7. **A step on a merged branch is an error**, as is merging twice or merging
    a branch the plan has not seen yet. `BranchAlreadyMerged` names the merge
    step; `MergeUnknownBranch` hints at `after=` when the branch is declared
@@ -182,7 +189,12 @@ and forge-side merging. Each is a backlog line when this ships.
    exist and needs a diff against base, so branches go first and main —
    which carries the merge commit — goes last. Both GitHub and Forgejo mark a
    PR merged when its head becomes reachable from base by a push; this is
-   the last inch and open question 1.
+   the last inch and open question 1. As built, a remote with no `main` yet
+   is the one exception: main is pushed first, ahead of every branch, because
+   the first branch pushed to an empty repository likely becomes its
+   default, and the push gate reads `STEPS.md` from the default branch —
+   pushing a side branch first would lock the book out of every later push
+   (see the corrigendum).
 10. **Verification does not change.** Every `PlannedStep` still carries a
     complete `tree`, and `verify::run` (`bower/src/verify.rs:376`) already
     checks each in isolation. A merge step is verified against its own
@@ -228,7 +240,9 @@ against the code as EPIC-11 left it.*
     would find a step and then have to check its line against the block's
     `branch=`. A block naming a branch no step is on is `PrUnknownBranch`.
     `from=` on any step but a branch's first is `FromOnLaterStep`: a key
-    nothing reads is a typo. Twelve error variants, not ten.
+    nothing reads is a typo. That includes `from=` on a main or merge step,
+    not only a later branch step — nothing reads it there either, so it is
+    `FromOnLaterStep` too. Twelve error variants, not ten.
 16. **The worktree and `STEPS.md` come from the last main step.** Today
     `Replayer::run` and `final_blobs` take them from `plan.steps.last()`
     (`replay.rs:121`, `replay.rs:336`); a
@@ -402,46 +416,46 @@ edit`. `ForgejoForge`: `GET/POST/PATCH /repos/{o}/{r}/pulls`, per
 
 Every item is slice 1 unless marked **(slice 2)**.
 
-- [ ] **0a.** Directive keys, `Block` and `Step` fields, `ConflictingLineInStep`,
+- [x] **0a.** Directive keys, `Block` and `Step` fields, `ConflictingLineInStep`,
   `InvalidBranchName` (pure ref-name check).
-- [ ] **0b.** The fold: `Line`, `parents`, per-line trees, merge tree,
+- [x] **0b.** The fold: `Line`, `parents`, per-line trees, merge tree,
   `BranchSummary`, `FromOnLaterStep`. Port the spike's `plan()` and every
   spike test by name.
-- [ ] **0c.** `MergeConflict` at region granularity: lift `composes` out of
+- [x] **0c.** `MergeConflict` at region granularity: lift `composes` out of
   `check_duplicate_files` and call it from both (Decision 14).
-- [ ] **0d.** `pr=` key and block forms, `PullRequest`, `PrWithoutBranch`,
+- [x] **0d.** `pr=` key and block forms, `PullRequest`, `PrWithoutBranch`,
   `PrUnknownBranch`, `PrDuplicate`.
-- [ ] **0e.** `lock_text` line/parents/branches, printed only where not the
+- [x] **0e.** `lock_text` line/parents/branches, printed only where not the
   default; exercises follow the line.
-- [ ] **0f.** Testkit fixtures, the `line` coverage axis, the three
+- [x] **0f.** Testkit fixtures, the `line` coverage axis, the three
   properties. Delete `docs/spikes/spike-branches/` (Decision 19).
 
 ### Phase 1 — Replay and status
 
-- [ ] **1a.** `commit` with `Vec` parents and a ref; branch refs; trailers on
+- [x] **1a.** `commit` with `Vec` parents and a ref; branch refs; trailers on
   branch and merge commits only.
-- [ ] **1b.** The worktree and `STEPS.md` from the last main step; `STEPS.md`
+- [x] **1b.** The worktree and `STEPS.md` from the last main step; `STEPS.md`
   branch and merge rows; `PULLS.md`; `chapter_ends` on main;
   `expected_branches`.
-- [ ] **1c.** Determinism golden (`bower/tests/determinism.rs`) over the branch
+- [x] **1c.** Determinism golden (`bower/tests/determinism.rs`) over the branch
   fixture: identical SHAs across runs, and the blast-radius assertion —
   editing a branch step leaves every unrelated tag's SHA alone. A linear
   book's SHAs are unchanged by this EPIC.
-- [ ] **1d.** `repo_drift` compares branch names; `status` names a missing or
+- [x] **1d.** `repo_drift` compares branch names; `status` names a missing or
   unexpected branch.
 
 ### Phase 2 — Render
 
-- [ ] **2a.** `compare` and `branch` templates, derived from `github` and
+- [x] **2a.** `compare` and `branch` templates, derived from `github` and
   declarable in `[links]`.
-- [ ] **2b.** Footer line and compare link; the merge line for a pure merge;
+- [x] **2b.** Footer line and compare link; the merge line for a pure merge;
   preprocessor test.
 
 ### Phase 3 — Push and pull requests
 
-- [ ] **3a.** `Forge::push` takes the branches: each with its own lease, then
+- [x] **3a.** `Forge::push` takes the branches: each with its own lease, then
   tags, then main. `FakeForge` records the order; the dry run lists branches.
-- [ ] **3b.** Golden: a refused gate pushes no branch.
+- [x] **3b.** Golden: a refused gate pushes no branch.
 - [ ] **3c. (slice 2)** `Forge::ensure_pull_request`, `PrAction`, `FakeForge`
   recording.
 - [ ] **3d. (slice 2)** `plan_push` PR section; push order branches → tags →
@@ -452,15 +466,15 @@ Every item is slice 1 unless marked **(slice 2)**.
 
 ### Phase 4 — Book and docs
 
-- [ ] **4a.** `books/hello-playbook/src/ch07-try-it-on-a-branch.md`, before
+- [x] **4a.** `books/hello-playbook/src/ch07-try-it-on-a-branch.md`, before
   the appendix: `try/shout` (one `test_fail` step and a `pr=` block, never
   merged) and `feat/greet-many` (two steps, merged by an `op="none"` step
   after one unrelated main step).
 - [ ] **4b. (slice 2)** The `from-char` PR in
   `books/rust4failures/src/ch03-rank.md`, once that chapter is listed.
-- [ ] **4c.** `.okf/model/branch.md`, `.okf/model/pull-request.md`, the key
+- [x] **4c.** `.okf/model/branch.md`, `.okf/model/pull-request.md`, the key
   table in `.okf/model/directive.md`, `BACKLOG.md`, `README.md`.
-- [ ] **4d.** Flip slice 1's Status rows, append the corrigendum.
+- [x] **4d.** Flip slice 1's Status rows, append the corrigendum.
 
 ---
 
@@ -598,6 +612,60 @@ Exit criteria (slice 1 unless marked):
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
 | 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
 | 6 | ~~**The spike's home.**~~ Settled 13 September 2026: its `rank_saga` becomes the `bower-testkit` fixture `branch_saga` (the testkit already has a `rank_saga`), and the spike is deleted once its tests pass as ported (Decision 19). |
+
+---
+
+## Corrigendum — as built, slice 1
+
+Deviations from this plan the tasks reported during execution, with where and
+why. The first four change behaviour from the plan's text; the rest are
+mechanical.
+
+1. **A merge's resolution skips only the resolved paths of a branch block,
+   not the whole block.** The plan skipped a whole branch block when any file
+   it touched was resolved; a multi-path `op="delete"` then lost its
+   unresolved paths silently — a wrong merge tree with no error. `Fold::merge`
+   now re-applies a trimmed clone (`trim_resolved`, `bower-core/src/branch.rs`),
+   extending Decision 3. Test:
+   `plan__a_resolution_does_not_drop_the_rest_of_a_branch_block`.
+2. **`from=` on a main or merge step is refused** with `FromOnLaterStep` (its
+   `branch` field reads `main`, its message "…this step is on `main`"). The
+   plan text refused it only on a later *branch* step; Decision 15 already
+   said any step but a branch's first, and the corrigendum makes that
+   explicit. Tests: `plan__from_on_a_main_step_is_refused`,
+   `plan__from_on_a_merge_step_is_refused`.
+3. **Branch names that collide as git refs are refused** as
+   `InvalidBranchName`: `main`/`HEAD` in any letter case, anything under
+   `main/`, a name that is a `/`-prefix of another in the repo, and two names
+   equal only in case. Found in review: `main/x` alongside `a` and `a/b` made
+   replay fail with an unlocated IO error, and `Main` on a case-insensitive
+   filesystem silently repointed main. `branch_name_problem` and a repo-level
+   `check_branch_refs` (`bower-core/src/plan.rs`), extending Decision 6.
+4. **On a remote with no `main`, main is pushed first**, then the branches,
+   then the tags; on an existing remote the order stays Decision 9's
+   (branches, tags, main). The first branch pushed to an empty GitHub or
+   Forgejo repository likely becomes its default, and the push gate reads
+   `STEPS.md` from the default branch — a side branch first would lock the
+   book out of every later push. `push_commands` (`bower/src/forge.rs`),
+   extending Decision 9.
+5. `cargo fmt --all` was not in the plan's per-task gate; it was added after
+   Task 10's review found `make fmt-check` (which CI runs) failing on this
+   branch. Task 10's commit carries formatting-only hunks in files from
+   earlier tasks.
+6. Clippy-driven restructurings along the way: `#[allow]`s on `Block`
+   (`struct_excessive_bools`), `block::resolve` (`too_many_lines`), and
+   `branch_name_problem` (`case_sensitive_file_extension_comparisons`);
+   `render::push_merge_line` extracted from `chapter`; `PushPlan::Ready::release`
+   boxed (`large_enum_variant`); `describe_release` extracted from
+   `report_push`.
+7. `bower/tests/preprocessor.rs` also pinned the sample book's chapter list
+   and was updated in Task 11 to add `ch07-try-it-on-a-branch.md`.
+8. The Task 3 commit was first recorded with an unrelated message and
+   amended by the user (`b6b9688`).
+
+None of the eight change the shape of what shipped; each is recorded here
+because a task reported it as a deviation from this document's text at the
+moment it happened.
 
 ---
 

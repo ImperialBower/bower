@@ -3,7 +3,7 @@ type: Domain Concept
 title: The bower directive
 description: An HTML comment carrying TOML-flavored key-values, placed immediately before a fenced code block, that binds that block to a file in a target repository.
 tags: [model, syntax, authoring]
-timestamp: '2026-09-12T00:00:00Z'
+timestamp: '2026-09-13T00:00:00Z'
 ---
 
 # What it is
@@ -52,6 +52,10 @@ directives are simply comments.
 | `notebook` | no | — | `play`: a live [notebook cell](/model/play-cell.md), not repo content |
 | `exercise` | no | — | A "your turn" task on this step. See [exercises](/model/exercise.md) |
 | `output` | no | — | `check` \| `verify`: what that command printed at the bound step. See [captured output](/model/captured-output.md) |
+| `branch` | no | — | The step's commit sits on this branch, not on main. See [branches](/model/branch.md) |
+| `from` | on a branch's first step | the main step before it | Fork the branch at this main step instead |
+| `merge` | no | — | This main step merges that branch; its blocks are the resolution |
+| `pr` | no | — | Declare a [pull request](/model/pull-request.md) for a branch; with no tree keys, the fence is the description |
 
 \* `file` is not required for `op="delete"` steps declared with `paths=[…]`, nor
 for pure-narrative steps (`op="none"`) that exist only to carry a commit message

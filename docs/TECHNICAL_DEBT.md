@@ -220,6 +220,50 @@
   markdown instead would be exact, but `status` would have to render, and
   `status` is the one command that touches nothing outside the machine.
 
+- [ ] **A PR's description renders as a plain fence.**
+  The block form's fence is printed as a `markdown` code block, not as a
+  styled box like an exercise's detail (`bower/src/render.rs`, `chapter`).
+  Known at slice 1's design (EPIC-09); a styled box is cosmetic, not a
+  correctness gap.
+
+- [ ] **`status` cannot see a moved branch.**
+  Branches are compared by name, as tags already are (EPIC-09 Decision 17); a
+  branch ref pointing at the wrong commit reads as in sync until a rebuild.
+  "Moved" would need the expected SHA, and that needs a replay, which
+  `status` never does.
+
+- [ ] **Remote branches the book dropped are never deleted.**
+  `bower push` leaves a branch the plan no longer names on the forge, by
+  design — Bower never deletes — but nothing reports it either. A dry run
+  that named a remote branch absent from the plan would close this.
+
+- [ ] **The push gate reads `STEPS.md` from the repository's default branch,
+  not from `main`, the branch it force-pushes.** `read_steps_md`
+  (`bower/src/forge.rs`) trusts whatever the forge currently calls default.
+  Reading `?ref=main` explicitly would harden it against a repository whose
+  default branch was changed by hand; EPIC-09 slice 2, when the forge side of
+  branches gets its next real exercise, is the natural place.
+
+- [ ] **`|` in a PR title or branch name breaks the `PULLS.md` table**, as it
+  already does `STEPS.md` rows (`bower/src/trailers.rs`, `pulls_md`). Same
+  shape as the existing 🤖 finding on `STEPS.md` below; EPIC-14 Phase 0's
+  machine-readable twin would close both at once rather than escaping `|` in
+  two hand-written table writers.
+
+- [ ] **A book whose steps are all on branches, with no scaffolding, leaves
+  HEAD unborn.** `bower build` prints the empty-tree id as HEAD
+  (`bower/src/replay.rs`, `run`) rather than refusing or naming the gap. No
+  current book does this — every book's step 0 is scaffolding on main — so it
+  is a theoretical edge, not yet a defect.
+
+- [ ] **Some single mistakes in a book still produce two errors.**
+  A failed branch block is re-applied at its merge, so one bad block reports
+  once where it happened and again at the merge that replays it; a refused
+  branch step's displays resolve against main, so a rendering error can
+  follow a plan error that already named the real problem
+  (`bower-core/src/branch.rs`). Each error is true on its own terms, but a
+  reader fixing a chapter sees two messages for one mistake.
+
 ## 🤖 Automated review findings
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->

@@ -135,6 +135,10 @@ Full key set:
 | `notebook` | no | — | `play`: a live notebook cell, not repo content (see § 15) |
 | `exercise` | no | — | A "your turn" task on this step. Alone, with no tree keys, it is a block-form exercise whose fence is the detail. See `docs/superpowers/specs/2026-09-06-exercises-design.md` |
 | `output` | no | — | `check` \| `verify`: the fence holds what that command printed at the bound step, normalized. `bower verify` compares; `bower verify --record` writes. A `[...]` line elides. See `docs/EPIC-11_Diagnostics.md` |
+| `branch` | no | — | This step lives on that branch, not on main. See `docs/EPIC-09_Branches.md` |
+| `from` | on a branch's first step | the nearest preceding main step | Fork at that main step instead |
+| `merge` | no | — | This step merges that branch; blocks on it are the resolution, applied after the branch's changes. `op="none"` for a pure merge |
+| `pr` | no | — | Declare a pull request for the branch; the fence is the body (markdown) |
 
 *`file` is not required for `op="delete"` steps declared with `paths=[…]`, nor
 for pure-narrative steps (`op="none"`) that exist only to carry a commit message
@@ -287,6 +291,12 @@ sub-second work for git). Determinism rules:
 - Commit subject: `msg` if given, else derived from the nearest heading
   (`ch03: Introduce the Rank enum`).
 
+A step on a branch (`branch=`) commits onto `refs/heads/<branch>`, forked from
+main's head at the branch's first step or at the step `from=` names. A merge
+step (`merge=`) is a commit on main with two parents — main's head and the
+branch's — whose tree is the branch's blocks re-applied over main (EPIC-09).
+Parents are plan values, so a branch's SHAs are as reproducible as main's.
+
 ### 5.2 Commit trailers — repo → book links
 
 Every generated commit carries trailers:
@@ -303,12 +313,18 @@ Generated-By: bower v0.x
 A generated `STEPS.md` at the repo root lists every step with its book link —
 the repo's own table of contents back into the book.
 
+A branch commit adds `Bower-Line: <branch>`; a merge adds
+`Bower-Merges: <branch>`. A commit on a straight line carries neither, so a
+book without branches replays to the SHAs it always did. A repository whose
+book declares a pull request (`pr=`) also gets `PULLS.md`.
+
 ### 5.3 Tags — book → repo links
 
 SHAs change whenever an earlier step changes, so the book never links to SHAs.
 Every step gets an annotated tag `step-012-rank-enum`; every chapter boundary
 gets `ch03-end`. Tags are recreated on regeneration; names are stable as long as
-step ids are. The rendered book links to
+step ids are. Branches persist after they are merged, as refs a reader can
+check out; `<chapter>-end` tags always point at main. The rendered book links to
 `…/rust4failures/tree/step-012-rank-enum` (browse the state) and
 `…/rust4failures/commit/step-012-rank-enum` (see the diff — git resolves tags here).
 

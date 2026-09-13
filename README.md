@@ -53,6 +53,10 @@ so far, and publishes to `abstecker/rust4failures`.
 - **A stale site is visible** — edit one paragraph and `bower status` reports
   the rendered book out of date, even when plan, lock, and repo are unchanged
   (`bower/tests/site.rs`).
+- **Branches and merges** — `branch=`, `from=`, `merge=`, and `pr=` put steps
+  on a branch, merge it with a real two-parent commit, and declare a pull
+  request; the abandoned experiment stays in the repository as a branch the
+  reader can check out.
 
 ## Quick tour
 
