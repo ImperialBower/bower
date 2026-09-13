@@ -366,9 +366,10 @@ compares both by name (Decision 17).
 ### Render — `bower`
 
 `footer` (`render.rs:316`) appends `· on [try/lookup-table](…)` for branch
-steps and `· merges from-char · [compare](…)` for merges that carry code. A
-merge step's directive renders one `step-meta` line where it stands, so a pure
-`op="none"` merge is visible too (Decision 18). `LinkTemplates` gains
+steps. Every merge step — pure or carrying resolution code — renders one
+`step-meta` line at its anchor, `step 006 of failers · merges [from-char](…) ·
+[compare](…)`, followed by its checkout line; the merge is said once, there,
+and never again in a footer (Decision 18). `LinkTemplates` gains
 `compare` (`{base}/compare/{from}...{to}` — the shape `DESIGN_Forges.md`
 § 6.1 proposes, filled with the merge's two parents' tags) and `branch`
 (`{base}/tree/{branch}`), both derived from `github` like `tree` and `commit`
@@ -490,7 +491,7 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 `plan__lock_text_of_a_linear_book_is_unchanged`,
 `replay__chapter_end_tag_never_points_at_a_branch`,
 `replay__worktree_is_main_when_the_book_ends_on_a_branch`,
-`replay__a_linear_book_keeps_its_shas`,
+`replay__a_linear_book_has_one_parent_and_no_line_trailers`,
 `status__reports_a_missing_branch_ref`,
 `render__a_pure_merge_renders_its_line`,
 `push__branches_go_before_main`,
@@ -579,8 +580,11 @@ Exit criteria (slice 1 unless marked):
    none of them and `FakeForge` records no call. **(Slice 2:** every PR with
    its action, too.**)**
 7. `cargo tree -p bower-core -e normal` still prints one line.
-8. `hello-playbook`'s steps 001–019, its existing lock lines, and its existing
-   rendered chapters are byte-identical before and after (Decision 13).
+8. `hello-playbook`'s steps 001–019 keep their SHAs and its existing lock
+   lines are unchanged; `rust4failures`, which has no branch, reports its lock
+   in sync; rendered output changes only on branch and merge steps
+   (Decision 13). mdBook's sidebar gains the new chapter on every page, which
+   is the chapter, not the EPIC.
 
 ---
 
@@ -593,7 +597,7 @@ Exit criteria (slice 1 unless marked):
 | 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
 | 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
-| 6 | ~~**The spike's home.**~~ Settled 13 September 2026: its `rank_saga` becomes a `bower-testkit` fixture, and the spike is deleted once its tests pass as ported (Decision 19). |
+| 6 | ~~**The spike's home.**~~ Settled 13 September 2026: its `rank_saga` becomes the `bower-testkit` fixture `branch_saga` (the testkit already has a `rank_saga`), and the spike is deleted once its tests pass as ported (Decision 19). |
 
 ---
 
