@@ -44,7 +44,7 @@ pub mod prelude {
 
     pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
-    pub use crate::branch::{BranchSummary, Line};
+    pub use crate::branch::{BranchSummary, Line, PrState, PullRequest};
     pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, rewrite, tidy};
     pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
@@ -255,6 +255,13 @@ pub enum BowerError {
         file: String,
         region: Option<String>,
     },
+    /// A `pr=` that is not for a branch: the key form on a main step, or the
+    /// block form without `branch=`.
+    PrWithoutBranch { loc: Location },
+    /// A `pr=` block names a branch no step is on.
+    PrUnknownBranch { loc: Location, branch: String },
+    /// A branch already has a pull request; reported at the second one.
+    PrDuplicate { loc: Location, branch: String },
 }
 
 impl BowerError {
@@ -306,7 +313,10 @@ impl BowerError {
             | Self::UnknownFrom { loc, .. }
             | Self::FromNotOnMain { loc, .. }
             | Self::FromOnLaterStep { loc, .. }
-            | Self::MergeConflict { loc, .. } => Some(loc),
+            | Self::MergeConflict { loc, .. }
+            | Self::PrWithoutBranch { loc }
+            | Self::PrUnknownBranch { loc, .. }
+            | Self::PrDuplicate { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -519,6 +529,16 @@ impl std::fmt::Display for BowerError {
                     f,
                     "{loc}: step `{step}` merges `{branch}`, but both sides changed {what} since the fork; write the whole file on the merge step to resolve it"
                 )
+            }
+            Self::PrWithoutBranch { loc } => write!(
+                f,
+                "{loc}: pr= declares a pull request, but not for a branch; put it on a branch step, or give the block branch=\"…\""
+            ),
+            Self::PrUnknownBranch { loc, branch } => {
+                write!(f, "{loc}: pr= is for branch `{branch}`, which no step is on")
+            }
+            Self::PrDuplicate { loc, branch } => {
+                write!(f, "{loc}: branch `{branch}` already has a pull request")
             }
         }
     }

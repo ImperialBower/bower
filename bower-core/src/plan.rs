@@ -5,7 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::block::Block;
-use crate::branch::{BranchSummary, Fold, Line};
+use crate::branch::{self, BranchSummary, Fold, Line};
 use crate::capture;
 use crate::directive::{Capture, Expect, Op};
 use crate::display::{self, BlockDisplay};
@@ -155,7 +155,8 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
     let (blocks, extract_errors) = block::extract(book, catalog);
     errors.extend(extract_errors);
 
-    let (play_blocks, rest): (Vec<_>, Vec<_>) = blocks.into_iter().partition(|b| b.play);
+    let (pr_blocks, rest): (Vec<_>, Vec<_>) = blocks.into_iter().partition(|b| b.pr_block);
+    let (play_blocks, rest): (Vec<_>, Vec<_>) = rest.into_iter().partition(|b| b.play);
     let (output_blocks, rest): (Vec<_>, Vec<_>) =
         rest.into_iter().partition(|b| b.output.is_some());
     let (exercise_blocks, code_blocks): (Vec<_>, Vec<_>) =
@@ -211,7 +212,8 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
                 merges: folded.merges,
             });
         }
-        let branches = fold.finish();
+        let mut branches = fold.finish();
+        branch::bind_prs(&mut branches, &ordered, &pr_blocks, name, &mut errors);
 
         let index = StepIndex::new(&ordered, &planned);
         bind_play_cells(&play_blocks, name, &index, &mut planned, &mut errors);

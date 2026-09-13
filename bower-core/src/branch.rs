@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::source::{Location, RepoName};
 use crate::step::{Step, Touch, TouchKind, composes, touches};
 use crate::tree::TreeState;
 use crate::{BowerError, Errors, block::Block};
@@ -35,6 +36,8 @@ pub struct BranchSummary {
     /// Its last step: where `refs/heads/<name>` points.
     pub head: usize,
     pub merged_at: Option<usize>,
+    /// The pull request the book declares for it.
+    pub pr: Option<PullRequest>,
 }
 
 /// What the fold decided for one step: its line, its parents, the branch it
@@ -140,6 +143,7 @@ impl<'a> Fold<'a> {
                     forked_from: b.forked_from,
                     head: b.head,
                     merged_at: b.merged_at,
+                    pr: None,
                 })
             })
             .collect()
@@ -349,6 +353,96 @@ impl<'a> Fold<'a> {
         self.main_head = seq;
         self.main_trees.insert(seq, tree.clone());
         self.main.clone_from(tree);
+    }
+}
+
+/// Whether a declared pull request's branch was merged, as the book tells it.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PrState {
+    Open,
+    Merged,
+}
+
+impl std::fmt::Display for PrState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Open => "open",
+            Self::Merged => "merged",
+        })
+    }
+}
+
+/// A pull request the book declares (Decision 8): a plan value first, and a
+/// forge artifact only once `bower push` makes it one. Its state is derived —
+/// merged exactly when a merge step took its branch.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PullRequest {
+    /// The directive that declared it.
+    pub loc: Location,
+    pub branch: String,
+    pub title: String,
+    /// The block form's fence, verbatim markdown. Empty for the key form.
+    pub body: Vec<String>,
+    pub state: PrState,
+}
+
+/// Attach every pull request of `repo` to its branch, in document order so a
+/// duplicate is reported at the second one (Decision 15). The key form rides
+/// on a branch step's own blocks; the block form names its branch, which is
+/// what a pull request belongs to.
+pub fn bind_prs(
+    branches: &mut [BranchSummary],
+    ordered: &[Step],
+    pr_blocks: &[Block],
+    repo: &RepoName,
+    errors: &mut Errors,
+) {
+    // (document position, declaring block, the branch it is for)
+    let mut found: Vec<(usize, &Block, Option<&str>)> = Vec::new();
+    for s in ordered {
+        for b in s.blocks.iter().filter(|b| b.pr.is_some()) {
+            found.push((b.seq_in_book, b, s.branch.as_deref()));
+        }
+    }
+    for b in pr_blocks.iter().filter(|b| &b.repo == repo) {
+        found.push((b.seq_in_book, b, b.branch.as_deref()));
+    }
+    found.sort_by_key(|(pos, ..)| *pos);
+
+    for (_, b, branch) in found {
+        let Some(name) = branch else {
+            errors.push(BowerError::PrWithoutBranch { loc: b.loc.clone() });
+            continue;
+        };
+        let Some(summary) = branches.iter_mut().find(|s| s.name == name) else {
+            errors.push(BowerError::PrUnknownBranch {
+                loc: b.loc.clone(),
+                branch: name.to_string(),
+            });
+            continue;
+        };
+        if summary.pr.is_some() {
+            errors.push(BowerError::PrDuplicate {
+                loc: b.loc.clone(),
+                branch: name.to_string(),
+            });
+            continue;
+        }
+        summary.pr = Some(PullRequest {
+            loc: b.loc.clone(),
+            branch: name.to_string(),
+            title: b.pr.clone().unwrap_or_default(),
+            body: if b.pr_block {
+                b.content.lines.clone()
+            } else {
+                Vec::new()
+            },
+            state: if summary.merged_at.is_some() {
+                PrState::Merged
+            } else {
+                PrState::Open
+            },
+        });
     }
 }
 

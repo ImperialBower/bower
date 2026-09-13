@@ -416,13 +416,17 @@ pub const BRANCH_SAGA: &str = concat!(
     "```rust\npub mod rank;\n```\n\n",
     "## A branch that fails, and stays\n\n",
     "<!-- bower repo=\"failers\" step=\"lookup-table\" branch=\"try/lookup-table\" file=\"src/rank.rs\" op=\"append\" expect=\"test_fail\" msg=\"ch01: try a lookup table instead\" -->\n",
-    "```rust\npub const RANKS: [Rank; 3] = [Rank::Ace, Rank::King, Rank::Queen];\n#[test] fn lookup_covers_every_char() { assert_eq!(RANKS.len(), 4); }\n```\n\n",
+    "```rust\npub const RANKS: [Rank; 3] = [Rank::Ace, Rank::King, Rank::Queen];\n#[test] fn lookup_covers_every_char() { assert_eq!(RANKS.len(), 4); }\n```\n",
+    "<!-- bower repo=\"failers\" branch=\"try/lookup-table\" pr=\"Try a lookup table for ranks\" -->\n",
+    "```markdown\nFaster? Maybe. Correct? The test says no.\n```\n\n",
     "## Meanwhile, on main\n\n",
     "<!-- bower repo=\"failers\" step=\"lib-doc\" file=\"src/lib.rs\" op=\"replace\" msg=\"ch01: document the crate\" -->\n",
     "```rust\n//! A deck of cards, built the failing way.\npub mod rank;\n```\n\n",
     "## The pull request\n\n",
     "<!-- bower repo=\"failers\" step=\"from-char-broken\" branch=\"from-char\" file=\"src/rank.rs\" op=\"append\" expect=\"compile_fail\" msg=\"ch02: From<char>, non-exhaustive\" -->\n",
-    "```rust\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen }\n    }\n}\n```\n\n",
+    "```rust\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen }\n    }\n}\n```\n",
+    "<!-- bower repo=\"failers\" branch=\"from-char\" pr=\"Rank::from(char)\" -->\n",
+    "```markdown\nEvery char needs an answer.\n\nCloses the gap the reviewer found.\n```\n\n",
     "<!-- bower repo=\"failers\" step=\"from-char-fixed\" branch=\"from-char\" file=\"src/rank.rs\" op=\"replace\" msg=\"ch02: From<char>, every arm answered\" -->\n",
     "```rust\n#[derive(Clone, Copy, Debug, Eq, PartialEq)]\npub enum Rank { Ace, King, Queen, Blank }\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen, _ => Rank::Blank }\n    }\n}\n```\n\n",
     "<!-- bower repo=\"failers\" step=\"merge-from-char\" merge=\"from-char\" op=\"none\" msg=\"ch02: merge from-char\" -->\n",
@@ -677,6 +681,18 @@ fn broken_branches() -> Vec<(&'static str, Fixture)> {
         single(
             "MergeConflict",
             "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"a.rs\" op=\"append\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"later\" file=\"a.rs\" op=\"replace\" -->\n```rust\nz\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"b\" op=\"none\" -->\n",
+        ),
+        single(
+            "PrWithoutBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" pr=\"On main\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "PrUnknownBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" branch=\"ghost\" pr=\"Nowhere\" -->\n```markdown\nx\n```\n",
+        ),
+        single(
+            "PrDuplicate",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" pr=\"One\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" branch=\"b\" pr=\"Two\" -->\n```markdown\nx\n```\n",
         ),
     ]
 }

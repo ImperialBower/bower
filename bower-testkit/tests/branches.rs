@@ -343,6 +343,84 @@ fn plan__branches_are_summarized_in_the_order_they_appear() {
 }
 
 #[test]
+fn plan__unmerged_branch_survives_with_an_open_pr() {
+    let p = saga();
+    let b = &p.branches[0];
+    assert_eq!(b.name, "try/lookup-table");
+    assert_eq!(b.merged_at, None);
+    let pr = b.pr.as_ref().unwrap();
+    assert_eq!(pr.state, PrState::Open);
+    assert_eq!(pr.title, "Try a lookup table for ranks");
+    assert_eq!(
+        pr.body,
+        vec!["Faster? Maybe. Correct? The test says no.".to_string()]
+    );
+    let b = &p.branches[1];
+    assert_eq!(b.merged_at, Some(6));
+    assert_eq!(b.pr.as_ref().unwrap().state, PrState::Merged);
+}
+
+#[test]
+fn plan__a_pr_block_is_never_a_step() {
+    assert_eq!(saga().steps.len(), 6);
+}
+
+#[test]
+fn plan__pr_key_form_has_no_body() {
+    let p = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n",
+        "<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" pr=\"Key form\" -->\n```rust\ny\n```\n",
+    ))
+    .unwrap();
+    let pr = p.branches[0].pr.as_ref().unwrap();
+    assert_eq!(pr.title, "Key form");
+    assert!(pr.body.is_empty());
+    assert_eq!(pr.state, PrState::Open);
+}
+
+#[test]
+fn plan__pr_on_a_main_step_is_refused() {
+    let errs =
+        plan_of("<!-- bower repo=\"failers\" file=\"a.rs\" pr=\"On main\" -->\n```rust\nx\n```\n")
+            .unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::PrWithoutBranch { loc } if loc.line == 1),
+        "{errs}"
+    );
+}
+
+#[test]
+fn plan__two_prs_on_one_branch_is_refused() {
+    let text = format!(
+        "{}{}",
+        fixtures::BRANCH_SAGA,
+        "<!-- bower repo=\"failers\" branch=\"from-char\" pr=\"Again\" -->\n```markdown\nSecond.\n```\n",
+    );
+    // The directive is the fourth line from the end: directive, fence,
+    // "Second.", fence.
+    let line = text.lines().count() - 3;
+    let errs = plan_of(&text).unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::PrDuplicate { branch, loc } if branch == "from-char" && loc.line == line),
+        "{errs}"
+    );
+}
+
+#[test]
+fn plan__pr_block_for_an_unknown_branch_is_refused() {
+    let text = format!(
+        "{}{}",
+        fixtures::BRANCH_SAGA,
+        "<!-- bower repo=\"failers\" branch=\"ghost\" pr=\"Nowhere\" -->\n```markdown\nx\n```\n",
+    );
+    let errs = plan_of(&text).unwrap_err();
+    assert!(
+        matches!(&errs.0[0], BowerError::PrUnknownBranch { branch, .. } if branch == "ghost"),
+        "{errs}"
+    );
+}
+
+#[test]
 fn plan__a_straight_line_has_one_parent_each_and_no_branches() {
     let f = fixtures::rank_saga();
     let p = plan(&f.book, &f.catalog).unwrap();
