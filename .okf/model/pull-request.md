@@ -2,8 +2,8 @@
 type: Domain Concept
 title: Pull request
 description: A plan value first, a forge artifact second — a branch's declared PR, deterministic in the repo whether or not a forge is involved.
-tags: [model, kernel, github, roadmap]
-timestamp: '2026-09-13T00:00:00Z'
+tags: [model, kernel, github]
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # What it is
@@ -45,15 +45,46 @@ each PR's title, branch, state, and description — deterministic whether or
 not a forge is ever involved, and generated only for a repo that declares at
 least one PR.
 
-# Not yet
+# On the forge
 
-Slice 1 stops at the plan value and `PULLS.md`. Ensuring the PR actually
-exists on a forge — `Forge::ensure_pull_request`, creating or updating it
-without ever closing or merging one Bower did not create — is EPIC-09 slice
-2, which waits on open questions about merged-PR detection and regeneration
-churn being answered against a real remote.
+`bower push` opens a PR per declared branch through a schedule the dry run
+prints — `schedule(plan, remote heads, local heads, forge PRs, book)`
+(`bower/src/schedule.rs`, EPIC-09 Decisions 20–22). For each declared PR it
+looks up the forge's PRs by head branch, in any state, and decides `Created`,
+`Updated`, `Unchanged`, `LeftMerged`, `LeftClosed`, or `NotOpened`. Bower
+only ever acts on PRs from branches of the repository itself: a PR from a
+fork is filtered out when the list is read (`isCrossRepository`), so a
+reader's fork PR from a branch that happens to share the book's branch name is
+never edited, and a closed one never blocks the book's own PR. A branch
+the book has already merged has no commits ahead of main by the time a first
+publish reaches it, so its PR is opened on a stepping stone: main moves back
+to the merge's main parent just long enough to open the PR, then moves on;
+the forge marks the PR merged once main passes the merge again (Decision 20).
+Stones go in merge order.
+
+The book's branches and main's first move go out in one atomic `git push`
+(`Forge::push_refs`): every ref or none. After a rebuild that changes every
+SHA, an open PR survives only when its branch and main move together — the
+`pr-remote` spike's Q2b — while a force-push of main alone to a history the
+PR's head shares no commits with makes GitHub close it. The dry run says so
+under the numbered schedule: `(moves 1–<k> go out as one atomic push)`.
+
+An open PR is updated when its title or description differs from what the
+book now declares, and left `Unchanged` when it does not. A merged or closed
+PR is left alone outright — Bower never merges, closes, reopens, or deletes a
+PR, and has no flag to (Decision 22); a merged PR whose head has since moved
+is reported, not repaired.
+
+A PR's body is the book's description, then a footer — "Opened by Bower from
+the book *\<name\>*. It is merged by a push to main, never on the forge." —
+and an HTML comment carrying an FNV digest of the title and description,
+`<!-- bower-pr: <digest> -->`. `Updated` versus `Unchanged` compares digests,
+read back with `gh pr list --jq`, rather than bodies: GitHub may rewrite a
+body's line endings, and the base binary parses no JSON outside the
+preprocessor. A body with no digest — one a person wrote, or edited away —
+always reads as different (Decision 23).
 
 # Citations
 
-[1] `bower-core/src/branch.rs`, `bower/src/trailers.rs`
+[1] `bower-core/src/branch.rs`, `bower/src/trailers.rs`, `bower/src/schedule.rs`, `bower/src/push.rs`, `bower/src/forge.rs`
 [2] `docs/EPIC-09_Branches.md`

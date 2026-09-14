@@ -185,6 +185,11 @@ fn plans_the_branches_the_chapter_declares() {
         (many.forked_from, many.head, many.merged_at),
         (20, 23, Some(25))
     );
+    // A PR on the merged branch too, so a push opens one on a stepping stone
+    // (EPIC-09 Decision 20) and the live run can see it merged.
+    let many_pr = many.pr.as_ref().expect("feat/greet-many declares a PR");
+    assert_eq!(many_pr.title, "Greet many names at once");
+    assert_eq!(many_pr.state, PrState::Merged);
 
     let step = |id: &str| repo.steps.iter().find(|s| s.id.0 == id).unwrap();
     assert_eq!(step("shout").expect, Expect::TestFail);

@@ -277,7 +277,7 @@ The business logic is § Design and § Work Items.
 | Frozen step links | `TagScope`; today `step.tag()` at `render.rs:294`, `:343`, `:371` | 🟡 scoped |
 | Tags a build must hold | `expected_tags(plan, edition)`; today `replay.rs:351` | 🟡 plus edition tags |
 | Tags on the forge | `Forge::remote_tags` | 🔴 new |
-| Pushing tags | `Forge::push` `forge.rs:134`; today `--force --tags` at `:675` | 🟡 by name, two classes |
+| Pushing tags | `Forge::push` `forge.rs:134`; today `--force --tags` at `:675` — *since replaced: EPIC-09 slice 2 swapped `Forge::push` for `push::execute` over `Forge::push_ref`/`push_refs`/`push_tags`; re-point when this EPIC starts* | 🟡 by name, two classes |
 | A frozen release | `release_action`, `Forge::release_assets`; today `--clobber` at `:709-716` | 🟡 no clobber |
 | Errata | `Erratum`, `errata` | 🔴 new |
 | Toolchain evidence | `verify::toolchain` | 🔴 new |
@@ -403,6 +403,9 @@ gains `edition: EditionState`, and its `Display` prints one row.
   the `edition_tag_verdict` on `PushPlan::Ready`. The dry run prints
   `edition   0.1.0 — 27 tags to push` or `edition   0.1.0 — on the forge,
   unchanged`.
+  *Note (EPIC-09 slice 2): `Forge::push` no longer exists. `push::execute`
+  runs a schedule over `Forge::push_ref`, `Forge::push_refs`, and
+  `Forge::push_tags`; this plan must be re-pointed when EPIC-16 starts.*
 - **Release.** `plan_release` (`push.rs:274`) takes the `EditionState` and
   the manifest path. It attaches the manifest as the receipt. That is a named
   path, not a third extension in `is_release_asset`'s closed list
@@ -466,7 +469,9 @@ markdown, one line per erratum, each linking edition tag to living tag.
   it. The determinism golden (`bower/tests/determinism.rs:94`) runs twice with
   an edition and gets identical tag-object SHAs.
 - [ ] **2b.** `TagPush` on `Forge::push`: step tags forced by name, edition
-  tags unforced. Delete the `--tags` line.
+  tags unforced. Delete the `--tags` line. *(EPIC-09 slice 2 replaced
+  `Forge::push` with `push::execute` over `Forge::push_ref`/`push_refs`/`push_tags`;
+  re-point this item when EPIC-16 starts.)*
 - [ ] **2c.** `Forge::remote_tags`, `edition_tag_verdict`, the
   `PushPlan::Ready` field, and the dry-run line.
 - [ ] **2d.** Extend the no-override tests: no `--prune`, no `--mirror`, no

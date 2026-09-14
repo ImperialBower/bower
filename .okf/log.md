@@ -1,5 +1,11 @@
 # Update Log
 
+## 2026-09-14
+
+* **Update**: [pull request](/model/pull-request.md) — EPIC-09 slice 2 built: the push schedule and stepping stones (`bower/src/schedule.rs`), the `Forge` methods that replace `Forge::push` (`remote_heads`, `pull_requests`, `push_ref`, `push_tags`, `open_pull_request`, `edit_pull_request`, `set_default_branch`), and the PR body's footer and `bower-pr:` digest (Decision 23). The live run (exit criterion 9) is still open.
+* **Update**: [pull request](/model/pull-request.md) — the final review's fixes: PRs from forks are never Bower's (filtered out by `isCrossRepository`), and the branches and main's first move go out in one atomic push (`Forge::push_refs`), because an open PR survives a rebuild only when head and base move together (the `pr-remote` spike's Q2b).
+* **Update**: [pull request](/model/pull-request.md) — EPIC-09 slice 2 shipped: the live run on `abstecker/hello-playbook` opened `feat/greet-many`'s PR on a stepping stone and GitHub marked it merged by Bower's merge commit; `try/shout`'s stays open; a second push opens and edits nothing.
+
 ## 2026-09-13
 
 * **Creation**: [Branch](/model/branch.md) and [pull request](/model/pull-request.md) — EPIC-09 slice 1's `branch=`, `from=`, `merge=`, and `pr=` keys, the per-line fold, the merge and conflict rules, branch-name collisions, and the `PULLS.md`/lock homes for a declared PR.

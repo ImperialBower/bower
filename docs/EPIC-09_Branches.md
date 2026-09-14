@@ -11,11 +11,12 @@
   so replay stays byte-identical.
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
-- **Status:** Slice 1 shipped (PR #6, merged 14 September 2026); slice 2
-  (the forge's pull requests) designed 14 September 2026 (Decisions 20–26)
-  after the `pr-remote` spike settled open questions 1 and 2. Model settled by
-  `docs/spikes/spike-branches/`, filed 10 September 2026. Slice 1 designed
-  13 September 2026 (Decisions 12–19, re-grounded after EPIC-11).
+- **Status:** Slice 2 shipped, 14 September 2026. The live run on
+  `abstecker/hello-playbook` opened `feat/greet-many`'s PR (#1) on the stepping
+  stone `step-024-changelog`, and GitHub marked it merged by Bower's own merge
+  commit (`4d5f0ee`, `step-025-merge-greet-many`); `try/shout`'s PR (#2) stays
+  open. A second push reports `unchanged #2` and `merged #1, left alone` and
+  opens nothing (exit criterion 9).
 
 ---
 
@@ -67,7 +68,7 @@ says exactly how far Bower's contract with them goes.
 | Render: line and compare links in the footer; the merge line | 1 | **Done** |
 | `push`: branch refs with lease, branches before main | 1 | **Done** |
 | Sample book chapter and slow-lane verify | 1 | **Done** |
-| `push`: the schedule, stepping stones, `Forge` PR methods, the dry-run schedule | 2 | **Planned** |
+| `push`: the schedule, stepping stones, `Forge` PR methods, the dry-run schedule | 2 | **Done** |
 | *Rust for Failures* `from-char` PR | 2 | **Planned** |
 
 Slice 1 is everything local and deterministic: a reader can check out the
@@ -296,13 +297,23 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
     and `pull_requests` (read-only, after the gate), `push_ref`, `push_tags`,
     `open_pull_request`, `edit_pull_request`, and `set_default_branch`
     (Decision 26). Execution stops at the first
-    failed move and names the moves already done. On an existing remote the
+    failed move and names the moves already done — and if it stops while main
+    stands on a stepping stone, it first moves main back to its head: a stone
+    is an older commit with no `STEPS.md`, and a remote left there would fail
+    the marker gate on every later push. On an existing remote the
     order is: branches; then, per stone, main to the stone and the PR opened;
-    then the other PRs opened or edited; main to its head; tags. On a remote
-    with no main, main goes first — to the first stone, or its head — then the
-    rest as before. Tags are always last (corrigendum item 4). Each push of
+    main to its head; the other PRs opened or edited; tags. The other PRs come
+    after main's head because a PR can only be opened against a base that
+    shares its history, and after a rebuild that moves every SHA the remote's
+    old main shares none. On a remote with no main, main goes first — to the
+    first stone, or its head — then the rest as before. Tags are always last (corrigendum item 4). Each push of
     main leases against the one before it: the remote's value first, then the
-    stone Bower just pushed.
+    stone Bower just pushed. GitHub closes an open PR when main alone is
+    force-pushed to a history its head shares no commits with (open question
+    2); an open PR survives a rebuild that moves every SHA when its branch and
+    main move in one push (the spike's Q2b). So the branches and main's first
+    move go out in one atomic push, which is what `execute` does (corrigendum
+    item 13).
 22. **What `ensure` does, per declared PR** (Decision 8, made exact). The
     forge's PRs are looked up by head branch with base `main`, in any state.
     None → `Created` (via a stone if the book merged the branch). Open →
@@ -311,10 +322,15 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
     drift open question 2 found, reported and never repaired. Closed by a
     person → `LeftClosed`. Bower never closes, merges, reopens, or deletes a
     PR, and has no flag to.
-23. **A PR's body is the book's description and one fixed footer line:**
+23. **A PR's body is the book's description, then a footer:** a line —
     "Opened by Bower from the book *<name>*. It is merged by a push to main,
-    never on the forge." Fixed, so `Updated` versus `Unchanged` is a text
-    comparison.
+    never on the forge." — and an HTML comment `<!-- bower-pr: <digest> -->`,
+    the FNV digest (`publish::digest`) of the title and description. `Updated`
+    versus `Unchanged` compares digests, read back with `gh pr list --jq`: the
+    base binary parses no JSON (`serde_json` is the preprocessor's alone), and
+    GitHub may rewrite a body's line endings, so comparing bodies would be
+    fragile where comparing a digest is not. A PR whose body has no digest — one
+    a person wrote, or edited away — reads as different and is `Updated`.
 24. **Forge drift is reported by the push, not by `status`.** `status`
     touches no network (EPIC-04), so a merged PR whose head moved, or a PR a
     person closed, shows in the dry run's schedule instead.
@@ -354,7 +370,7 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
 | The footer | `render::footer` `render.rs:316` | 🟡 line, compare |
 | A pure merge's line | beside `checkout_line` `render.rs:372` | 🔴 new |
 | Link vocabulary | `LinkTemplates` `config.rs:94` | 🟡 plus `compare`, `branch` |
-| Publishing | `Forge::push` `forge.rs:134`, `push_branch_args` `forge.rs:953` | 🟡 per branch |
+| Publishing | slice 1: `Forge::push`, `push_branch_args`; slice 2: `Forge::{push_ref, push_refs, push_tags}`, `push_ref_args`, `push_refs_args` (`forge.rs`) | 🟡 per ref, leased |
 | What a push does, in order (slice 2) | `schedule::schedule`, `schedule::pr_action`, `push::execute` | 🔴 new |
 | The forge's PRs (slice 2) | `Forge::{pull_requests, open_pull_request, edit_pull_request}` | 🔴 new |
 
@@ -482,7 +498,9 @@ prints nothing new. `push::execute` runs the moves through `push_ref`,
 `edit_pull_request`, chaining main's
 leases, and stops at the first failure naming what went out. `FakeForge`
 records every call. `GitHubForge`: `git ls-remote --heads`, `gh pr list
---base main --state all --json …` (parsed by a pure, tested function),
+--base main --state all --json … --jq` emitting one tab-separated line per PR
+(number, state, head branch, head SHA, digest — parsed by a pure, tested
+function),
 `gh pr create`, `gh pr edit`, `gh api -X PATCH` for the default branch. A repo that fails the gate gets no read and no
 PR.
 
@@ -534,17 +552,17 @@ Every item is slice 1 unless marked **(slice 2)**.
 - [x] **3a.** `Forge::push` takes the branches: each with its own lease, then
   tags, then main. `FakeForge` records the order; the dry run lists branches.
 - [x] **3b.** Golden: a refused gate pushes no branch.
-- [ ] **3c. (slice 2)** `bower/src/schedule.rs`: `ForgePr`, `PrAction`,
+- [x] **3c. (slice 2)** `bower/src/schedule.rs`: `ForgePr`, `PrAction`,
   `pr_action`, `schedule`, stepping stones — pure (Decisions 20–22).
-- [ ] **3d. (slice 2)** `Forge` methods replace `push`, including
+- [x] **3d. (slice 2)** `Forge` methods replace `push`, including
   `set_default_branch` (Decision 26); `FakeForge` records each; `GitHubForge` last inches with pure `gh` JSON parsing; the PR body
   footer (Decision 23); `push::execute`.
-- [ ] **3e. (slice 2)** `plan_push` reads heads and PRs after the gate;
+- [x] **3e. (slice 2)** `plan_push` reads heads and PRs after the gate;
   `PushPlan::Ready` carries the schedule; the dry-run `schedule` block; the
   no-override test extended (`--merge-pr`, `--close-pr` absent).
-- [ ] **3f. (slice 2)** Goldens: a refused gate reads no PR and creates none;
+- [x] **3f. (slice 2)** Goldens: a refused gate reads no PR and creates none;
   a book without branches pushes main, then tags, as before.
-- [ ] **3g. (slice 2)** Live: `make ship-hello-execute` opens `try/shout`'s
+- [x] **3g. (slice 2)** Live: `make ship-hello-execute` opens `try/shout`'s
   PR, opens `feat/greet-many`'s on a stepping stone and sees it merged; a
   second push reports `Unchanged` and `LeftMerged` and opens nothing.
 
@@ -637,7 +655,9 @@ Slice 2: `schedule__a_straight_line_is_main_then_tags`,
   is no second apply.
 - `replay.rs:351` `expected_tags` — `expected_branches` sits beside it and
   `status` reads both from replay, never re-derives.
-- `forge.rs:953` `push_branch_args` — one lease per branch, same function.
+- `forge.rs` `push_ref_args` / `push_refs_args` (slice 2's successors to
+  `push_branch_args`) — one lease per ref, one argument shape for one ref or
+  an atomic batch.
 - `push.rs` marker gate — untouched; branches and PRs sit behind it.
 - `DESIGN_Forges.md` § 6.1 `{prev_tag}` — the compare link is the same one.
 
@@ -709,7 +729,7 @@ Exit criteria (slice 1 unless marked):
 | # | Question |
 |---|---|
 | 1 | ~~**Merged-PR detection.**~~ **Settled for GitHub, 14 September 2026** (`docs/spikes/pr-remote/`, two runs against `abstecker/bower-sandbox`): a plain fast-forward push of main to Bower's merge commit turns the open PR `MERGED` within about ten seconds, and GitHub records Bower's own commit as the PR's `mergeCommit`. Decision 8 holds on GitHub with no forge-side merge. **Forgejo is still open** ("manually merged" may need a repository setting); verify it with a Forgejo container before `ForgejoForge` ships. |
-| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). |
+| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). **And one hazard, found in the second run:** GitHub **closes** an open PR by itself when main is force-pushed to a history its head shares no commits with — PR #1 was closed in the same second as the base force-push, credited to the pusher. An open PR survives a rebuild when its branch and main are updated in one push — the spike's Q2b pushed both in a single `git push` — so `execute` sends the branches and main's first move as one atomic push (Decision 21, corrigendum item 13 of slice 2); a force-push of main alone to unrelated history closes it. |
 | 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. Deferred from slice 2 on 14 September 2026 (Decision 25): an abandoned branch's PR stays open until a chapter needs "declined". |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
 | 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
@@ -780,6 +800,128 @@ rather than changing anything.
 None of the nine change the shape of what shipped; each is recorded here
 because a task reported it as a deviation from this document's text at the
 moment it happened.
+
+---
+
+## Corrigendum — as built, slice 2
+
+Deviations from this plan the tasks reported during execution, with where and
+why.
+
+1. **`ExecuteError` gains a `stranded` field.** The plan had the put-back
+   push — moving main off a stepping stone after a later move failed — drop
+   its own failure silently through `.is_ok()`. A review found that a remote
+   left on a stepping stone would then fail the marker gate on every later
+   `bower push`, with no word to the user. `execute` (`bower/src/push.rs`)
+   now reports a failed put-back with the stone, the head it could not
+   restore, and the forge's error, and `Display` adds "push `<head>` to main
+   by hand before the next bower push". The tuple is boxed
+   (`Option<Box<(String, String, ForgeError)>>`) so `ExecuteError` — and
+   `execute`'s `Result::Err` — stays under clippy's `result_large_err`
+   threshold.
+2. **`FakeForge::unreachable()` rebuilt on `new()`.** The new fields
+   (`heads`, `prs`, `fail_on`, `next_pr`) have to be initialized at every
+   struct-literal site that builds a `FakeForge`, and `unreachable()` is a
+   third such site beside `new` and `with_site`. Rather than repeat the four
+   initializers, `unreachable()` now builds on
+   `Self::new(RemoteState::HasContent, None)` and overrides `site_state` and
+   `unreachable`, keeping `new` the single source of truth for the new
+   fields' defaults (`bower/src/forge.rs`).
+3. **`PushPlan::Ready::schedule` is boxed.** Clippy's `large_enum_variant`
+   fired once `Schedule` sat unboxed beside `Blocked`'s much smaller payload;
+   `schedule: Box<Schedule>` closes it with no change to any caller (`&schedule`
+   still derefs to `&Schedule`) (`bower/src/push.rs`).
+4. **`bower::push::execute` is called by its fully qualified path in
+   `main.rs`, not imported bare.** `report_push`'s own parameter is named
+   `execute: bool`; importing a bare `execute` function into the same
+   function would shadow it and fail to compile. Behaviour is identical
+   (`bower/src/main.rs`).
+5. **`bower/tests/push.rs` gained `#![allow(non_snake_case)]`** on its
+   existing allow line, needed for the new test
+   `push__has_no_merge_or_close_flag`'s double-underscore name — this file
+   has no enclosing `#[allow(non_snake_case)]` module the way `push.rs`'s own
+   `plan_tests` does.
+6. **One test assertion dropped a debug message.**
+   `plan__our_own_remote_is_ready_without_creation` (`bower/src/push.rs`)
+   changed `assert!(!create, "{got:?}");` to `assert!(!create);` — the literal
+   port failed to borrow-check, because `Schedule` is not `Copy` and `got` had
+   already been partially moved by the destructure. No coverage was lost; the
+   panic message on the `else` arm immediately above it already covers the
+   failure case.
+7. **The dry run's `order` line for branched books is gone.** The numbered
+   `schedule` block (`push::schedule_lines`) replaces it.
+8. **`--execute` prints one `pushed    <move>` line per move, for every
+   book** — not `pushed    N commits, M tags` as before — because Decision 13
+   (a straight-line book's report is unchanged) binds only the dry run, not
+   `--execute`'s own report.
+9. **`push__branches_go_before_main` tested `push_commands`, which slice 2
+   removed**; its guarantee — branches no later than main — is now
+   `schedule__an_existing_remote_pushes_branches_then_prs_then_main_then_tags`,
+   and `execute__runs_moves_in_order_and_chains_main_leases` pins that they go
+   out together (item 13).
+
+*Items 10–14 were added by the final whole-branch review's fix wave,
+14 September 2026. Item 10 records shapes the Design section still shows as
+planned; items 11–14 are changes the review ruled.*
+
+10. **The as-built shapes differ from § Design's Push section and Decision
+    21**, which are left as written:
+    - `ForgePr { number, branch, state, head, digest }` — no `title` or
+      `body`. A decision reads only the body's `bower-pr:` digest (Decision
+      23), and the base binary reads no JSON to get a body back with.
+    - `pr_action(pr, on_forge, local_head)` — three arguments, not two: the
+      built repository's branch head decides `LeftMerged { moved }`.
+    - `schedule(plan, remote_heads, local_heads, on_forge, book)` — not
+      `schedule(plan, heads, prs)`: local heads for `moved`, and the book's
+      name for the PR body's footer.
+    - `Schedule { moves, prs, head }` — `head`, main's last step tag, is
+      where `execute` puts main back when it stops on a stone; and
+      `Move::Main { at, stone_for }` names the branch a stone is for.
+11. **The sample book declares a PR for `feat/greet-many`** (review:
+    Critical). Only `try/shout` had one, so the live run (exit criterion 9)
+    could never open a PR on a stepping stone. `ch07-try-it-on-a-branch.md`
+    now carries a block-form `pr="Greet many names at once"` between
+    `greet-many-test` and `changelog`, and the lock reads `feat/greet-many
+    from=020 head=023 merged=025 pr="Greet many names at once" state=merged`.
+    No step number moved; steps 001–024 keep their SHAs, and only
+    `step-025-merge-greet-many`, `ch07-try-it-on-a-branch-end`, and main move,
+    because `PULLS.md` in main's last tree gains a row (exit criterion 8
+    holds). The stone is `step-024-changelog`. Test:
+    `plans_the_branches_the_chapter_declares`
+    (`bower-testkit/tests/sample_book.rs`).
+12. **PRs from forks are never Bower's** (review: Important). `gh pr list
+    --base main` lists fork PRs too, and matching by head branch name alone
+    would have let Bower edit a reader's fork PR (no digest, so `Updated`) or
+    be blocked for good by a closed one (`LeftClosed`). The exact
+    `PR_LIST_JQ` is now
+    `.[] | select(.isCrossRepository | not) | [(.number|tostring), .state, .headRefName, .headRefOid, ((.body // "") | (capture("bower-pr: (?<d>[0-9a-f]+)").d // "-"))] | join("\t")`,
+    and `--json` asks for `number,state,headRefName,headRefOid,body,isCrossRepository`
+    (`bower/src/forge.rs`). Test: `pr_list_args__ask_for_every_state_against_main`.
+13. **The branches and main's first move go out in one atomic push**
+    (review: Important). `execute` pushed each branch, then main, separately;
+    after a rebuild that changes every SHA there was a window where a PR's
+    head was new history and its base still old — the case the spike never
+    tested. The spike's Q2b showed an open PR survives when branch and main
+    move in one push. `Forge` gains an eighth method, `push_refs(dir, repo,
+    &[RefPush])` — one `git push --atomic`, each ref with its own lease — so
+    § Compatibility's "seven `Forge` methods" is eight. `execute` sends the
+    maximal run of consecutive branch moves, plus the main move right after
+    them if there is one, as one `push_refs`; if it fails, nothing in the
+    batch went out, and main is where it was. `push_ref` stays for main's
+    later moves and the put-back, and `push_ref_args` is now the non-atomic,
+    one-ref case of `push_refs_args`, its output unchanged. The dry run adds
+    `            (moves 1–<k> go out as one atomic push)` after the numbered
+    moves when the schedule opens with such a batch of two or more moves; a
+    straight-line book has no branch, so its dry run is unchanged (Decision
+    13). Tests: `push_refs_args__one_atomic_push_with_a_lease_per_leased_ref`,
+    `fake_forge__records_an_atomic_push_as_one_call`,
+    `execute__leases_each_branch_against_its_remote_head`,
+    `execute__a_fresh_remote_pushes_main_first_then_makes_it_the_default`,
+    `schedule_lines__say_which_moves_go_out_as_one_atomic_push`, and the
+    three earlier `execute__…` tests in the batched form.
+14. **"main may be left on the stepping stone"** (review: Minor). After a
+    lease trip, main may be somewhere other than the stone, so
+    `ExecuteError`'s `Display` no longer says main *was* left there.
 
 ---
 
