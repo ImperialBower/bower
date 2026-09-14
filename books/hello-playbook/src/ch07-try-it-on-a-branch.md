@@ -85,6 +85,16 @@ mod tests {
 }
 ```
 
+<!-- bower repo="hello-playbook" branch="feat/greet-many" pr="Greet many names at once" -->
+
+```markdown
+Adds `greet_all`: one greeting per name, in the order given. Merged into
+`main` by a merge commit of its own.
+```
+
+This branch gets a pull request too. Unlike the experiment's, it does not stay
+open: the merge commit at the end of the chapter merges it.
+
 ## Meanwhile, on main
 
 <!-- bower repo="hello-playbook" step="changelog" file="CHANGELOG.md" msg="docs: start a changelog" -->

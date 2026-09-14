@@ -38,6 +38,16 @@ pub struct Release {
     pub assets: Vec<std::path::PathBuf>,
 }
 
+/// One ref of an atomic push ([`Forge::push_refs`]): the commit `src` names
+/// in the built repository, pushed to the remote ref `dst`, leased against
+/// `lease` — or a plain push when `None`, for a ref the remote does not have.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RefPush {
+    pub src: String,
+    pub dst: String,
+    pub lease: Option<String>,
+}
+
 /// What a push moved.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PushOutcome {
@@ -161,6 +171,25 @@ pub trait Forge {
         dst: &str,
         lease: Option<&str>,
     ) -> Result<String, ForgeError>;
+
+    /// Push every ref in `refs` in one `git push --atomic`, each leased
+    /// against its own `lease` (a plain push when `None`): all of them go
+    /// out, or none do. Returns the SHAs pushed, in `refs`' order.
+    ///
+    /// One push because an open PR survives a rebuild only when its branch
+    /// and main move together (`docs/spikes/pr-remote`, Q2b); pushed apart,
+    /// there is a moment when the PR's head is new history and its base old.
+    ///
+    /// # Errors
+    ///
+    /// If a `src` does not resolve, or the push is refused — a lease trip on
+    /// any one ref included, in which case no ref moved.
+    fn push_refs(
+        &self,
+        dir: &Path,
+        repo: &str,
+        refs: &[RefPush],
+    ) -> Result<Vec<String>, ForgeError>;
 
     /// Push every tag, forced. Returns how many tags `dir` holds.
     ///
@@ -442,6 +471,27 @@ impl Forge for FakeForge {
             lease.unwrap_or("-")
         ))?;
         Ok(format!("sha:{src}"))
+    }
+
+    fn push_refs(
+        &self,
+        _dir: &Path,
+        _repo: &str,
+        refs: &[RefPush],
+    ) -> Result<Vec<String>, ForgeError> {
+        let each: Vec<String> = refs
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} -> {} lease={}",
+                    r.src,
+                    r.dst,
+                    r.lease.as_deref().unwrap_or("-")
+                )
+            })
+            .collect();
+        self.call(&format!("push_refs {}", each.join("; ")))?;
+        Ok(refs.iter().map(|r| format!("sha:{}", r.src)).collect())
     }
 
     fn push_tags(&self, _dir: &Path, _repo: &str) -> Result<usize, ForgeError> {
@@ -900,6 +950,46 @@ impl Forge for GitHubForge {
         Ok(sha)
     }
 
+    fn push_refs(
+        &self,
+        dir: &Path,
+        repo: &str,
+        refs: &[RefPush],
+    ) -> Result<Vec<String>, ForgeError> {
+        // Resolve every src first, as `push_ref` does: the refspecs carry
+        // SHAs, and each SHA is what the next push of its ref leases against.
+        let mut shas = Vec::with_capacity(refs.len());
+        for r in refs {
+            let (ok, stdout, stderr) =
+                git_in(dir, &["rev-parse".into(), format!("{}^{{commit}}", r.src)])?;
+            if !ok {
+                return Err(ForgeError::Failed {
+                    what: format!("git rev-parse {}", r.src),
+                    stderr: stderr.trim().to_string(),
+                });
+            }
+            shas.push(stdout.trim().to_string());
+        }
+        let spec: Vec<(&str, &str, Option<&str>)> = refs
+            .iter()
+            .zip(&shas)
+            .map(|(r, sha)| (sha.as_str(), r.dst.as_str(), r.lease.as_deref()))
+            .collect();
+        let args = push_refs_args(&remote_url(repo), &spec);
+        let (ok, _, stderr) = git_in(dir, &args)?;
+        if !ok {
+            let names: Vec<String> = refs
+                .iter()
+                .map(|r| format!("{} → {}", r.src, r.dst))
+                .collect();
+            return Err(ForgeError::Failed {
+                what: format!("git push --atomic {}", names.join(", ")),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Ok(shas)
+    }
+
     fn push_tags(&self, dir: &Path, repo: &str) -> Result<usize, ForgeError> {
         // Plainly forced: a replay recreates every tag with the same name and
         // a new SHA, and the gate has already said this remote is ours.
@@ -1168,16 +1258,33 @@ pub fn pages_build_args(repo: &str) -> Vec<String> {
 /// needs no force and has nothing to protect.
 #[must_use]
 pub fn push_ref_args(url: &str, src: &str, dst: &str, lease: Option<&str>) -> Vec<String> {
-    let refspec = format!("{src}:{dst}");
-    match lease {
-        None => vec!["push".into(), url.to_string(), refspec],
-        Some(sha) => vec![
-            "push".into(),
-            format!("--force-with-lease={dst}:{sha}"),
-            url.to_string(),
-            refspec,
-        ],
+    push_args(url, &[(src, dst, lease)], false)
+}
+
+/// The arguments that push every `(sha, dst, lease)` in one atomic push
+/// ([`Forge::push_refs`]): `--atomic`, one `--force-with-lease=<dst>:<lease>`
+/// per ref that has a lease, in ref order, the URL, then one `<sha>:<dst>`
+/// refspec per ref. As in [`push_ref_args`], a ref with no lease is one the
+/// remote does not have: no force, and no lease flag.
+#[must_use]
+pub fn push_refs_args(url: &str, refs: &[(&str, &str, Option<&str>)]) -> Vec<String> {
+    push_args(url, refs, true)
+}
+
+/// [`push_ref_args`] and [`push_refs_args`]: one shape, with or without
+/// `--atomic`.
+fn push_args(url: &str, refs: &[(&str, &str, Option<&str>)], atomic: bool) -> Vec<String> {
+    let mut args = vec!["push".to_string()];
+    if atomic {
+        args.push("--atomic".into());
     }
+    args.extend(
+        refs.iter()
+            .filter_map(|(_, dst, lease)| lease.map(|l| format!("--force-with-lease={dst}:{l}"))),
+    );
+    args.push(url.to_string());
+    args.extend(refs.iter().map(|(sha, dst, _)| format!("{sha}:{dst}")));
+    args
 }
 
 /// `git ls-remote --heads` output, as full ref → SHA. An empty repository
@@ -1195,7 +1302,13 @@ pub fn parse_ls_remote(text: &str) -> BTreeMap<String, String> {
 /// The `jq` program `gh pr list` runs: one tab-separated line per PR —
 /// number, state, head branch, head SHA, and the `bower-pr:` digest or `-`.
 /// A filter rather than JSON, because the base binary parses no JSON.
-pub const PR_LIST_JQ: &str = r#".[] | [(.number|tostring), .state, .headRefName, .headRefOid, ((.body // "") | (capture("bower-pr: (?<d>[0-9a-f]+)").d // "-"))] | join("\t")"#;
+///
+/// PRs from forks are filtered out (`isCrossRepository`). `--base main` lists
+/// them too, and they are matched by head branch name alone: a reader's fork
+/// PR from a branch named like the book's would otherwise be edited as if
+/// Bower had opened it, or — once closed — block the book's own PR forever.
+/// Bower only ever acts on PRs from branches of the repository itself.
+pub const PR_LIST_JQ: &str = r#".[] | select(.isCrossRepository | not) | [(.number|tostring), .state, .headRefName, .headRefOid, ((.body // "") | (capture("bower-pr: (?<d>[0-9a-f]+)").d // "-"))] | join("\t")"#;
 
 /// The `gh` arguments that list every PR against main, in any state.
 #[must_use]
@@ -1212,7 +1325,7 @@ pub fn pr_list_args(repo: &str) -> Vec<String> {
         "--limit",
         "1000",
         "--json",
-        "number,state,headRefName,headRefOid,body",
+        "number,state,headRefName,headRefOid,body,isCrossRepository",
         "--jq",
         PR_LIST_JQ,
     ]
@@ -1519,6 +1632,37 @@ mod forge_tests {
     }
 
     #[test]
+    fn push_refs_args__one_atomic_push_with_a_lease_per_leased_ref() {
+        let args = push_refs_args(
+            URL,
+            &[
+                ("aaa111", "refs/heads/try/x", None),
+                ("bbb222", "refs/heads/feat/y", Some("old222")),
+                ("ccc333", "refs/heads/main", Some("old333")),
+            ],
+        );
+        assert_eq!(
+            args,
+            [
+                "push",
+                "--atomic",
+                "--force-with-lease=refs/heads/feat/y:old222",
+                "--force-with-lease=refs/heads/main:old333",
+                URL,
+                "aaa111:refs/heads/try/x",
+                "bbb222:refs/heads/feat/y",
+                "ccc333:refs/heads/main",
+            ]
+        );
+        // A ref with no lease is a new ref: no force, and no lease flag.
+        assert!(
+            !args.iter().any(|a| a.contains("refs/heads/try/x:")),
+            "{args:?}"
+        );
+        assert!(!args.iter().any(|a| a == "--force"), "{args:?}");
+    }
+
+    #[test]
     fn parse_ls_remote__reads_every_head() {
         let text = "1111111111111111111111111111111111111111\trefs/heads/main\n2222222222222222222222222222222222222222\trefs/heads/try/shout\n";
         let heads = parse_ls_remote(text);
@@ -1542,11 +1686,21 @@ mod forge_tests {
                 .any(|w| w[0] == "--jq" && w[1] == PR_LIST_JQ),
             "{args:?}"
         );
+        // A fork's PR is never Bower's: the filter needs the field to read.
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--json" && w[1].split(',').any(|f| f == "isCrossRepository")),
+            "{args:?}"
+        );
+        assert!(
+            PR_LIST_JQ.contains("select(.isCrossRepository | not)"),
+            "{PR_LIST_JQ}"
+        );
     }
 
     #[test]
     fn parse_pr_list__reads_the_jq_lines() {
-        // The exact shape `gh pr list --jq PR_LIST_JQ` printed against
+        // The shape `gh pr list --jq PR_LIST_JQ` printed against
         // abstecker/bower-sandbox on 14 September 2026.
         let text = concat!(
             "4\tMERGED\tfeat/merge-me\ta53df691b8873e11ee76dcb9a6a30ded39fcd8cc\t-\n",
@@ -1615,5 +1769,37 @@ mod forge_tests {
 
         forge.fail_on = Some("open_pr".to_string());
         assert!(forge.open_pull_request("o/n", "d", "T", "B").is_err());
+    }
+
+    #[test]
+    fn fake_forge__records_an_atomic_push_as_one_call() {
+        let mut forge = FakeForge::new(RemoteState::HasContent, None);
+        let dir = Path::new("/nowhere");
+        let refs = [
+            RefPush {
+                src: "refs/heads/b".to_string(),
+                dst: "refs/heads/b".to_string(),
+                lease: None,
+            },
+            RefPush {
+                src: "step-001-a".to_string(),
+                dst: "refs/heads/main".to_string(),
+                lease: Some("x".to_string()),
+            },
+        ];
+        assert_eq!(
+            forge.push_refs(dir, "o/n", &refs).unwrap(),
+            ["sha:refs/heads/b", "sha:step-001-a"]
+        );
+        assert_eq!(
+            forge.calls(),
+            [
+                "push_refs refs/heads/b -> refs/heads/b lease=-; step-001-a -> refs/heads/main lease=x"
+            ]
+        );
+        assert!(forge.mutated(), "an atomic push reaches the network");
+
+        forge.fail_on = Some("push_refs".to_string());
+        assert!(forge.push_refs(dir, "o/n", &refs).is_err());
     }
 }

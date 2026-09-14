@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
-use crate::forge::{Forge, ForgeError, RemoteState};
+use crate::forge::{Forge, ForgeError, RefPush, RemoteState};
 use crate::replay::{BRANCH, book_name, expected_tags, final_blobs, scaffolding};
 use crate::schedule::{Move, Schedule, schedule};
 use crate::status::{RepoDrift, SiteDrift, StatusError, repo_drift, site_drift};
@@ -339,7 +339,7 @@ impl fmt::Display for ExecuteError {
         if let Some((stone, head, err)) = self.stranded.as_deref() {
             write!(
                 f,
-                "\n  main left on the stepping stone {stone}; putting it back on {head} failed: {err}"
+                "\n  main may be left on the stepping stone {stone}; putting it back on {head} failed: {err}"
             )?;
             write!(
                 f,
@@ -352,15 +352,26 @@ impl fmt::Display for ExecuteError {
 
 impl std::error::Error for ExecuteError {}
 
+/// Where `execute` has put the remote's main so far: the lease its next push
+/// carries, and the step tag it stands on once Bower has moved it.
+struct MainAt {
+    lease: Option<String>,
+    at: Option<String>,
+}
+
 /// Carry out a schedule, move by move (EPIC-09 Decision 21).
 ///
 /// Every ref is leased: a branch against what the remote held when planned,
 /// main against that for its first push and then against the commit Bower
-/// itself pushed there. It stops at the first failure and names what went
-/// out — and if main is standing on a stepping stone when it stops, it first
-/// moves main back to its head. A stone is an older commit with no
-/// `STEPS.md`, and a remote left there would fail the marker gate on every
-/// later push.
+/// itself pushed there. A run of branch moves, with the main move right after
+/// it when there is one, goes out as **one atomic push** — every ref, or none.
+/// An open PR survives a rebuild that changes every SHA only when its branch
+/// and main move together (`docs/spikes/pr-remote`, Q2b): pushed apart, there
+/// is a moment when the PR's head is new history and its base still old. It
+/// stops at the first failure and names what went out — and if main is
+/// standing on a stepping stone when it stops, it first moves main back to
+/// its head. A stone is an older commit with no `STEPS.md`, and a remote left
+/// there would fail the marker gate on every later push.
 ///
 /// # Errors
 ///
@@ -375,60 +386,34 @@ pub fn execute(
     remote_heads: &BTreeMap<String, String>,
 ) -> Result<Vec<String>, ExecuteError> {
     let mut done = Vec::new();
-    let mut main_lease: Option<String> = remote_heads.get(BRANCH).cloned();
-    let mut main_at: Option<String> = None;
+    let mut main = MainAt {
+        lease: remote_heads.get(BRANCH).cloned(),
+        at: None,
+    };
 
-    for mv in &schedule.moves {
-        let result = match mv {
-            Move::Branch { name } => {
-                let full = format!("refs/heads/{name}");
-                forge
-                    .push_ref(
-                        dir,
-                        remote,
-                        &full,
-                        &full,
-                        remote_heads.get(&full).map(String::as_str),
-                    )
-                    .map(|_| mv.to_string())
-            }
-            Move::Main { at, .. } => forge
-                .push_ref(dir, remote, at, BRANCH, main_lease.as_deref())
-                .map(|sha| {
-                    main_lease = Some(sha);
-                    main_at = Some(at.clone());
-                    mv.to_string()
-                }),
-            Move::DefaultMain => forge
-                .set_default_branch(remote, crate::schedule::MAIN)
-                .map(|()| mv.to_string()),
-            Move::OpenPr {
-                branch,
-                title,
-                body,
-            } => forge
-                .open_pull_request(remote, branch, title, body)
-                .map(|n| format!("{mv} → #{n}")),
-            Move::EditPr {
-                number,
-                title,
-                body,
-                ..
-            } => forge
-                .edit_pull_request(remote, *number, title, body)
-                .map(|()| mv.to_string()),
-            Move::Tags => forge.push_tags(dir, remote).map(|n| format!("tags — {n}")),
+    let moves = &schedule.moves;
+    let mut i = 0;
+    while i < moves.len() {
+        let (result, next) = match atomic_batch(moves, i) {
+            Some(end) => (
+                push_batch(forge, dir, remote, &moves[i..end], remote_heads, &mut main),
+                end,
+            ),
+            None => (
+                run_move(forge, dir, remote, &moves[i], remote_heads, &mut main).map(|l| vec![l]),
+                i + 1,
+            ),
         };
         match result {
-            Ok(line) => done.push(line),
+            Ok(lines) => done.extend(lines),
             Err(error) => {
                 // Stranded on a stone: put main back on its head first, and
                 // if that also fails, say so rather than losing it.
                 let mut stranded = None;
-                if let (Some(at), Some(head)) = (&main_at, &schedule.head)
+                if let (Some(at), Some(head)) = (&main.at, &schedule.head)
                     && at != head
                 {
-                    match forge.push_ref(dir, remote, head, BRANCH, main_lease.as_deref()) {
+                    match forge.push_ref(dir, remote, head, BRANCH, main.lease.as_deref()) {
                         Ok(_) => done.push(format!("main put back on {head}")),
                         Err(put_back) => {
                             stranded = Some(Box::new((at.clone(), head.clone(), put_back)));
@@ -442,8 +427,121 @@ pub fn execute(
                 });
             }
         }
+        i = next;
     }
     Ok(done)
+}
+
+/// The atomic batch starting at `moves[start]`, as the index just past its
+/// end: the run of branch moves there, plus the main move right after them
+/// when there is one. `None` when `moves[start]` is not a branch move.
+fn atomic_batch(moves: &[Move], start: usize) -> Option<usize> {
+    let is_branch = |i: usize| matches!(moves.get(i), Some(Move::Branch { .. }));
+    if !is_branch(start) {
+        return None;
+    }
+    let mut end = start;
+    while is_branch(end) {
+        end += 1;
+    }
+    if matches!(moves.get(end), Some(Move::Main { .. })) {
+        end += 1;
+    }
+    Some(end)
+}
+
+/// The ref a branch or main move pushes, leased as `execute` leases it.
+/// `None` for any other move.
+fn ref_push(mv: &Move, remote_heads: &BTreeMap<String, String>, main: &MainAt) -> Option<RefPush> {
+    match mv {
+        Move::Branch { name } => {
+            let full = format!("refs/heads/{name}");
+            Some(RefPush {
+                src: full.clone(),
+                lease: remote_heads.get(&full).cloned(),
+                dst: full,
+            })
+        }
+        Move::Main { at, .. } => Some(RefPush {
+            src: at.clone(),
+            dst: BRANCH.to_string(),
+            lease: main.lease.clone(),
+        }),
+        _ => None,
+    }
+}
+
+/// Push an [`atomic_batch`] in one [`Forge::push_refs`]: one line per move on
+/// success, and main's new lease and place when main was in it. On failure
+/// nothing in the batch went out, so nothing about main changes.
+fn push_batch(
+    forge: &dyn Forge,
+    dir: &Path,
+    remote: &str,
+    batch: &[Move],
+    remote_heads: &BTreeMap<String, String>,
+    main: &mut MainAt,
+) -> Result<Vec<String>, ForgeError> {
+    let refs: Vec<RefPush> = batch
+        .iter()
+        .filter_map(|mv| ref_push(mv, remote_heads, main))
+        .collect();
+    let shas = forge.push_refs(dir, remote, &refs)?;
+    if let Some(Move::Main { at, .. }) = batch.last() {
+        main.lease = shas.last().cloned();
+        main.at = Some(at.clone());
+    }
+    Ok(batch.iter().map(ToString::to_string).collect())
+}
+
+/// Carry out one move that is not part of an atomic batch.
+fn run_move(
+    forge: &dyn Forge,
+    dir: &Path,
+    remote: &str,
+    mv: &Move,
+    remote_heads: &BTreeMap<String, String>,
+    main: &mut MainAt,
+) -> Result<String, ForgeError> {
+    match mv {
+        // Every branch move starts a batch, so this arm is never taken; a
+        // batch of one is still the right answer if it were.
+        Move::Branch { .. } => push_batch(
+            forge,
+            dir,
+            remote,
+            std::slice::from_ref(mv),
+            remote_heads,
+            main,
+        )
+        .map(|_| mv.to_string()),
+        Move::Main { at, .. } => forge
+            .push_ref(dir, remote, at, BRANCH, main.lease.as_deref())
+            .map(|sha| {
+                main.lease = Some(sha);
+                main.at = Some(at.clone());
+                mv.to_string()
+            }),
+        Move::DefaultMain => forge
+            .set_default_branch(remote, crate::schedule::MAIN)
+            .map(|()| mv.to_string()),
+        Move::OpenPr {
+            branch,
+            title,
+            body,
+        } => forge
+            .open_pull_request(remote, branch, title, body)
+            .map(|n| format!("{mv} → #{n}")),
+        Move::EditPr {
+            number,
+            title,
+            body,
+            ..
+        } => forge
+            .edit_pull_request(remote, *number, title, body)
+            .map(|()| mv.to_string()),
+        Move::Tags => forge.push_tags(dir, remote).map(|n| format!("tags — {n}")),
+    }
 }
 
 /// The dry run's schedule block (EPIC-09 exit criterion 6): the branches, the
@@ -463,6 +561,14 @@ pub fn schedule_lines(schedule: &Schedule) -> Vec<String> {
             "            "
         };
         out.push(format!("{lead}{}. {mv}", i + 1));
+    }
+    // The batch `execute` sends first, when there is one worth naming.
+    if let Some(k) = atomic_batch(&schedule.moves, 0)
+        && k >= 2
+    {
+        out.push(format!(
+            "            (moves 1–{k} go out as one atomic push)"
+        ));
     }
     for (branch, action) in &schedule.prs {
         out.push(format!("  pr        {branch} — {action}"));
@@ -937,10 +1043,10 @@ mod plan_tests {
         assert_eq!(
             forge.calls(),
             [
-                "push_ref refs/heads/try/lookup-table -> refs/heads/try/lookup-table lease=-",
-                "push_ref refs/heads/from-char -> refs/heads/from-char lease=-",
-                // The first push of main leases against what the remote held …
-                "push_ref step-003-lib-doc -> refs/heads/main lease=old",
+                // The branches and main's first move, in one atomic push (spike
+                // Q2b); the first push of main leases against what the remote
+                // held …
+                "push_refs refs/heads/try/lookup-table -> refs/heads/try/lookup-table lease=-; refs/heads/from-char -> refs/heads/from-char lease=-; step-003-lib-doc -> refs/heads/main lease=old",
                 "open_pr from-char",
                 // … every later one against the stone Bower just pushed.
                 "push_ref step-006-merge-from-char -> refs/heads/main lease=sha:step-003-lib-doc",
@@ -954,8 +1060,11 @@ mod plan_tests {
 
     #[test]
     fn execute__stops_at_the_first_failure_and_names_what_went_out() {
+        // The atomic batch fails: none of its refs went out, so nothing is
+        // named as done, main never reached the stone, and there is nothing
+        // to put back.
         let mut forge = FakeForge::new(RemoteState::HasContent, None);
-        forge.fail_on = Some("push_ref refs/heads/from-char".to_string());
+        forge.fail_on = Some("push_refs".to_string());
         let heads = BTreeMap::from([(BRANCH.to_string(), "old".to_string())]);
         let err = execute(
             &forge,
@@ -965,17 +1074,62 @@ mod plan_tests {
             &heads,
         )
         .unwrap_err();
-        assert_eq!(err.done, ["branch try/lookup-table"]);
+        assert!(err.done.is_empty(), "{:?}", err.done);
+        assert!(!err.to_string().contains("already done"), "{err}");
+        assert_eq!(forge.calls().len(), 1, "{:?}", forge.calls());
+        assert!(forge.calls()[0].starts_with("push_refs "));
         assert!(
-            err.to_string()
-                .contains("already done: branch try/lookup-table"),
-            "{err}"
-        );
-        assert!(
-            !forge.calls().iter().any(|c| c.contains("refs/heads/main")),
-            "{:?}",
+            !forge.calls().iter().any(|c| c.starts_with("push_ref ")),
+            "no main push, and no put-back: {:?}",
             forge.calls()
         );
+        assert!(err.stranded.is_none(), "{:?}", err.stranded);
+    }
+
+    #[test]
+    fn execute__leases_each_branch_against_its_remote_head() {
+        let forge = FakeForge::new(RemoteState::HasContent, None);
+        let heads = BTreeMap::from([
+            (BRANCH.to_string(), "old".to_string()),
+            ("refs/heads/from-char".to_string(), "b1".to_string()),
+        ]);
+        execute(
+            &forge,
+            Path::new("/built"),
+            REMOTE,
+            &stone_schedule(),
+            &heads,
+        )
+        .unwrap();
+        assert_eq!(
+            forge.calls()[0],
+            "push_refs refs/heads/try/lookup-table -> refs/heads/try/lookup-table lease=-; refs/heads/from-char -> refs/heads/from-char lease=b1; step-003-lib-doc -> refs/heads/main lease=old"
+        );
+    }
+
+    #[test]
+    fn execute__a_fresh_remote_pushes_main_first_then_makes_it_the_default() {
+        let f = bower_testkit::fixtures::branch_saga();
+        let p = resolve(&f.book, &f.catalog).unwrap().repos.remove(0);
+        let none = BTreeMap::new();
+        let s = schedule(&p, &none, &BTreeMap::new(), &[], "book");
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let done = execute(&forge, Path::new("/built"), REMOTE, &s, &none).unwrap();
+        assert_eq!(
+            forge.calls(),
+            [
+                // Alone: no branch goes before it, so there is no batch.
+                "push_ref step-003-lib-doc -> refs/heads/main lease=-",
+                "set_default_branch main",
+                // The branches together; main's next move waits for the PR.
+                "push_refs refs/heads/try/lookup-table -> refs/heads/try/lookup-table lease=-; refs/heads/from-char -> refs/heads/from-char lease=-",
+                "open_pr from-char",
+                "push_ref step-006-merge-from-char -> refs/heads/main lease=sha:step-003-lib-doc",
+                "open_pr try/lookup-table",
+                "push_tags",
+            ]
+        );
+        assert_eq!(done.len(), s.moves.len(), "{done:?}");
     }
 
     #[test]
@@ -998,7 +1152,7 @@ mod plan_tests {
         assert_eq!(head, "step-006-merge-from-char");
         assert!(
             err.to_string()
-                .contains("main left on the stepping stone step-003-lib-doc"),
+                .contains("main may be left on the stepping stone step-003-lib-doc"),
             "{err}"
         );
         assert!(
@@ -1066,6 +1220,32 @@ mod plan_tests {
                     .to_string()
             ),
             "{lines:#?}"
+        );
+    }
+
+    #[test]
+    fn schedule_lines__say_which_moves_go_out_as_one_atomic_push() {
+        let lines = schedule_lines(&stone_schedule());
+        // After the seven numbered moves, before the first `pr` line.
+        assert_eq!(lines[7], "            7. tags");
+        assert_eq!(
+            lines[8],
+            "            (moves 1–3 go out as one atomic push)"
+        );
+        assert!(lines[9].starts_with("  pr        "), "{lines:#?}");
+        assert_eq!(
+            lines.iter().filter(|l| l.contains("atomic")).count(),
+            1,
+            "{lines:#?}"
+        );
+        // A fresh remote's first move is main alone: no batch to announce.
+        let f = bower_testkit::fixtures::branch_saga();
+        let p = resolve(&f.book, &f.catalog).unwrap().repos.remove(0);
+        let fresh = schedule(&p, &BTreeMap::new(), &BTreeMap::new(), &[], "book");
+        assert!(
+            !schedule_lines(&fresh).iter().any(|l| l.contains("atomic")),
+            "{:#?}",
+            schedule_lines(&fresh)
         );
     }
 
