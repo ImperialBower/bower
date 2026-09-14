@@ -11,8 +11,9 @@
   so replay stays byte-identical.
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
-- **Status:** Slice 1 shipped on `feat/branches`, 13 September 2026; slice 2
-  (the forge's pull requests) planned. Model settled by
+- **Status:** Slice 1 shipped (PR #6, merged 14 September 2026); slice 2
+  (the forge's pull requests) designed 14 September 2026 (Decisions 20–26)
+  after the `pr-remote` spike settled open questions 1 and 2. Model settled by
   `docs/spikes/spike-branches/`, filed 10 September 2026. Slice 1 designed
   13 September 2026 (Decisions 12–19, re-grounded after EPIC-11).
 
@@ -66,13 +67,13 @@ says exactly how far Bower's contract with them goes.
 | Render: line and compare links in the footer; the merge line | 1 | **Done** |
 | `push`: branch refs with lease, branches before main | 1 | **Done** |
 | Sample book chapter and slow-lane verify | 1 | **Done** |
-| `push`: `Forge::ensure_pull_request`, the PR section of the dry run | 2 | **Planned** |
+| `push`: the schedule, stepping stones, `Forge` PR methods, the dry-run schedule | 2 | **Planned** |
 | *Rust for Failures* `from-char` PR | 2 | **Planned** |
 
 Slice 1 is everything local and deterministic: a reader can check out the
 abandoned branch, and `bower push` publishes it. Slice 2 is the pull request
-on the forge, which waits on open questions 1 and 2 — both need a real remote
-(Decision 12).
+on the forge; open questions 1 and 2 needed a real remote (Decision 12), and
+`docs/spikes/pr-remote/` answered them for GitHub on 14 September 2026.
 
 ---
 
@@ -219,7 +220,7 @@ against the code as EPIC-11 left it.*
     Phase 4: everything a reader needs to check out a branch, and everything
     `bower push` needs to publish one. `pr=` is part of slice 1 as a plan
     value — parsed, bound, in the lock and in `PULLS.md` — so the lock format
-    changes once. Slice 2 is `Forge::ensure_pull_request` and the forge's last
+    changes once. Slice 2 is the forge's pull requests (Decisions 20–26) and the forge's last
     inch, after open questions 1 and 2 are answered on a real remote.
 13. **A linear book is byte-identical.** Nothing new is printed where it would
     say only the default. The lock gains `line=` and `parents=` on branch steps
@@ -271,6 +272,67 @@ against the code as EPIC-11 left it.*
     `FromNotOnMain` and `MergeOnBranch`. The spike is deleted on the slice-1
     branch once its sixteen tests pass as ported into `bower-core`.
 
+*Decisions 20–26 were added 14 September 2026, when slice 2 was designed
+against the `pr-remote` spike's findings (open questions 1 and 2).*
+
+20. **A merged PR is opened on a stepping stone (open question 7).** A book
+    declares a branch, its PR, and its merge together, so on a first publish
+    the merge is in main before a PR could be opened, and a forge will not
+    open a PR with no commits ahead of its base. For each declared PR whose
+    branch the book has merged and which has no PR on the forge yet, the push
+    first moves main to the merge step's main parent — the commit just before
+    the merge — opens the PR while the branch still has commits ahead, and
+    then moves main on; the forge marks the PR merged once main passes the
+    merge (open question 1). Stones go in merge order. Every declared PR thus
+    appears on the forge. The cost: on an already-published repository main
+    rewinds for a few seconds and CI runs once per stone. A merge whose main
+    parent is the scaffolding commit has no step tag to stand on; its PR is
+    reported `NotOpened`.
+21. **The push is a schedule.** A pure function —
+    `schedule(plan, remote heads, forge PRs)` in `bower/src/schedule.rs` —
+    decides every move: push a branch, move main to a step, open a PR, edit a
+    PR, push the tags. The dry run prints the schedule; `--execute` runs it
+    through small `Forge` methods that replace `Forge::push`: `remote_heads`
+    and `pull_requests` (read-only, after the gate), `push_ref`, `push_tags`,
+    `open_pull_request`, `edit_pull_request`, and `set_default_branch`
+    (Decision 26). Execution stops at the first
+    failed move and names the moves already done. On an existing remote the
+    order is: branches; then, per stone, main to the stone and the PR opened;
+    then the other PRs opened or edited; main to its head; tags. On a remote
+    with no main, main goes first — to the first stone, or its head — then the
+    rest as before. Tags are always last (corrigendum item 4). Each push of
+    main leases against the one before it: the remote's value first, then the
+    stone Bower just pushed.
+22. **What `ensure` does, per declared PR** (Decision 8, made exact). The
+    forge's PRs are looked up by head branch with base `main`, in any state.
+    None → `Created` (via a stone if the book merged the branch). Open →
+    `Updated` if the title or body differs, else `Unchanged`. Merged →
+    `LeftMerged`, noting when its head is no longer the branch's head — the
+    drift open question 2 found, reported and never repaired. Closed by a
+    person → `LeftClosed`. Bower never closes, merges, reopens, or deletes a
+    PR, and has no flag to.
+23. **A PR's body is the book's description and one fixed footer line:**
+    "Opened by Bower from the book *<name>*. It is merged by a push to main,
+    never on the forge." Fixed, so `Updated` versus `Unchanged` is a text
+    comparison.
+24. **Forge drift is reported by the push, not by `status`.** `status`
+    touches no network (EPIC-04), so a merged PR whose head moved, or a PR a
+    person closed, shows in the dry run's schedule instead.
+25. **Not in slice 2:** closing a PR from the book (open question 3, until a
+    chapter needs "declined"); `ForgejoForge` (no Forgejo forge exists yet —
+    `DESIGN_Forges.md`); and *Rust for Failures*' `from-char` PR (its chapter
+    is not listed yet).
+26. **A fresh remote's default branch is `main` (open question 8).** On a
+    push to a remote with no `main`, main goes first (Decision 21), and the
+    schedule then sets the repository's default branch to `main`
+    (`Forge::set_default_branch`; GitHub: `PATCH /repos/{owner}/{repo}`
+    with `default_branch=main`). It does not rely on the forge happening to
+    make the first pushed branch its default: the marker gate reads
+    `STEPS.md` from the default branch, and only main carries it. The move is
+    scheduled only when the remote had no `main`, so a repository whose owner
+    chose another default is never changed underneath them — the rule
+    `enable_pages` already follows.
+
 ---
 
 ## Domain map
@@ -293,7 +355,8 @@ against the code as EPIC-11 left it.*
 | A pure merge's line | beside `checkout_line` `render.rs:372` | 🔴 new |
 | Link vocabulary | `LinkTemplates` `config.rs:94` | 🟡 plus `compare`, `branch` |
 | Publishing | `Forge::push` `forge.rs:134`, `push_branch_args` `forge.rs:953` | 🟡 per branch |
-| Ensuring a PR (slice 2) | `Forge::ensure_pull_request` | 🔴 new |
+| What a push does, in order (slice 2) | `schedule::schedule`, `schedule::pr_action`, `push::execute` | 🔴 new |
+| The forge's PRs (slice 2) | `Forge::{pull_requests, open_pull_request, edit_pull_request}` | 🔴 new |
 
 ---
 
@@ -405,13 +468,23 @@ run. A remote branch the plan does not name is left alone; Bower never
 deletes. The marker gate is not touched — a repo that fails it gets no
 branches either.
 
-**Slice 2.** The order becomes branches, tags, PRs, then main.
-`Forge::ensure_pull_request(repo, &PullRequest) -> Result<PrAction,
-ForgeError>` with `PrAction { Created, Updated, Unchanged, LeftMerged }`;
-`FakeForge` records it. `plan_push` grows a PR section; dry-run lists what
-each PR would get. `GitHubForge`: `gh pr list --head`, `gh pr create`, `gh pr
-edit`. `ForgejoForge`: `GET/POST/PATCH /repos/{o}/{r}/pulls`, per
-`DESIGN_Forges.md` § 5. A repo that fails the gate gets no PRs.
+**Slice 2** (Decisions 20–24). `bower/src/schedule.rs` is pure:
+`ForgePr { number, branch, state, title, body, head }`;
+`PrAction { Created, Updated, Unchanged, LeftMerged { moved }, LeftClosed,
+NotOpened }`; `pr_action(&PullRequest, &[ForgePr])`; and
+`schedule(plan, heads, prs) -> Schedule { moves, prs }` with
+`Move { Branch, Main { at }, DefaultMain, OpenPr, EditPr, Tags }`, `at` being a step tag.
+`plan_push` passes the gate, then reads `Forge::remote_heads` and
+`Forge::pull_requests`, and carries the schedule in `PushPlan::Ready`; the dry
+run prints it as a numbered `schedule` block, and a book without branches
+prints nothing new. `push::execute` runs the moves through `push_ref`,
+`push_tags`, `set_default_branch`, `open_pull_request`, and
+`edit_pull_request`, chaining main's
+leases, and stops at the first failure naming what went out. `FakeForge`
+records every call. `GitHubForge`: `git ls-remote --heads`, `gh pr list
+--base main --state all --json …` (parsed by a pure, tested function),
+`gh pr create`, `gh pr edit`, `gh api -X PATCH` for the default branch. A repo that fails the gate gets no read and no
+PR.
 
 ---
 
@@ -461,13 +534,19 @@ Every item is slice 1 unless marked **(slice 2)**.
 - [x] **3a.** `Forge::push` takes the branches: each with its own lease, then
   tags, then main. `FakeForge` records the order; the dry run lists branches.
 - [x] **3b.** Golden: a refused gate pushes no branch.
-- [ ] **3c. (slice 2)** `Forge::ensure_pull_request`, `PrAction`, `FakeForge`
-  recording.
-- [ ] **3d. (slice 2)** `plan_push` PR section; push order branches → tags →
-  PRs → main.
-- [ ] **3e. (slice 2)** `GitHubForge` and `ForgejoForge` last inches; the
+- [ ] **3c. (slice 2)** `bower/src/schedule.rs`: `ForgePr`, `PrAction`,
+  `pr_action`, `schedule`, stepping stones — pure (Decisions 20–22).
+- [ ] **3d. (slice 2)** `Forge` methods replace `push`, including
+  `set_default_branch` (Decision 26); `FakeForge` records each; `GitHubForge` last inches with pure `gh` JSON parsing; the PR body
+  footer (Decision 23); `push::execute`.
+- [ ] **3e. (slice 2)** `plan_push` reads heads and PRs after the gate;
+  `PushPlan::Ready` carries the schedule; the dry-run `schedule` block; the
   no-override test extended (`--merge-pr`, `--close-pr` absent).
-- [ ] **3f. (slice 2)** Golden: a refused gate creates no PR.
+- [ ] **3f. (slice 2)** Goldens: a refused gate reads no PR and creates none;
+  a book without branches pushes main, then tags, as before.
+- [ ] **3g. (slice 2)** Live: `make ship-hello-execute` opens `try/shout`'s
+  PR, opens `feat/greet-many`'s on a stepping stone and sees it merged; a
+  second push reports `Unchanged` and `LeftMerged` and opens nothing.
 
 ### Phase 4 — Book and docs
 
@@ -516,9 +595,21 @@ New here: `plan__conflict_is_per_region_not_per_file`,
 `push__branches_go_before_main`,
 `push__gate_refusal_pushes_no_branch`.
 
-Slice 2: `push__branches_go_before_prs_and_main_goes_last`,
-`push__ensures_a_pr_per_declared_branch_and_never_closes_one`,
-`push__gate_refusal_creates_no_pr`.
+Slice 2: `schedule__a_straight_line_is_main_then_tags`,
+`schedule__an_existing_remote_pushes_branches_then_prs_then_main_then_tags`,
+`schedule__a_fresh_remote_puts_main_first_and_makes_it_the_default`,
+`schedule__an_existing_remote_never_changes_its_default`,
+`schedule__a_merged_pr_without_a_forge_pr_gets_a_stepping_stone`,
+`schedule__stones_go_in_merge_order`,
+`schedule__a_forge_pr_that_exists_needs_no_stone`,
+`pr_action__an_open_pr_is_updated_only_when_it_differs`,
+`pr_action__a_merged_pr_is_left_alone_and_notes_a_moved_head`,
+`pr_action__a_closed_pr_is_left_closed`,
+`pr_action__a_stone_on_the_scaffolding_is_not_opened`,
+`execute__runs_moves_in_order_and_chains_main_leases`,
+`execute__stops_at_the_first_failure_and_names_what_went_out`,
+`push__gate_refusal_reads_and_creates_no_pr`,
+`push__has_no_merge_or_close_flag`.
 
 ## Key Files
 
@@ -534,7 +625,8 @@ Slice 2: `push__branches_go_before_prs_and_main_goes_last`,
 | `bower/src/trailers.rs` | `Bower-Line`, `Bower-Merges`, `pulls_md` |
 | `bower/src/status.rs` | branch drift |
 | `bower/src/render.rs`, `config.rs` | footer, `compare`/`branch` templates |
-| `bower/src/forge.rs`, `push.rs` | `ensure_pull_request`, order, dry-run |
+| `bower/src/forge.rs`, `push.rs` | the `Forge` methods, `execute`, the dry run |
+| `bower/src/schedule.rs` (slice 2) | `schedule`, `pr_action`, stepping stones — pure |
 
 ## Reuse (do NOT recreate)
 
@@ -556,7 +648,8 @@ Slice 2: `push__branches_go_before_prs_and_main_goes_last`,
   the lock, not in a trailer, not in a rendered chapter, so no published SHA
   moves (Decision 13).
 - **Adds** four keys, twelve errors, two templates, one generated file
-  (`PULLS.md`), and — in slice 2 — one `Forge` method.
+  (`PULLS.md`), and — in slice 2 — seven `Forge` methods in place of
+  `Forge::push`.
 - **Breaks** nothing in `bower-core`'s purity: `cargo tree -p bower-core -e
   normal` still prints one line.
 
@@ -596,14 +689,18 @@ Exit criteria (slice 1 unless marked):
 5. `verify` reports the same verdicts with branches as without; a merge step
    is verified on its own tree.
 6. A dry-run `push` lists every branch and the order; a gate refusal lists
-   none of them and `FakeForge` records no call. **(Slice 2:** every PR with
-   its action, too.**)**
+   none of them and `FakeForge` records no call. **(Slice 2:** the numbered
+   schedule, with every PR and its action.**)**
 7. `cargo tree -p bower-core -e normal` still prints one line.
 8. `hello-playbook`'s steps 001–019 keep their SHAs and its existing lock
    lines are unchanged; `rust4failures`, which has no branch, reports its lock
    in sync; rendered output changes only on branch and merge steps
    (Decision 13). mdBook's sidebar gains the new chapter on every page, which
    is the chapter, not the EPIC.
+9. **(Slice 2)** `bower push --execute` against `abstecker/hello-playbook`
+   leaves `try/shout`'s PR open and `feat/greet-many`'s merged, opened on a
+   stepping stone; a second push reports `Unchanged` and `LeftMerged` and
+   opens no PR.
 
 ---
 
@@ -612,13 +709,13 @@ Exit criteria (slice 1 unless marked):
 | # | Question |
 |---|---|
 | 1 | ~~**Merged-PR detection.**~~ **Settled for GitHub, 14 September 2026** (`docs/spikes/pr-remote/`, two runs against `abstecker/bower-sandbox`): a plain fast-forward push of main to Bower's merge commit turns the open PR `MERGED` within about ten seconds, and GitHub records Bower's own commit as the PR's `mergeCommit`. Decision 8 holds on GitHub with no forge-side merge. **Forgejo is still open** ("manually merged" may need a repository setting); verify it with a Forgejo container before `ForgejoForge` ships. |
-| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so `ensure_pull_request` sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let `status` report a merged PR whose head is no longer on main. |
-| 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. |
+| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). |
+| 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. Deferred from slice 2 on 14 September 2026 (Decision 25): an abandoned branch's PR stays open until a chapter needs "declined". |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
 | 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
 | 6 | ~~**The spike's home.**~~ Settled 13 September 2026: its `rank_saga` becomes the `bower-testkit` fixture `branch_saga` (the testkit already has a `rank_saga`), and the spike is deleted once its tests pass as ported (Decision 19). |
-| 7 | **A merged branch's PR on a first publish.** Raised 14 September 2026 by the `pr-remote` spike. The spike opened its PRs while main still stood *before* the merge, then pushed the merge. A real first publish pushes main first (corrigendum item 4), already containing the merge, so a merged branch has no commits ahead of main by the time a PR could be opened — and GitHub refuses a PR with no commits between base and head. **Inferred, not yet tested.** Choices for slice 2: on a first publish, open no PR for an already-merged branch and record it as `PrAction::NotOpened`, with `PULLS.md` still carrying it; or push main at the step before the first merge, open the PRs, then push main to its head — which contradicts main-first unless main-first only needs *some* main to exist. |
-| 8 | **The first branch pushed to an empty repository.** The assumption behind main-first (corrigendum item 4) — that GitHub makes the first pushed branch the default — is still untested: the spike needs a truly empty repository (created with no README, licence, or `.gitignore`) and skipped it. `EMPTY_REPO=<owner>/<name> docs/spikes/pr-remote/run.sh` answers it. |
+| 7 | ~~**A merged branch's PR on a first publish.**~~ **Settled 14 September 2026: stepping stones** (Decision 20). For each declared PR the book has already merged and the forge has no PR for, main is moved to the commit just before the merge, the PR is opened, and main moves on; the forge marks it merged as main passes the merge. The alternative — record it and open nothing — was rejected: a book written all at once would never show a merged PR on the forge. |
+| 8 | ~~**The first branch pushed to an empty repository.**~~ **Settled 14 September 2026: the default branch is `main`, by rule** (Decision 26). Bower pushes main first to a remote with no `main` and then sets the default branch to `main` itself, so what a forge does with the first pushed branch no longer matters and needs no test. |
 
 ---
 
