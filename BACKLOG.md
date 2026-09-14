@@ -38,7 +38,7 @@
 
 | Work | Source | Note |
 |---|---|---|
-| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | Slice 1 shipped (13 September 2026): keys, fold, replay, status, render, branch push, and the sample book's chapter 7. Slice 2 is the forge's pull requests, after open questions 1 and 2 are answered on a real remote. |
+| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | Slice 1 shipped (13 September 2026): keys, fold, replay, status, render, branch push, and the sample book's chapter 7. Slice 2 built (14 September 2026, `feat/branches-slice-2`): the push schedule, stepping stones, and the forge's pull requests. The live run (exit criterion 9) is the last step. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. A Python proof of concept at `docs/spikes/bower-jupyter/bower-ipynb-poc/` renders one chapter to a notebook and verifies it headless, against the `pkcore.py` wheel, not a book-grown `bindings/` crate. It exercises the three play-cell plan errors and `expect="raises"` (open question 8). |
 | **Back matter** | [`docs/EPIC-12_Back_Matter.md`](docs/EPIC-12_Back_Matter.md) | Idea A9. A step index, a failure index, and a file index, placed by an author-written `<!-- bower index="…" -->`. Built on EPIC-11 for error codes and failing test names. The step, by-step failure, and file indices can ship first. Found that the PDF drops step anchors today, so Phase 3 fixes print links. Seven phases; seven open questions. |
 | **Exercises, finished** | [`docs/EPIC-13_Exercises.md`](docs/EPIC-13_Exercises.md) | Idea A4. Exercises already ship (PR #4, `fdcd09b`). This EPIC adds `tests=`, `solution=`, and `reveal=`. Verify then checks that exactly the named tests fail, then pass (today any non-zero exit counts). `reveal="never"` closes the *hidden solution* gap below. Six phases; six open questions. |
@@ -95,7 +95,7 @@ Carried from the EPIC corrigenda. Detail and file references in
 [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
-- [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_branch_args` is the first piece pulled out into something testable
+- [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_ref_args` and `push_refs_args` (which replaced `push_branch_args` in EPIC-09 slice 2) are the first pieces pulled out into something testable
 - [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
 - [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2) — EPIC-14's `follow check` judges a reader's answer but gives it no place; this narrows the gap and does not close it
