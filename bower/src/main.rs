@@ -24,7 +24,7 @@ use bower::publish::{
     BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target, TypstRenderer,
     render_plan,
 };
-use bower::push::{PushPlan, ReleasePush, SitePush, plan_push};
+use bower::push::{PushPlan, ReleasePush, SitePush, plan_push, schedule_lines};
 use bower::replay::{Replayer, book_name, final_blobs, scaffolding};
 use bower::status::{StatusReport, lock_drift, repo_drift, site_drift};
 use bower::verify::{OutputResult, Verdict, Verifier, VerifyReport};
@@ -876,24 +876,18 @@ fn report_push(
             remote,
             branch,
             tags,
-            branches,
+            schedule,
+            remote_heads,
             create,
-            main_first,
             site,
             release,
         } => {
             println!("{repo} → {remote}");
             println!("  branch    {branch}");
-            // Only when there are any: a straight line's report is unchanged
-            // (exit criterion 6).
-            if !branches.is_empty() {
-                let order = if main_first {
-                    "main, branches, tags"
-                } else {
-                    "branches, main, tags"
-                };
-                println!("  branches  {}", branches.join(", "));
-                println!("  order     {order}");
+            // Only when there are branches: a straight line's report is
+            // unchanged (Decision 13).
+            for line in schedule_lines(&schedule) {
+                println!("{line}");
             }
             println!("  tags      {tags}");
             if create {
@@ -928,8 +922,14 @@ fn report_push(
                     return false;
                 }
             }
-            match forge.push(dir, &remote, &branch, &branches) {
-                Ok(o) => println!("  pushed    {} commits, {} tags", o.commits, o.tags),
+            // Fully qualified: this function's own `execute: bool` parameter
+            // shadows the plain name `push::execute`.
+            match bower::push::execute(forge, dir, &remote, &schedule, &remote_heads) {
+                Ok(done) => {
+                    for line in done {
+                        println!("  pushed    {line}");
+                    }
+                }
                 Err(e) => {
                     eprintln!("bower: {e}");
                     return false;

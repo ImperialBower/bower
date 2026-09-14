@@ -5,7 +5,7 @@
 //! path; everything else is exercised through `FakeForge`, which counts calls
 //! and sends nothing.
 
-#![allow(clippy::unwrap_used, clippy::expect_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used, non_snake_case)]
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -145,11 +145,30 @@ fn dry_run_is_the_default_and_no_flag_overrides_the_guard() {
     let out = bower(&["push", "--help"]);
     let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
     assert!(text.contains("--execute"), "{text}");
-    for escape in ["--force", "--override", "--skip", "--no-verify", "--yes"] {
+    for escape in [
+        "--force",
+        "--override",
+        "--skip",
+        "--no-verify",
+        "--yes",
+        "--merge-pr",
+        "--close-pr",
+    ] {
         assert!(
             !text.contains(escape),
             "`{escape}` would be a way around the guard: {text}"
         );
+    }
+}
+
+#[test]
+fn push__has_no_merge_or_close_flag() {
+    // EPIC-09 Decision 22: Bower never merges or closes a PR on the forge,
+    // and offers no way to.
+    let out = bower(&["push", "--help"]);
+    let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    for flag in ["--merge-pr", "--close-pr", "--merge", "--close"] {
+        assert!(!text.contains(flag), "`{flag}`: {text}");
     }
 }
 
