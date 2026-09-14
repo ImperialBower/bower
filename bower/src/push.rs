@@ -209,6 +209,10 @@ pub fn plan_push(
         })
     };
 
+    if let Some(why) = site_branch_clash(cfg, &repo, plan) {
+        return blocked(why);
+    }
+
     match repo_drift(dir, plan, &expected).map_err(PushError::Status)? {
         RepoDrift::NeverBuilt => {
             return blocked(format!(
@@ -684,6 +688,24 @@ pub fn collect_assets(dir: &Path) -> Vec<PathBuf> {
         .collect();
     out.sort();
     out
+}
+
+/// Why the repo's `site_branch` cannot be published, when it names a branch the
+/// push also sends — `main` or one of the book's own. The site is force-pushed
+/// after the repository, so it would replace that branch on every push.
+///
+/// Decided from the book and its config alone, so it is asked before anything
+/// is asked of the forge.
+fn site_branch_clash(cfg: &BookConfig, repo: &str, plan: &RepoPlan) -> Option<String> {
+    let site = cfg.repos.get(repo)?.site_branch.as_deref()?;
+    let main = BRANCH.strip_prefix("refs/heads/").unwrap_or(BRANCH);
+    let clash = site == main || plan.branches.iter().any(|b| b.name == site);
+    clash.then(|| {
+        format!(
+            "`{site}` is both a branch this repository pushes and its `site_branch`; \
+             the site would replace the branch on every push — rename one"
+        )
+    })
 }
 
 /// What the site half of a push decided.
@@ -1869,6 +1891,52 @@ mod plan_tests {
             "deciding is not doing: {:?}",
             forge.calls()
         );
+    }
+
+    #[test]
+    fn plan__a_book_branch_named_like_the_site_branch_blocks() {
+        // `execute` would push the book's branch, then `publish_site` would
+        // force the site over it: the branch never survives on the remote, and
+        // a PR opened for it has the site as its head.
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("site-clash");
+        let p = branch_plan();
+        let mut cfg = config(Some(REMOTE));
+        with_site_branch(&mut cfg, "try/side");
+        let dir = built("site-clash-repo", &p, &root, &cfg);
+        let site = rendered("site-clash-render", "hello-playbook", FP);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+        let PushPlan::Blocked { reason, .. } = got else {
+            panic!("expected Blocked, got {got:?}");
+        };
+        assert!(
+            reason.contains("`try/side`") && reason.contains("site_branch"),
+            "{reason}"
+        );
+        assert!(
+            forge.calls().is_empty(),
+            "a clash the book alone decides should cost the forge nothing: {:?}",
+            forge.calls()
+        );
+    }
+
+    #[test]
+    fn plan__a_site_branch_named_main_blocks() {
+        // The same clash with the one branch every book pushes.
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("site-main");
+        let p = one_step_plan();
+        let mut cfg = config(Some(REMOTE));
+        with_site_branch(&mut cfg, "main");
+        let dir = built("site-main-repo", &p, &root, &cfg);
+        let site = rendered("site-main-render", "hello-playbook", FP);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+        let PushPlan::Blocked { reason, .. } = got else {
+            panic!("expected Blocked, got {got:?}");
+        };
+        assert!(reason.contains("`main`"), "{reason}");
     }
 
     #[test]
