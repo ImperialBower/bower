@@ -296,13 +296,21 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
     and `pull_requests` (read-only, after the gate), `push_ref`, `push_tags`,
     `open_pull_request`, `edit_pull_request`, and `set_default_branch`
     (Decision 26). Execution stops at the first
-    failed move and names the moves already done. On an existing remote the
+    failed move and names the moves already done — and if it stops while main
+    stands on a stepping stone, it first moves main back to its head: a stone
+    is an older commit with no `STEPS.md`, and a remote left there would fail
+    the marker gate on every later push. On an existing remote the
     order is: branches; then, per stone, main to the stone and the PR opened;
-    then the other PRs opened or edited; main to its head; tags. On a remote
-    with no main, main goes first — to the first stone, or its head — then the
-    rest as before. Tags are always last (corrigendum item 4). Each push of
+    main to its head; the other PRs opened or edited; tags. The other PRs come
+    after main's head because a PR can only be opened against a base that
+    shares its history, and after a rebuild that moves every SHA the remote's
+    old main shares none. On a remote with no main, main goes first — to the
+    first stone, or its head — then the rest as before. Tags are always last (corrigendum item 4). Each push of
     main leases against the one before it: the remote's value first, then the
-    stone Bower just pushed.
+    stone Bower just pushed. Branches before main is load-bearing: GitHub
+    closes an open PR when main is force-pushed to a history its head shares
+    no commits with (open question 2), so after a rebuild that moves every
+    SHA, a branch must reach its new history before main does.
 22. **What `ensure` does, per declared PR** (Decision 8, made exact). The
     forge's PRs are looked up by head branch with base `main`, in any state.
     None → `Created` (via a stone if the book merged the branch). Open →
@@ -311,10 +319,15 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
     drift open question 2 found, reported and never repaired. Closed by a
     person → `LeftClosed`. Bower never closes, merges, reopens, or deletes a
     PR, and has no flag to.
-23. **A PR's body is the book's description and one fixed footer line:**
+23. **A PR's body is the book's description, then a footer:** a line —
     "Opened by Bower from the book *<name>*. It is merged by a push to main,
-    never on the forge." Fixed, so `Updated` versus `Unchanged` is a text
-    comparison.
+    never on the forge." — and an HTML comment `<!-- bower-pr: <digest> -->`,
+    the FNV digest (`publish::digest`) of the title and description. `Updated`
+    versus `Unchanged` compares digests, read back with `gh pr list --jq`: the
+    base binary parses no JSON (`serde_json` is the preprocessor's alone), and
+    GitHub may rewrite a body's line endings, so comparing bodies would be
+    fragile where comparing a digest is not. A PR whose body has no digest — one
+    a person wrote, or edited away — reads as different and is `Updated`.
 24. **Forge drift is reported by the push, not by `status`.** `status`
     touches no network (EPIC-04), so a merged PR whose head moved, or a PR a
     person closed, shows in the dry run's schedule instead.
@@ -482,7 +495,9 @@ prints nothing new. `push::execute` runs the moves through `push_ref`,
 `edit_pull_request`, chaining main's
 leases, and stops at the first failure naming what went out. `FakeForge`
 records every call. `GitHubForge`: `git ls-remote --heads`, `gh pr list
---base main --state all --json …` (parsed by a pure, tested function),
+--base main --state all --json … --jq` emitting one tab-separated line per PR
+(number, state, head branch, head SHA, digest — parsed by a pure, tested
+function),
 `gh pr create`, `gh pr edit`, `gh api -X PATCH` for the default branch. A repo that fails the gate gets no read and no
 PR.
 
@@ -709,7 +724,7 @@ Exit criteria (slice 1 unless marked):
 | # | Question |
 |---|---|
 | 1 | ~~**Merged-PR detection.**~~ **Settled for GitHub, 14 September 2026** (`docs/spikes/pr-remote/`, two runs against `abstecker/bower-sandbox`): a plain fast-forward push of main to Bower's merge commit turns the open PR `MERGED` within about ten seconds, and GitHub records Bower's own commit as the PR's `mergeCommit`. Decision 8 holds on GitHub with no forge-side merge. **Forgejo is still open** ("manually merged" may need a repository setting); verify it with a Forgejo container before `ForgejoForge` ships. |
-| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). |
+| 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). **And one hazard, found in the second run:** GitHub **closes** an open PR by itself when main is force-pushed to a history its head shares no commits with — PR #1 was closed in the same second as the base force-push, credited to the pusher. An open PR survives a rebuild only because its branch is pushed *before* main (Decision 21); that order is load-bearing. |
 | 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. Deferred from slice 2 on 14 September 2026 (Decision 25): an abandoned branch's PR stays open until a chapter needs "declined". |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
 | 5 | ~~**Branches from branches, merges into branches.**~~ Settled 13 September 2026: `FromNotOnMain` and `MergeOnBranch` are the v1 fences (Decision 19). Lift when a chapter needs it; the fold generalises (a `BranchState` for main is the only change). |
