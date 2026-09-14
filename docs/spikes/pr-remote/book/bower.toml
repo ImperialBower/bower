@@ -1,0 +1,12 @@
+# The experiment's book. No `github` key: `run.sh` pushes with plain git, so
+# Bower's gate never sees the sandbox, and nothing here can reach a real book's
+# remote.
+
+[book]
+epoch = 2026-09-14T00:00:00Z
+
+[identity]
+name = "Bower Sandbox"
+email = "bower@sandbox.example"
+
+[repos.sandbox]
