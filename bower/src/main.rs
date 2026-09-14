@@ -24,7 +24,7 @@ use bower::publish::{
     BookMeta, MdBookRenderer, PandocRenderer, RenderPlan, Renderer, Target, TypstRenderer,
     render_plan,
 };
-use bower::push::{PushPlan, SitePush, plan_push};
+use bower::push::{PushPlan, ReleasePush, SitePush, plan_push};
 use bower::replay::{Replayer, book_name, final_blobs, scaffolding};
 use bower::status::{StatusReport, lock_drift, repo_drift, site_drift};
 use bower::verify::{OutputResult, Verdict, Verifier, VerifyReport};
@@ -321,10 +321,16 @@ fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path)
         };
         match replayer.run(repo) {
             Ok(report) => println!(
-                "{}: {} commits, {} tags, HEAD {} → {}",
+                "{}: {} commits, {} tags{}, HEAD {} → {}",
                 report.repo,
                 report.commits,
                 report.tags.len(),
+                // Only when there are any: a straight line's report is unchanged.
+                if report.branches.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {} branches", report.branches.len())
+                },
                 report.head,
                 dir.display()
             ),
@@ -820,6 +826,21 @@ fn publish_site(forge: &dyn Forge, remote: &str, s: &SitePush) -> bool {
     true
 }
 
+/// One line naming a planned release's tag and its assets, for the push report.
+fn describe_release(r: &ReleasePush) -> String {
+    format!(
+        "{} — {} file(s): {}",
+        r.tag,
+        r.assets.len(),
+        r.assets
+            .iter()
+            .filter_map(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 /// One line saying what the Pages step did, for the push report.
 fn describe_pages(action: &PagesAction, branch: &str) -> String {
     match action {
@@ -855,12 +876,25 @@ fn report_push(
             remote,
             branch,
             tags,
+            branches,
             create,
+            main_first,
             site,
             release,
         } => {
             println!("{repo} → {remote}");
             println!("  branch    {branch}");
+            // Only when there are any: a straight line's report is unchanged
+            // (exit criterion 6).
+            if !branches.is_empty() {
+                let order = if main_first {
+                    "main, branches, tags"
+                } else {
+                    "branches, main, tags"
+                };
+                println!("  branches  {}", branches.join(", "));
+                println!("  order     {order}");
+            }
             println!("  tags      {tags}");
             if create {
                 println!("  create    the remote does not exist yet");
@@ -880,17 +914,7 @@ fn report_push(
                 );
             }
             match &release {
-                Some(r) => println!(
-                    "  release   {} — {} file(s): {}",
-                    r.tag,
-                    r.assets.len(),
-                    r.assets
-                        .iter()
-                        .filter_map(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                ),
+                Some(r) => println!("  release   {}", describe_release(r)),
                 None => println!("  release   no `version` or `assets` — skipped"),
             }
             if !execute {
@@ -904,7 +928,7 @@ fn report_push(
                     return false;
                 }
             }
-            match forge.push(dir, &remote, &branch) {
+            match forge.push(dir, &remote, &branch, &branches) {
                 Ok(o) => println!("  pushed    {} commits, {} tags", o.commits, o.tags),
                 Err(e) => {
                     eprintln!("bower: {e}");

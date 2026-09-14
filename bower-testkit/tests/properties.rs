@@ -11,6 +11,10 @@
 //! 5. **Normalization is idempotent** and blind to colour and line endings.
 //! 6. **Recording round-trips** — a rewritten fence plans back to exactly the
 //!    lines written, and nothing outside the fence moves.
+//! 7. **Branching is a fold** — a merge with nothing new on main since the
+//!    fork has exactly the branch head's tree.
+//! 8. **Parents come first** — every parent of a step is an earlier step.
+//! 9. **A branch head is its line's last step.**
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -110,6 +114,53 @@ proptest! {
         let out = rewrite(&text, before.len() + 1, &live);
         prop_assert!(out.starts_with(&head), "{out}");
         prop_assert!(out.ends_with(&tail), "{out}");
+    }
+
+    #[test]
+    fn generated_branch_books_plan_cleanly((book, catalog) in arb_branch_book()) {
+        let result = plan(&book, &catalog);
+        prop_assert!(result.is_ok(), "generated book failed:\n{}", result.unwrap_err());
+    }
+
+    #[test]
+    fn a_merge_with_nothing_new_on_main_is_the_branch_head((book, catalog) in arb_branch_book()) {
+        let p = plan(&book, &catalog).unwrap();
+        let repo = &p.repos[0];
+        let side = &repo.branches[0];
+        if let Some(at) = side.merged_at {
+            let main_moved = repo.steps.iter().any(|s| {
+                s.line == Line::Main && s.merges.is_none() && s.seq > side.forked_from && s.seq < at
+            });
+            if !main_moved {
+                prop_assert_eq!(&repo.steps[at - 1].tree, &repo.steps[side.head - 1].tree);
+            }
+        }
+    }
+
+    #[test]
+    fn every_parent_comes_before_its_child((book, catalog) in arb_branch_book()) {
+        let p = plan(&book, &catalog).unwrap();
+        for s in &p.repos[0].steps {
+            prop_assert!(!s.parents.is_empty());
+            for parent in &s.parents {
+                prop_assert!(*parent < s.seq, "step {} has parent {}", s.seq, parent);
+            }
+        }
+    }
+
+    #[test]
+    fn a_branch_head_is_the_last_step_on_its_line((book, catalog) in arb_branch_book()) {
+        let p = plan(&book, &catalog).unwrap();
+        let repo = &p.repos[0];
+        for b in &repo.branches {
+            let last = repo
+                .steps
+                .iter()
+                .filter(|s| s.line == Line::Branch(b.name.clone()))
+                .map(|s| s.seq)
+                .max();
+            prop_assert_eq!(Some(b.head), last);
+        }
     }
 }
 

@@ -5,10 +5,11 @@
 //! environment variable: every commit's author, committer, and both timestamps
 //! come from `bower.toml`, which is what makes two runs produce identical SHAs.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use bower_core::prelude::{PlannedStep, RepoPlan};
+use bower_core::prelude::{Line, PlannedStep, RepoPlan};
 use gix::ObjectId;
 use gix::bstr::BStr;
 use gix::object::tree::EntryKind;
@@ -39,6 +40,8 @@ pub struct ReplayReport {
     pub head: ObjectId,
     pub commits: usize,
     pub tags: Vec<String>,
+    /// Every branch created, main aside (EPIC-09).
+    pub branches: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -98,7 +101,9 @@ impl Replayer<'_> {
         let head = repo.path().join("HEAD");
         std::fs::write(&head, format!("ref: {BRANCH}\n")).map_err(io(&head))?;
 
-        let mut parent: Option<ObjectId> = None;
+        // Every commit by its step's seq; `0` is the scaffolding. A step's
+        // parents are plan values (EPIC-09 Decision 5), resolved here.
+        let mut sha_of: BTreeMap<usize, ObjectId> = BTreeMap::new();
         let mut commits = 0_usize;
         let mut tags = Vec::new();
 
@@ -113,12 +118,12 @@ impl Replayer<'_> {
         if !scaffolding.is_empty() {
             let tree = Self::write_tree(&repo, &scaffolding)?;
             let msg = trailers::scaffolding_message(&repo_name);
-            let id = self.commit(&repo, 0, &msg, tree, parent)?;
-            parent = Some(id);
+            let id = self.commit(&repo, 0, &msg, tree, &[], BRANCH)?;
+            sha_of.insert(0, id);
             commits += 1;
         }
 
-        let last_seq = plan.steps.last().map(|s| s.seq);
+        let last_main = last_main_seq(plan);
         let final_blobs = final_blobs(plan, &book_name, self.config.site.as_deref(), &scaffolding);
 
         for step in &plan.steps {
@@ -128,14 +133,20 @@ impl Replayer<'_> {
             // had just added — which is exactly what it used to do.
             let mut blobs = scaffolding.clone();
             blobs.extend(blobs_of(&step.tree));
-            if Some(step.seq) == last_seq {
+            if Some(step.seq) == last_main {
                 blobs.clone_from(&final_blobs);
             }
             let tree = Self::write_tree(&repo, &blobs)?;
             let msg =
                 trailers::commit_message(step, &book_name, self.config.site.as_deref(), &repo_name);
-            let id = self.commit(&repo, step.seq, &msg, tree, parent)?;
-            parent = Some(id);
+            // A parent of `0` with no scaffolding is no parent: a root commit.
+            let parents: Vec<ObjectId> = step
+                .parents
+                .iter()
+                .filter_map(|p| sha_of.get(p).copied())
+                .collect();
+            let id = self.commit(&repo, step.seq, &msg, tree, &parents, &line_ref(&step.line))?;
+            sha_of.insert(step.seq, id);
             commits += 1;
 
             let tag = step.tag();
@@ -143,13 +154,17 @@ impl Replayer<'_> {
             tags.push(tag);
         }
 
-        for (stem, seq, id) in chapter_ends(plan, &repo, parent)? {
+        for (stem, seq, id) in chapter_ends(plan, &sha_of) {
             let name = format!("{stem}-end");
             self.tag(&repo, &name, id, seq, &format!("end of {stem}"))?;
             tags.push(name);
         }
 
-        let head_id = parent.unwrap_or_else(|| ObjectId::empty_tree(repo.object_hash()));
+        let head_id = last_main
+            .and_then(|s| sha_of.get(&s))
+            .or_else(|| sha_of.get(&0))
+            .copied()
+            .unwrap_or_else(|| ObjectId::empty_tree(repo.object_hash()));
         self.write_worktree(&repo, &final_blobs)?;
 
         Ok(ReplayReport {
@@ -157,6 +172,7 @@ impl Replayer<'_> {
             head: head_id,
             commits,
             tags,
+            branches: expected_branches(plan),
         })
     }
 
@@ -173,7 +189,8 @@ impl Replayer<'_> {
         seq: usize,
         message: &str,
         tree: ObjectId,
-        parent: Option<ObjectId>,
+        parents: &[ObjectId],
+        reference: &str,
     ) -> Result<ObjectId, ReplayError> {
         let when = self.stamp(seq);
         let who = gix::actor::SignatureRef {
@@ -181,11 +198,10 @@ impl Replayer<'_> {
             email: BStr::new(self.config.identity.email.as_bytes()),
             time: &when,
         };
-        let parents: Vec<ObjectId> = parent.into_iter().collect();
         // Author and committer are the same signature: there is only ever one
         // actor here, and two differing times would be two ways to drift.
         let id = repo
-            .commit_as(who, who, BRANCH, message, tree, parents)
+            .commit_as(who, who, reference, message, tree, parents.iter().copied())
             .map_err(git)?;
         Ok(id.detach())
     }
@@ -320,8 +336,9 @@ pub fn scaffolding(
     read_dir_recursive(&book_root.join(dir))
 }
 
-/// The files a replay leaves in the working tree: the scaffolding, the final
-/// step's tree overlaid on it, and the generated `STEPS.md`.
+/// The files a replay leaves in the working tree: the scaffolding, the last
+/// **main** step's tree overlaid on it (EPIC-09 Decision 16), the generated
+/// `STEPS.md`, and `PULLS.md` when the book declares a pull request.
 ///
 /// `STEPS.md` lists every step, later ones included, so it can only live in the
 /// final tree — writing it at every step would make each commit's tree depend
@@ -333,13 +350,17 @@ pub fn final_blobs(
     site: Option<&str>,
     scaffolding: &Blobs,
 ) -> Blobs {
-    let Some(last) = plan.steps.last() else {
+    let Some(last) = plan.steps.iter().rev().find(|s| s.line == Line::Main) else {
         return scaffolding.clone();
     };
     let mut blobs = scaffolding.clone();
     blobs.extend(blobs_of(&last.tree));
     let md = trailers::steps_md(plan, book_name, site);
     blobs.insert("STEPS.md".to_string(), (md.into_bytes(), false));
+    // Only for a repo that declares a pull request (EPIC-09 Decision 13).
+    if let Some(md) = trailers::pulls_md(plan, book_name) {
+        blobs.insert("PULLS.md".to_string(), (md.into_bytes(), false));
+    }
     blobs
 }
 
@@ -347,11 +368,13 @@ pub fn final_blobs(
 ///
 /// `status` compares a built repository against this list, so it lives beside
 /// the code that creates the tags rather than being re-derived elsewhere.
+///
+/// Chapter-end tags come from main steps only, as `chapter_ends` places them.
 #[must_use]
 pub fn expected_tags(plan: &RepoPlan) -> Vec<String> {
     let mut tags: Vec<String> = plan.steps.iter().map(PlannedStep::tag).collect();
     let mut stems: Vec<String> = Vec::new();
-    for step in &plan.steps {
+    for step in plan.steps.iter().filter(|s| s.line == Line::Main) {
         let stem = chapter_stem(&step.anchor.chapter);
         if stems.last() != Some(&stem) {
             stems.push(stem);
@@ -361,23 +384,19 @@ pub fn expected_tags(plan: &RepoPlan) -> Vec<String> {
     tags
 }
 
-/// The last commit of each chapter, in chapter order — the anchor for the
-/// `<chapter>-end` tags.
+/// The last main commit of each chapter, in chapter order — the anchor for the
+/// `<chapter>-end` tags. Main only: a reader who checks out `ch01-end` expects
+/// the main line, never an abandoned branch (EPIC-09 Decision 5).
 fn chapter_ends(
     plan: &RepoPlan,
-    repo: &gix::Repository,
-    _head: Option<ObjectId>,
-) -> Result<Vec<(String, usize, ObjectId)>, ReplayError> {
+    sha_of: &BTreeMap<usize, ObjectId>,
+) -> Vec<(String, usize, ObjectId)> {
     let mut out: Vec<(String, usize, ObjectId)> = Vec::new();
-    for step in &plan.steps {
+    for step in plan.steps.iter().filter(|s| s.line == Line::Main) {
+        let Some(&id) = sha_of.get(&step.seq) else {
+            continue;
+        };
         let stem = chapter_stem(&step.anchor.chapter);
-        let tag = step.tag();
-        let id = repo
-            .find_reference(&format!("refs/tags/{tag}"))
-            .map_err(git)?
-            .into_fully_peeled_id()
-            .map_err(git)?
-            .detach();
         match out.last_mut() {
             Some((prev, seq, oid)) if *prev == stem => {
                 *seq = step.seq;
@@ -386,7 +405,36 @@ fn chapter_ends(
             _ => out.push((stem, step.seq, id)),
         }
     }
-    Ok(out)
+    out
+}
+
+/// Every branch a replay of `plan` creates, main aside. `status` compares a
+/// built repository against it; `push` sends each one.
+#[must_use]
+pub fn expected_branches(plan: &RepoPlan) -> Vec<String> {
+    plan.branches.iter().map(|b| b.name.clone()).collect()
+}
+
+/// The ref a step's commit advances: [`BRANCH`] for the main line and every
+/// merge, `refs/heads/<branch>` for a branch step.
+#[must_use]
+pub fn line_ref(line: &Line) -> String {
+    match line {
+        Line::Main => BRANCH.to_string(),
+        Line::Branch(b) => format!("refs/heads/{b}"),
+    }
+}
+
+/// The last step on the main line — the one `STEPS.md`, `PULLS.md`, and the
+/// working tree belong to (EPIC-09 Decision 16). `None` for a repo whose every
+/// step is on a branch.
+#[must_use]
+pub fn last_main_seq(plan: &RepoPlan) -> Option<usize> {
+    plan.steps
+        .iter()
+        .rev()
+        .find(|s| s.line == Line::Main)
+        .map(|s| s.seq)
 }
 
 /// `src/ch01-a-repo.md` → `ch01-a-repo`. Public because `status` must expect

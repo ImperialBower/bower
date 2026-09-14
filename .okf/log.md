@@ -1,5 +1,10 @@
 # Update Log
 
+## 2026-09-13
+
+* **Creation**: [Branch](/model/branch.md) and [pull request](/model/pull-request.md) — EPIC-09 slice 1's `branch=`, `from=`, `merge=`, and `pr=` keys, the per-line fold, the merge and conflict rules, branch-name collisions, and the `PULLS.md`/lock homes for a declared PR.
+* **Update**: [the bower directive](/model/directive.md) gains the four keys; [errors](/model/errors.md) counts 49 variants and gains the twelve EPIC-09 variants' row; [the domain model index](/model/index.md) lists both new pages and the new error count.
+
 ## 2026-09-12
 
 * **Creation**: [Captured output](/model/captured-output.md) — EPIC-11's `output="check"|"verify"` blocks, their normalization, `[...]` matching, and five errors.

@@ -24,7 +24,9 @@ use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
 use crate::forge::{Forge, ForgeError, RemoteState};
-use crate::replay::{BRANCH, book_name, expected_tags, final_blobs, scaffolding};
+use crate::replay::{
+    BRANCH, book_name, expected_branches, expected_tags, final_blobs, scaffolding,
+};
 use crate::status::{RepoDrift, SiteDrift, StatusError, repo_drift, site_drift};
 use crate::trailers::book_named_in;
 
@@ -97,14 +99,28 @@ pub enum PushPlan {
         remote: String,
         branch: String,
         tags: usize,
+        /// Every branch the plan has, main aside — pushed before main
+        /// (EPIC-09 Decision 9).
+        branches: Vec<String>,
         /// The remote does not exist yet and must be created first.
         create: bool,
+        /// The remote has no `main` yet, so a real push puts main first,
+        /// ahead of every branch (EPIC-09 Decision 9's corrigendum). True
+        /// for [`RemoteState::Absent`] and [`RemoteState::Empty`]; false once
+        /// main already exists, when branches go first instead. Exit
+        /// criterion 6: the dry run's report reads this to print the order.
+        main_first: bool,
         /// The site push, when this book ships one. `None` means the book
         /// declares no `site_branch`, which is a normal book.
         site: Option<SitePush>,
         /// The release, when this book publishes one. `None` means the book
         /// declares no `version` or no `assets`, which is a normal book.
-        release: Option<ReleasePush>,
+        ///
+        /// Boxed: this variant already carries every field the other two
+        /// combined don't, and a release is the rarest of them — clippy's
+        /// `large_enum_variant` is right that the common `Blocked` path
+        /// should not pay for a struct only `Ready` ever fills in.
+        release: Option<Box<ReleasePush>>,
     },
 }
 
@@ -243,7 +259,7 @@ pub fn plan_push(
     let release = match plan_release(cfg, &repo, &book, book_root, plan.steps.len()) {
         ReleaseDecision::None => None,
         ReleaseDecision::Blocked(why) => return blocked(why),
-        ReleaseDecision::Publish(r) => Some(r),
+        ReleaseDecision::Publish(r) => Some(Box::new(r)),
     };
 
     Ok(PushPlan::Ready {
@@ -251,7 +267,9 @@ pub fn plan_push(
         remote,
         branch: BRANCH.to_string(),
         tags: expected_tags(plan).len(),
+        branches: expected_branches(plan),
         create: state == RemoteState::Absent,
+        main_first: matches!(state, RemoteState::Absent | RemoteState::Empty),
         site,
         release,
     })
@@ -599,6 +617,7 @@ mod plan_tests {
     use super::*;
     use crate::forge::FakeForge;
     use crate::materialize::write_files;
+    use crate::replay::expected_branches;
     use crate::trailers::marker_line;
     use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan as resolve};
     use std::path::PathBuf;
@@ -660,6 +679,11 @@ mod plan_tests {
         for tag in expected_tags(plan) {
             std::fs::write(tags.join(tag), "0\n").unwrap();
         }
+        for branch in expected_branches(plan) {
+            let head = dir.join(".git").join("refs").join("heads").join(&branch);
+            std::fs::create_dir_all(head.parent().unwrap()).unwrap();
+            std::fs::write(head, "0\n").unwrap();
+        }
         let name = book_name(root, &plan.repo.0);
         let scaffold = scaffolding(cfg, root, &plan.repo.0).unwrap();
         write_files(
@@ -672,6 +696,63 @@ mod plan_tests {
 
     fn ours() -> String {
         format!("# Steps\n\n{}\n", marker_line(BOOK_DIR))
+    }
+
+    fn branch_plan() -> RepoPlan {
+        let text = concat!(
+            "<!-- bower repo=\"r\" step=\"base\" file=\"src/lib.rs\" -->\n```rust\npub fn f() {}\n```\n",
+            "<!-- bower repo=\"r\" step=\"side\" branch=\"try/side\" file=\"src/side.rs\" -->\n```rust\npub fn g() {}\n```\n",
+        );
+        let book = BookSource::from_chapters(vec![Chapter::new("src/ch01.md", text)]);
+        resolve(&book, &RepoCatalog::from_names(&["r"]))
+            .unwrap()
+            .repos
+            .remove(0)
+    }
+
+    #[test]
+    fn plan__lists_every_branch() {
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("branches");
+        let p = branch_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("branches-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Ready { branches, .. } = got else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert_eq!(branches, vec!["try/side"]);
+        assert!(!forge.mutated(), "{:?}", forge.calls());
+    }
+
+    #[test]
+    fn push__gate_refusal_pushes_no_branch() {
+        // A remote that is not ours: nothing is pushed, branches least of all.
+        let forge = FakeForge::new(RemoteState::HasContent, None);
+        let root = book_root("branches-refused");
+        let p = branch_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("branches-refused-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
+        assert!(!forge.mutated(), "{:?}", forge.calls());
+        assert!(forge.pushed_branches().is_empty());
+    }
+
+    #[test]
+    fn plan__a_built_repo_missing_a_branch_is_stale() {
+        let forge = FakeForge::new(RemoteState::Absent, None);
+        let root = book_root("branches-stale");
+        let p = branch_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("branches-stale-repo", &p, &root, &cfg);
+        std::fs::remove_file(dir.join(".git/refs/heads/try/side")).unwrap();
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        assert!(matches!(got, PushPlan::Blocked { .. }), "{got:?}");
+        assert!(forge.calls().is_empty(), "{:?}", forge.calls());
     }
 
     /// A config with a book `version` and/or a repo `assets` directory.
@@ -919,7 +1000,9 @@ mod plan_tests {
             remote,
             branch,
             tags,
+            branches,
             create,
+            main_first,
             ..
         } = got
         else {
@@ -928,7 +1011,11 @@ mod plan_tests {
         assert_eq!(remote, REMOTE);
         assert_eq!(branch, "refs/heads/main");
         assert_eq!(tags, expected_tags(&p).len());
+        // A straight line has no branches, so the dry-run report's
+        // `branches` line must stay silent — see `report_push`.
+        assert!(branches.is_empty(), "{branches:?}");
         assert!(create, "an absent remote must be created");
+        assert!(main_first, "an absent remote has no main yet");
         // Deciding is not doing.
         assert!(!forge.mutated(), "{:?}", forge.calls());
     }
@@ -942,10 +1029,36 @@ mod plan_tests {
         let dir = built("ours-repo", &p, &root, &cfg);
 
         let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
-        assert!(
-            matches!(got, PushPlan::Ready { create: false, .. }),
-            "{got:?}"
-        );
+        let PushPlan::Ready {
+            create, main_first, ..
+        } = got
+        else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert!(!create, "{got:?}");
+        assert!(!main_first, "main already exists on this remote: {got:?}");
+    }
+
+    #[test]
+    fn plan__an_empty_remote_also_needs_main_first() {
+        // `RemoteState::Empty` is a repository GitHub already made (409 on an
+        // empty commit history), not one Bower must create — but main is
+        // still not there yet, so the order must still put it first.
+        let forge = FakeForge::new(RemoteState::Empty, None);
+        let root = book_root("empty-remote");
+        let p = one_step_plan();
+        let cfg = config(Some(REMOTE));
+        let dir = built("empty-remote-repo", &p, &root, &cfg);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, Path::new("/no-site"), &root).unwrap();
+        let PushPlan::Ready {
+            create, main_first, ..
+        } = got
+        else {
+            panic!("expected Ready, got {got:?}");
+        };
+        assert!(!create, "an empty remote already exists");
+        assert!(main_first, "main is still absent from it: {got:?}");
     }
 
     #[test]

@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 
 use crate::block::Block;
+use crate::branch::{self, BranchSummary, Fold, Line};
 use crate::capture;
 use crate::directive::{Capture, Expect, Op};
 use crate::display::{self, BlockDisplay};
@@ -32,6 +33,9 @@ impl BookPlan {
 pub struct RepoPlan {
     pub repo: RepoName,
     pub steps: Vec<PlannedStep>,
+    /// Every branch the repo's steps sit on, in the order each first appears
+    /// (EPIC-09). Empty for a straight line.
+    pub branches: Vec<BranchSummary>,
 }
 
 /// One commit-to-be, fully resolved: subject, expectation, book anchor,
@@ -57,6 +61,13 @@ pub struct PlannedStep {
     /// What the compiler said at this step, as the book records it: every
     /// `output="…"` block bound here, in document order (EPIC-11).
     pub outputs: Vec<CapturedOutput>,
+    /// The line this step's commit sits on (EPIC-09).
+    pub line: Line,
+    /// Parent seqs: `0` is the scaffolding commit. One, or two for a merge —
+    /// main's head, then the branch's.
+    pub parents: Vec<usize>,
+    /// The branch this step merges, when it is a merge.
+    pub merges: Option<String>,
 }
 
 /// One `notebook="play"` cell: live code the ipynb target renders as an
@@ -144,7 +155,8 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
     let (blocks, extract_errors) = block::extract(book, catalog);
     errors.extend(extract_errors);
 
-    let (play_blocks, rest): (Vec<_>, Vec<_>) = blocks.into_iter().partition(|b| b.play);
+    let (pr_blocks, rest): (Vec<_>, Vec<_>) = blocks.into_iter().partition(|b| b.pr_block);
+    let (play_blocks, rest): (Vec<_>, Vec<_>) = rest.into_iter().partition(|b| b.play);
     let (output_blocks, rest): (Vec<_>, Vec<_>) =
         rest.into_iter().partition(|b| b.output.is_some());
     let (exercise_blocks, code_blocks): (Vec<_>, Vec<_>) =
@@ -160,13 +172,12 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         }
         let ordered = step::order(name, mine, &mut errors);
 
-        let mut tree = TreeState::default();
+        let mut fold = Fold::new(&book.assets);
         let mut planned = Vec::new();
         for (i, s) in ordered.iter().enumerate() {
-            for b in &s.blocks {
-                tree.apply_block(b, &s.id.0, &book.assets, &mut errors);
-            }
-            let materialized = tree.materialized(spec.keep_region_markers);
+            let seq = i + 1;
+            let folded = fold.step(seq, s, &mut errors);
+            let materialized = folded.tree.materialized(spec.keep_region_markers);
 
             let mut displays = Vec::new();
             for b in &s.blocks {
@@ -185,7 +196,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
             }
 
             planned.push(PlannedStep {
-                seq: i + 1,
+                seq,
                 id: s.id.clone(),
                 msg: s.msg.clone(),
                 expect: s.expect,
@@ -196,8 +207,14 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
                 play_cells: Vec::new(),
                 exercise: None,
                 outputs: Vec::new(),
+                line: folded.line,
+                parents: folded.parents,
+                merges: folded.merges,
             });
         }
+        let mut branches = fold.finish();
+        branch::bind_prs(&mut branches, &ordered, &pr_blocks, name, &mut errors);
+        check_branch_refs(&branches, &planned, &mut errors);
 
         let index = StepIndex::new(&ordered, &planned);
         bind_play_cells(&play_blocks, name, &index, &mut planned, &mut errors);
@@ -214,6 +231,7 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         repos.push(RepoPlan {
             repo: name.clone(),
             steps: planned,
+            branches,
         });
     }
 
@@ -221,6 +239,54 @@ pub fn plan(book: &BookSource, catalog: &RepoCatalog) -> Result<BookPlan, Errors
         Ok(BookPlan { repos })
     } else {
         Err(errors)
+    }
+}
+
+/// Refuse a repo's branches that would collide once they are git refs
+/// (EPIC-09): one a `/`-prefix of another (`refs/heads/a` is a file where
+/// `refs/heads/a/b` needs a directory), or two that are equal ignoring ASCII
+/// case but not identical (a case-insensitive filesystem resolves both to one
+/// ref). `branch_name_problem` already refuses anything under `main/` or
+/// spelled like `main`, so this only ever compares branch to branch.
+///
+/// Reported once per colliding pair, at the branch whose first step comes
+/// later in plan order — the earlier branch is the one already there.
+fn check_branch_refs(branches: &[BranchSummary], planned: &[PlannedStep], errors: &mut Errors) {
+    let first_step = |name: &str| -> Option<&PlannedStep> {
+        planned
+            .iter()
+            .filter(|s| s.line == Line::Branch(name.to_string()))
+            .min_by_key(|s| s.seq)
+    };
+    for (i, a) in branches.iter().enumerate() {
+        for b in &branches[..i] {
+            // Lowercased: a case-insensitive filesystem resolves `Try/` and
+            // `try/` to the same directory, so the prefix test must compare
+            // names the way the filesystem would, not byte-for-byte.
+            let la = a.name.to_ascii_lowercase();
+            let lb = b.name.to_ascii_lowercase();
+            let collides = la.starts_with(&format!("{lb}/"))
+                || lb.starts_with(&format!("{la}/"))
+                || (la == lb && a.name != b.name);
+            if !collides {
+                continue;
+            }
+            // The later branch in plan order is the one that collides with
+            // what was already there.
+            let (later, other) = match (first_step(&a.name), first_step(&b.name)) {
+                (Some(sa), Some(sb)) if sb.seq < sa.seq => (a, b),
+                (Some(_), Some(_)) => (b, a),
+                _ => (a, b),
+            };
+            let Some(step) = first_step(&later.name) else {
+                continue;
+            };
+            errors.push(BowerError::InvalidBranchName {
+                loc: step.anchor.clone(),
+                name: later.name.clone(),
+                reason: format!("it collides with branch `{}` as a git ref", other.name),
+            });
+        }
     }
 }
 
@@ -309,7 +375,8 @@ fn bind_play_cells(
 /// Attach every exercise of `repo` to its step, in document order so a
 /// duplicate is reported at the second one. Key forms ride on their own
 /// step's blocks; block forms bind exactly as play cells do. The answer is
-/// the next step of the repo, so the last step cannot carry one.
+/// the next step on the exercise's line (EPIC-09 Decision 11), so the last
+/// step of a line cannot carry one.
 fn bind_exercises(
     exercise_blocks: &[Block],
     repo: &RepoName,
@@ -355,7 +422,7 @@ fn bind_exercises(
             });
             continue;
         }
-        let Some(answer) = planned.get(idx + 1).map(|s| s.id.clone()) else {
+        let Some(answer) = next_on_line(planned, idx).map(|s| s.id.clone()) else {
             errors.push(BowerError::ExerciseWithoutAnswer {
                 loc: b.loc.clone(),
                 step: step_id,
@@ -382,6 +449,17 @@ fn bind_exercises(
             answer,
         });
     }
+}
+
+/// The step that answers an exercise on `planned[idx]` (EPIC-09 Decision 11):
+/// the next step on the same line — or, for a branch's head, the step that
+/// merges it. An unmerged head has none.
+fn next_on_line(planned: &[PlannedStep], idx: usize) -> Option<&PlannedStep> {
+    let here = planned.get(idx)?;
+    planned.get(idx + 1..)?.iter().find(|s| {
+        s.line == here.line
+            || matches!(&here.line, Line::Branch(b) if s.merges.as_deref() == Some(b.as_str()))
+    })
 }
 
 /// Attach every output block of `repo` to its step, with the play-cell rule:
@@ -452,7 +530,7 @@ pub fn lock_text(plan: &BookPlan) -> String {
         for s in &repo.steps {
             let _ = writeln!(
                 out,
-                "{:03} {} expect={} anchor={} files={}{}",
+                "{:03} {} expect={} anchor={} files={}{}{}",
                 s.seq,
                 s.id,
                 s.expect,
@@ -462,7 +540,8 @@ pub fn lock_text(plan: &BookPlan) -> String {
                     String::new()
                 } else {
                     format!(" play={}", s.play_cells.len())
-                }
+                },
+                line_suffix(s)
             );
             if let Some(x) = &s.exercise {
                 let _ = writeln!(
@@ -483,8 +562,47 @@ pub fn lock_text(plan: &BookPlan) -> String {
                 }
             }
         }
+        // Only for a repo that has one: a straight line's lock gains nothing.
+        if !repo.branches.is_empty() {
+            let _ = writeln!(out, "\n[{}.branches]", repo.repo);
+            for b in &repo.branches {
+                let merged = b
+                    .merged_at
+                    .map_or_else(|| "no".to_string(), |m| format!("{m:03}"));
+                let pr = b.pr.as_ref().map_or_else(String::new, |p| {
+                    format!(" pr={:?} state={}", p.title, p.state)
+                });
+                let _ = writeln!(
+                    out,
+                    "{} from={:03} head={:03} merged={merged}{pr}",
+                    b.name, b.forked_from, b.head
+                );
+                // The description, line by line, so a rewording shows up in
+                // review as a diff of the lock, as an exercise's detail does.
+                for line in b.pr.iter().flat_map(|p| &p.body) {
+                    let _ = writeln!(out, "    | {line}");
+                }
+            }
+        }
     }
     out
+}
+
+/// A step's line in the lock, where it has one to state (EPIC-09 Decision 13):
+/// a branch step's line and parent, a merge's parents and branch, and nothing
+/// for a main step — so a straight line's lock is what it always was.
+fn line_suffix(s: &PlannedStep) -> String {
+    let parents = s
+        .parents
+        .iter()
+        .map(|p| format!("{p:03}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    match (&s.line, &s.merges) {
+        (Line::Branch(b), _) => format!(" line={b} parents={parents}"),
+        (Line::Main, Some(m)) => format!(" parents={parents} merges={m}"),
+        (Line::Main, None) => String::new(),
+    }
 }
 
 #[cfg(test)]
@@ -581,6 +699,22 @@ mod plan_tests {
             lock.contains("001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs")
         );
         assert!(lock.contains("002"));
+    }
+
+    #[test]
+    fn plan__lock_text_of_a_linear_book_is_unchanged() {
+        // Byte for byte what the lock said before branches existed (EPIC-09
+        // Decision 13): no `line=`, no `parents=`, no branch table.
+        let book = BookSource::from_chapters(vec![ranks_chapter()]);
+        assert_eq!(
+            lock_text(&plan(&book, &catalog()).unwrap()),
+            concat!(
+                "# bower.lock — generated; review, don't edit\n",
+                "\n[failers]\n",
+                "001 rank-enum expect=pass anchor=ch01-ranks.md:3 files=src/rank.rs\n",
+                "002 ch01-ranks-from-char expect=compile_fail anchor=ch01-ranks.md:12 files=src/rank.rs\n",
+            )
+        );
     }
 
     fn exercise_chapter() -> Chapter {

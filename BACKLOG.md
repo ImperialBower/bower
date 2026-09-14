@@ -38,7 +38,7 @@
 
 | Work | Source | Note |
 |---|---|---|
-| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | History with a shape: four directive keys (`branch=`, `from=`, `merge=`, `pr=`) put steps on a branch, merge it, and declare a pull request. A merge is a fold; a conflict is a plan-time `MergeConflict`; parents are plan values, so replay stays byte-identical. Five phases (kernel → replay/status → render → push/PRs → book), all Planned. Spike at `docs/spikes/spike-branches/` — 16 tests. Six open questions (§ Open questions). Absorbs idea A6. PR state on a forge is Phase 3's last inch — the Forges design would be its first real test target. |
+| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | Slice 1 shipped (13 September 2026): keys, fold, replay, status, render, branch push, and the sample book's chapter 7. Slice 2 is the forge's pull requests, after open questions 1 and 2 are answered on a real remote. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. A Python proof of concept at `docs/spikes/bower-jupyter/bower-ipynb-poc/` renders one chapter to a notebook and verifies it headless, against the `pkcore.py` wheel, not a book-grown `bindings/` crate. It exercises the three play-cell plan errors and `expect="raises"` (open question 8). |
 | **Back matter** | [`docs/EPIC-12_Back_Matter.md`](docs/EPIC-12_Back_Matter.md) | Idea A9. A step index, a failure index, and a file index, placed by an author-written `<!-- bower index="…" -->`. Built on EPIC-11 for error codes and failing test names. The step, by-step failure, and file indices can ship first. Found that the PDF drops step anchors today, so Phase 3 fixes print links. Seven phases; seven open questions. |
 | **Exercises, finished** | [`docs/EPIC-13_Exercises.md`](docs/EPIC-13_Exercises.md) | Idea A4. Exercises already ship (PR #4, `fdcd09b`). This EPIC adds `tests=`, `solution=`, and `reveal=`. Verify then checks that exactly the named tests fail, then pass (today any non-zero exit counts). `reveal="never"` closes the *hidden solution* gap below. Six phases; six open questions. |
@@ -86,7 +86,6 @@ workspace member, so `make ayce` never sees them.
 
 | Spike | Behind | State |
 |---|---|---|
-| [`docs/spikes/spike-branches/`](docs/spikes/spike-branches/) | EPIC-09 | 16 tests green. Delete after EPIC-09 Phase 0 (EPIC-09 Q6). |
 | [`docs/spikes/bower-voice-spike/`](docs/spikes/bower-voice-spike/) | EPIC-10 | 41 tests green. Promoted, not copied, into `bower-voice/` in Phase 1. |
 | [`docs/spikes/bower-jupyter/bower-ipynb-poc/`](docs/spikes/bower-jupyter/bower-ipynb-poc/) | `--target ipynb` | Python and Docker. Not run in this refresh — it needs `pkcore.py` and Jupyter. |
 
@@ -198,6 +197,14 @@ repository. See `bower-spec.md` § 12.
 
 ## Recently completed
 
+- **[EPIC-09 — branches, merges, and pull requests, slice 1](docs/EPIC-09_Branches.md)**
+  (13 September 2026, `feat/branches`) — four directive keys (`branch=`,
+  `from=`, `merge=`, `pr=`), a per-line fold, `MergeConflict` at region
+  granularity, branch refs and `Bower-Line`/`Bower-Merges` trailers, `PULLS.md`,
+  branch drift in `status`, the footer's branch and compare links, a merge's
+  own `step-meta` line, and `bower push` publishing every branch with its own
+  lease. The sample book's `ch07-try-it-on-a-branch.md` carries one unmerged
+  branch and one two-parent merge. Slice 2 (the forge's pull requests) is next.
 - **[EPIC-11 — captured diagnostics](docs/EPIC-11_Diagnostics.md)** (12 September 2026, merged as PR #5) — 9/9 components. `output="check"|"verify"` records what the compiler said as book content; `verify` fails on drift, `--record` writes it, `[...]` trims it. Found and fixed: `verify` under `make` ignored every tree's toolchain pin.
 - **Releases** (3 September 2026) — `bower push` hangs a GitHub release off
   `[book] version` and attaches every `.pdf`/`.epub` in the repo's `assets`
@@ -224,7 +231,7 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 445 passing, 0 failing (`cargo test --workspace`, 13 September 2026) |
+| Tests | 560 passing, 0 failing (`cargo test --workspace`, 13 September 2026) |
 | Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |

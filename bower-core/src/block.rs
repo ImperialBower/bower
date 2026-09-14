@@ -6,6 +6,7 @@
 //! someone else's code block (say, a chapter of the book showing Bower's
 //! own syntax) is never parsed as one.
 
+use crate::branch::branch_name_problem;
 use crate::directive::{Capture, Directive, Expect, Op};
 use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName};
 use crate::{BowerError, Errors};
@@ -22,6 +23,7 @@ pub struct BlockContent {
 /// resolved, keys validated. This is the unit [`crate::step`] groups into
 /// steps.
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::struct_excessive_bools)] // each flag names an independent, orthogonal block kind
 pub struct Block {
     pub loc: Location,
     pub repo: RepoName,
@@ -55,6 +57,20 @@ pub struct Block {
     /// step. Like a play cell it never joins a step or touches a tree;
     /// [`crate::plan`] binds it (EPIC-11).
     pub output: Option<Capture>,
+    /// `branch="…"`: the line this block's step sits on (EPIC-09). `None` is
+    /// main.
+    pub branch: Option<String>,
+    /// `from="…"`: the main step a branch forks at.
+    pub from: Option<String>,
+    /// `merge="…"`: the branch this block's step merges.
+    pub merge: Option<String>,
+    /// `pr="…"`: a pull request's title — the key form on a tree block, or the
+    /// block form when [`Block::pr_block`] is set.
+    pub pr: Option<String>,
+    /// The block form: a `pr` directive with no tree keys, whose fence is the
+    /// description. Like a play cell it never joins a step or touches a tree;
+    /// [`crate::plan`] binds it to its branch by name.
+    pub pr_block: bool,
 }
 
 /// Extract every annotated block from the book, in document order.
@@ -211,6 +227,12 @@ fn carries_tree_keys(d: &Directive) -> bool {
         || !d.paths.is_empty()
 }
 
+/// Does the directive say anything about a line of history? Output blocks and
+/// play cells belong to a step, and that step's line is already decided.
+fn carries_line_keys(d: &Directive) -> bool {
+    d.branch.is_some() || d.from.is_some() || d.merge.is_some() || d.pr.is_some()
+}
+
 /// A tree block's op decides which other keys it needs: a file (or paths),
 /// a region for `region`, a source for `copy`, and a fence for the ops that
 /// write text.
@@ -247,6 +269,7 @@ fn require_op_keys(
 /// Merge include defaults, validate keys against the catalog and the op's
 /// requirements, and produce a [`Block`] — or report why not.
 #[allow(clippy::too_many_arguments)] // internal seam; the tuple would be worse
+#[allow(clippy::too_many_lines)] // one block kind per arm; splitting would need a `_` arm
 fn resolve(
     mut directive: Directive,
     mut content: Option<BlockContent>,
@@ -295,8 +318,22 @@ fn resolve(
     let play = directive.notebook.is_some();
     let tree_keys = carries_tree_keys(&directive);
     let output = directive.output;
-    let exercise_block = directive.exercise.is_some() && !tree_keys && !play && output.is_none();
+    let pr_block = directive.pr.is_some() && !tree_keys && !play && output.is_none();
+    let exercise_block =
+        directive.exercise.is_some() && !tree_keys && !play && output.is_none() && !pr_block;
     let op = directive.op.unwrap_or_default();
+
+    // Checked where the name is written, so the error points at the typo and
+    // not at whichever step first trips over it (Decision 6).
+    for name in [&directive.branch, &directive.merge].into_iter().flatten() {
+        if let Some(reason) = branch_name_problem(name) {
+            errors.push(BowerError::InvalidBranchName {
+                loc: loc.clone(),
+                name: name.clone(),
+                reason: reason.to_string(),
+            });
+        }
+    }
 
     if output.is_some() {
         // An output block quotes what a command printed at a step. It names
@@ -308,6 +345,7 @@ fn resolve(
             || directive.exercise.is_some()
             || directive.expect.is_some()
             || included
+            || carries_line_keys(&directive)
         {
             errors.push(BowerError::OutputConflictingKeys { loc: loc.clone() });
         }
@@ -318,12 +356,17 @@ fn resolve(
         // A play cell is a notebook concern: it needs its code block and
         // must not carry anything that would touch a repo tree — nor be an
         // exercise, which is a different kind of aside.
-        if tree_keys {
+        if tree_keys || carries_line_keys(&directive) {
             errors.push(BowerError::PlayCellConflictingKeys { loc: loc.clone() });
         }
         if directive.exercise.is_some() {
             errors.push(BowerError::ExerciseConflictingKeys { loc: loc.clone() });
         }
+        if content.is_none() {
+            errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
+        }
+    } else if pr_block {
+        // The fence is the pull request's description.
         if content.is_none() {
             errors.push(BowerError::DirectiveWithoutBlock { loc: loc.clone() });
         }
@@ -344,9 +387,9 @@ fn resolve(
     Some(Block {
         loc: loc.clone(),
         repo,
-        // Neither a play cell, a block-form exercise, nor an output applies
-        // to a tree; Prose is the inert op.
-        op: if play || exercise_block || output.is_some() {
+        // Neither a play cell, a block-form exercise, a pull-request block,
+        // nor an output applies to a tree; Prose is the inert op.
+        op: if play || exercise_block || pr_block || output.is_some() {
             Op::Prose
         } else {
             op
@@ -369,6 +412,11 @@ fn resolve(
         exercise: directive.exercise,
         exercise_block,
         output,
+        branch: directive.branch,
+        from: directive.from,
+        merge: directive.merge,
+        pr: directive.pr,
+        pr_block,
     })
 }
 
@@ -643,5 +691,83 @@ mod block_tests {
             matches!(errors.0[0], BowerError::OutputConflictingKeys { .. }),
             "{errors}"
         );
+    }
+
+    #[test]
+    fn extract__line_keys_ride_on_a_tree_block() {
+        let src = book(
+            "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"try/x\" pr=\"Try x\" -->\n```rust\nx\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(errors.is_empty(), "{errors}");
+        let b = &blocks[0];
+        assert_eq!(b.branch.as_deref(), Some("try/x"));
+        assert_eq!(b.pr.as_deref(), Some("Try x"));
+        assert!(!b.pr_block);
+        assert_eq!(b.op, Op::Create);
+    }
+
+    #[test]
+    fn extract__pr_without_tree_keys_is_the_block_form() {
+        let src = book(
+            "<!-- bower repo=\"failers\" branch=\"try/x\" pr=\"Try x\" -->\n```markdown\nWhy we tried.\n```\n",
+        );
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(errors.is_empty(), "{errors}");
+        let b = &blocks[0];
+        assert!(b.pr_block);
+        assert_eq!(b.op, Op::Prose);
+        assert_eq!(b.content.lines, vec!["Why we tried.".to_string()]);
+    }
+
+    #[test]
+    fn extract__pr_block_form_needs_its_fence() {
+        let src =
+            book("<!-- bower repo=\"failers\" branch=\"try/x\" pr=\"Try x\" -->\nprose instead\n");
+        let (blocks, errors) = extract(&src, &catalog());
+        assert!(blocks.is_empty());
+        assert!(
+            matches!(errors.0[0], BowerError::DirectiveWithoutBlock { .. }),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn extract__a_bad_branch_name_is_refused_where_it_is_written() {
+        for key in ["branch", "merge"] {
+            let src = book(&format!(
+                "<!-- bower repo=\"failers\" file=\"a.rs\" {key}=\"main\" -->\n```rust\nx\n```\n"
+            ));
+            let (blocks, errors) = extract(&src, &catalog());
+            assert!(blocks.is_empty(), "{key}");
+            assert!(
+                matches!(&errors.0[0], BowerError::InvalidBranchName { name, loc, .. } if name == "main" && loc.line == 1),
+                "{key}: {errors}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract__output_and_play_blocks_refuse_line_keys() {
+        // They belong to a step, and the step's line is already decided.
+        for (kind, extra) in [
+            ("output=\"check\"", "branch=\"b\""),
+            ("output=\"check\"", "pr=\"T\""),
+            ("notebook=\"play\"", "merge=\"b\""),
+        ] {
+            let src = book(&format!(
+                "<!-- bower repo=\"failers\" {kind} {extra} -->\n```text\nx\n```\n"
+            ));
+            let (blocks, errors) = extract(&src, &catalog());
+            assert!(blocks.is_empty(), "{kind} {extra}");
+            assert!(
+                errors.0.iter().any(|e| matches!(
+                    e,
+                    BowerError::OutputConflictingKeys { .. }
+                        | BowerError::PlayCellConflictingKeys { .. }
+                )),
+                "{kind} {extra}: {errors}"
+            );
+        }
     }
 }

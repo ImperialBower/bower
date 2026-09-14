@@ -29,6 +29,7 @@
 )]
 
 pub mod block;
+pub mod branch;
 pub mod capture;
 pub mod directive;
 pub mod display;
@@ -43,6 +44,7 @@ pub mod prelude {
 
     pub use crate::BowerError;
     pub use crate::block::{Block, BlockContent};
+    pub use crate::branch::{BranchSummary, Line, PrState, PullRequest};
     pub use crate::capture::{Drift, ELISION, Scrub, drift, error_codes, normalize, rewrite, tidy};
     pub use crate::directive::{Capture, Directive, Expect, Op};
     pub use crate::display::{BlockDisplay, DisplaySpan, LineRange};
@@ -161,8 +163,9 @@ pub enum BowerError {
     /// A `notebook="play"` cell names a step that does not exist.
     PlayCellUnknownStep { loc: Location, step: String },
     /// A `notebook="play"` cell carries tree-affecting keys (`file`, `op`,
-    /// `region`, `src`, `paths`) — a category confusion the kernel refuses:
-    /// play cells never touch a repo tree.
+    /// `region`, `src`, `paths`) or line keys (`branch`, `from`, `merge`,
+    /// `pr`) — a category confusion the kernel refuses: play cells never
+    /// touch a repo tree.
     PlayCellConflictingKeys { loc: Location },
     /// A block-form exercise has no preceding step of its repo to attach
     /// to, and names none explicitly.
@@ -171,8 +174,8 @@ pub enum BowerError {
     ExerciseUnknownStep { loc: Location, step: String },
     /// A step already carries an exercise; reported at the second one.
     ExerciseDuplicate { loc: Location, step: String },
-    /// The exercise's step is the last of its repo: nothing follows it to
-    /// be the answer.
+    /// The exercise's step is the last on its line — on a straight line, the
+    /// last of its repo: nothing follows it to be the answer.
     ExerciseWithoutAnswer { loc: Location, step: String },
     /// A play cell also declares `exercise=`. A cell is one thing or the
     /// other.
@@ -183,7 +186,7 @@ pub enum BowerError {
     /// An `output` block names a step that does not exist.
     OutputUnknownStep { loc: Location, step: String },
     /// An `output` block carries a key that belongs to another kind of block:
-    /// a tree key, `notebook`, `exercise`, `expect`, or `include`.
+    /// a tree key, `notebook`, `exercise`, `expect`, `include`, or a line key.
     OutputConflictingKeys { loc: Location },
     /// A step already has an output block for this capture; reported at the
     /// second one.
@@ -200,6 +203,65 @@ pub enum BowerError {
         capture: Capture,
         expect: Expect,
     },
+    /// A `branch=` or `merge=` value cannot name a branch (EPIC-09).
+    InvalidBranchName {
+        loc: Location,
+        name: String,
+        reason: String,
+    },
+    /// Blocks sharing a step id declared different `branch`, `from`, or
+    /// `merge` values.
+    ConflictingLineInStep { loc: Location, step: String },
+    /// `merge=` names a branch no earlier step of the repo is on.
+    MergeUnknownBranch {
+        loc: Location,
+        step: String,
+        branch: String,
+    },
+    /// A step declares both `branch=` and `merge=`; a merge sits on main.
+    MergeOnBranch { loc: Location, step: String },
+    /// A step joins, or merges again, a branch a merge step already closed.
+    BranchAlreadyMerged {
+        loc: Location,
+        step: String,
+        branch: String,
+        merged_at: String,
+    },
+    /// `from=` names no earlier step of the repo.
+    UnknownFrom {
+        loc: Location,
+        step: String,
+        from: String,
+    },
+    /// `from=` names a step on a branch; a branch forks from main.
+    FromNotOnMain {
+        loc: Location,
+        step: String,
+        from: String,
+    },
+    /// `from=` on a step that is not a branch's first — a later branch step,
+    /// or a main or merge step: nothing reads it.
+    FromOnLaterStep {
+        loc: Location,
+        step: String,
+        branch: String,
+    },
+    /// The branch and main both changed `file` since the fork in ways that do
+    /// not compose, and the merge step does not write the whole file.
+    MergeConflict {
+        loc: Location,
+        step: String,
+        branch: String,
+        file: String,
+        region: Option<String>,
+    },
+    /// A `pr=` that is not for a branch: the key form on a main step, or the
+    /// block form without `branch=`.
+    PrWithoutBranch { loc: Location },
+    /// A `pr=` block names a branch no step is on.
+    PrUnknownBranch { loc: Location, branch: String },
+    /// A branch already has a pull request; reported at the second one.
+    PrDuplicate { loc: Location, branch: String },
 }
 
 impl BowerError {
@@ -242,7 +304,19 @@ impl BowerError {
             | Self::OutputUnknownStep { loc, .. }
             | Self::OutputConflictingKeys { loc }
             | Self::OutputDuplicate { loc, .. }
-            | Self::OutputNeverRuns { loc, .. } => Some(loc),
+            | Self::OutputNeverRuns { loc, .. }
+            | Self::InvalidBranchName { loc, .. }
+            | Self::ConflictingLineInStep { loc, .. }
+            | Self::MergeUnknownBranch { loc, .. }
+            | Self::MergeOnBranch { loc, .. }
+            | Self::BranchAlreadyMerged { loc, .. }
+            | Self::UnknownFrom { loc, .. }
+            | Self::FromNotOnMain { loc, .. }
+            | Self::FromOnLaterStep { loc, .. }
+            | Self::MergeConflict { loc, .. }
+            | Self::PrWithoutBranch { loc }
+            | Self::PrUnknownBranch { loc, .. }
+            | Self::PrDuplicate { loc, .. } => Some(loc),
             Self::OrderingCycle { .. } => None,
         }
     }
@@ -375,7 +449,7 @@ impl std::fmt::Display for BowerError {
             }
             Self::ExerciseWithoutAnswer { loc, step } => write!(
                 f,
-                "{loc}: step `{step}` is the last of its repo; no next step can be the answer"
+                "{loc}: step `{step}` is the last on its line; no next step can be the answer"
             ),
             Self::ExerciseConflictingKeys { loc } => {
                 write!(f, "{loc}: a play cell cannot also be an exercise")
@@ -404,6 +478,71 @@ impl std::fmt::Display for BowerError {
                 f,
                 "{loc}: step `{step}` declares expect=\"{expect}\", so its `{capture}` command never runs"
             ),
+            Self::InvalidBranchName { loc, name, reason } => {
+                write!(f, "{loc}: `{name}` cannot name a branch: {reason}")
+            }
+            Self::ConflictingLineInStep { loc, step } => write!(
+                f,
+                "{loc}: blocks in step `{step}` disagree about its line: `branch`, `from`, or `merge`"
+            ),
+            Self::MergeUnknownBranch { loc, step, branch } => write!(
+                f,
+                "{loc}: step `{step}` merges `{branch}`, but no earlier step is on that branch; if the branch comes later in the book, give this step after=\"<the branch's last step>\""
+            ),
+            Self::MergeOnBranch { loc, step } => write!(
+                f,
+                "{loc}: step `{step}` declares both branch= and merge=; a merge sits on main"
+            ),
+            Self::BranchAlreadyMerged {
+                loc,
+                step,
+                branch,
+                merged_at,
+            } => write!(
+                f,
+                "{loc}: step `{step}`: branch `{branch}` was already merged at step `{merged_at}`"
+            ),
+            Self::UnknownFrom { loc, step, from } => write!(
+                f,
+                "{loc}: step `{step}` says from=\"{from}\", but no earlier step has that id"
+            ),
+            Self::FromNotOnMain { loc, step, from } => write!(
+                f,
+                "{loc}: step `{step}` says from=\"{from}\", which is on a branch; a branch forks from a main step"
+            ),
+            Self::FromOnLaterStep { loc, step, branch } => write!(
+                f,
+                "{loc}: step `{step}` says from=, but only a branch's first step forks; this step is on `{branch}`"
+            ),
+            Self::MergeConflict {
+                loc,
+                step,
+                branch,
+                file,
+                region,
+            } => {
+                let what = region.as_ref().map_or_else(
+                    || format!("`{file}`"),
+                    |r| format!("region `{r}` of `{file}`"),
+                );
+                write!(
+                    f,
+                    "{loc}: step `{step}` merges `{branch}`, but both sides changed {what} since the fork; write the whole file on the merge step to resolve it"
+                )
+            }
+            Self::PrWithoutBranch { loc } => write!(
+                f,
+                "{loc}: pr= declares a pull request, but not for a branch; put it on a branch step, or give the block branch=\"…\""
+            ),
+            Self::PrUnknownBranch { loc, branch } => {
+                write!(
+                    f,
+                    "{loc}: pr= is for branch `{branch}`, which no step is on"
+                )
+            }
+            Self::PrDuplicate { loc, branch } => {
+                write!(f, "{loc}: branch `{branch}` already has a pull request")
+            }
         }
     }
 }

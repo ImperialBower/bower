@@ -23,8 +23,10 @@ no renderers.
 * [Exercise](exercise.md) - a step as a place to stop reading and start typing.
 * [Captured output](captured-output.md) - what the compiler said at a step, recorded in the book and checked on every verify.
 * [Play cell](play-cell.md) - a live Python cell bound to a step, for the notebook target.
+* [Branch](branch.md) - a line of history the fold keeps a tree for, forked from main and merged back with a real two-parent commit.
+* [Pull request](pull-request.md) - a plan value first, a forge artifact second: a branch's declared PR, deterministic in the repo whether or not a forge is involved.
 
 # When it goes wrong
 
 * [Expectation — controlled failure as an executable claim](expectation.md) - `pass`, `compile_fail`, `test_fail`, `none`.
-* [Errors — located and collected](errors.md) - 37 variants, each carrying its chapter and line.
+* [Errors — located and collected](errors.md) - 49 variants, each carrying its chapter and line.

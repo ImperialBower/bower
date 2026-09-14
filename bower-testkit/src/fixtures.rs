@@ -55,13 +55,20 @@ pub const HELLO_PLAYBOOK_TAGS: &[&str] = &[
     "step-018-tool-versions",
     "step-019-ci-workflow",
     "step-020-drop-scratch",
+    "step-021-shout",
+    "step-022-greet-many",
+    "step-023-greet-many-test",
+    "step-024-changelog",
+    "step-025-merge-greet-many",
 ];
 
-/// Every path the book's twenty steps leave behind. The generated repository
-/// adds `STEPS.md` on top of these; the kernel never sees that file.
+/// Every path the book's main line leaves behind. The generated repository
+/// adds `STEPS.md` and `PULLS.md` on top of these; the kernel never sees
+/// either.
 pub const HELLO_PLAYBOOK_FINAL_PATHS: &[&str] = &[
     ".github/workflows/ci.yml",
     ".tool-versions",
+    "CHANGELOG.md",
     "Cargo.toml",
     "Makefile",
     "bin/security-scan",
@@ -76,10 +83,11 @@ fn hello_playbook_catalog() -> RepoCatalog {
     RepoCatalog::from_names(&["hello-playbook"])
 }
 
-/// The sample book: a dev-playbook-shaped Rust hello world, taught in six
-/// chapters that build the repository they describe, plus an appendix that
-/// credits the cover artwork and carries no directives at all — which is what
-/// makes it the fixture's one prose-only chapter.
+/// The sample book: a dev-playbook-shaped Rust hello world, taught in seven
+/// chapters — the last of them on branches — that build the repository they
+/// describe, plus an appendix that credits the cover artwork and carries no
+/// directives at all — which is what makes it the fixture's one prose-only
+/// chapter.
 ///
 /// The chapters live on disk under `books/hello-playbook/src/` and are pulled
 /// in with `include_str!`, which resolves at compile time — the kernel still
@@ -112,6 +120,10 @@ pub fn hello_playbook() -> Fixture {
             chapter(
                 "src/ch06-ci.md",
                 include_str!("../../books/hello-playbook/src/ch06-ci.md"),
+            ),
+            chapter(
+                "src/ch07-try-it-on-a-branch.md",
+                include_str!("../../books/hello-playbook/src/ch07-try-it-on-a-branch.md"),
             ),
             chapter(
                 "src/appendix-credits.md",
@@ -404,6 +416,73 @@ pub fn captured_outputs() -> Fixture {
     )
 }
 
+/// The branch saga (EPIC-09): the spike's six steps as a chapter. One branch
+/// fails and is left standing; one is broken, fixed, and merged; main moves on
+/// a different file in between. Public so tests can derive variants from the
+/// text instead of restating it.
+pub const BRANCH_SAGA: &str = concat!(
+    "# The rank saga, with branches\n\n",
+    "<!-- bower repo=\"failers\" step=\"rank-enum\" file=\"src/rank.rs\" msg=\"ch01: the Rank enum\" -->\n",
+    "```rust\n#[derive(Clone, Copy, Debug, Eq, PartialEq)]\npub enum Rank { Ace, King, Queen, Blank }\n```\n",
+    "<!-- bower repo=\"failers\" step=\"rank-enum\" file=\"src/lib.rs\" -->\n",
+    "```rust\npub mod rank;\n```\n\n",
+    "## A branch that fails, and stays\n\n",
+    "<!-- bower repo=\"failers\" step=\"lookup-table\" branch=\"try/lookup-table\" file=\"src/rank.rs\" op=\"append\" expect=\"test_fail\" msg=\"ch01: try a lookup table instead\" -->\n",
+    "```rust\npub const RANKS: [Rank; 3] = [Rank::Ace, Rank::King, Rank::Queen];\n#[test] fn lookup_covers_every_char() { assert_eq!(RANKS.len(), 4); }\n```\n",
+    "<!-- bower repo=\"failers\" branch=\"try/lookup-table\" pr=\"Try a lookup table for ranks\" -->\n",
+    "```markdown\nFaster? Maybe. Correct? The test says no.\n```\n\n",
+    "## Meanwhile, on main\n\n",
+    "<!-- bower repo=\"failers\" step=\"lib-doc\" file=\"src/lib.rs\" op=\"replace\" msg=\"ch01: document the crate\" -->\n",
+    "```rust\n//! A deck of cards, built the failing way.\npub mod rank;\n```\n\n",
+    "## The pull request\n\n",
+    "<!-- bower repo=\"failers\" step=\"from-char-broken\" branch=\"from-char\" file=\"src/rank.rs\" op=\"append\" expect=\"compile_fail\" msg=\"ch02: From<char>, non-exhaustive\" -->\n",
+    "```rust\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen }\n    }\n}\n```\n",
+    "<!-- bower repo=\"failers\" branch=\"from-char\" pr=\"Rank::from(char)\" -->\n",
+    "```markdown\nEvery char needs an answer.\n\nCloses the gap the reviewer found.\n```\n\n",
+    "<!-- bower repo=\"failers\" step=\"from-char-fixed\" branch=\"from-char\" file=\"src/rank.rs\" op=\"replace\" msg=\"ch02: From<char>, every arm answered\" -->\n",
+    "```rust\n#[derive(Clone, Copy, Debug, Eq, PartialEq)]\npub enum Rank { Ace, King, Queen, Blank }\nimpl From<char> for Rank {\n    fn from(c: char) -> Self {\n        match c { 'A' => Rank::Ace, 'K' => Rank::King, 'Q' => Rank::Queen, _ => Rank::Blank }\n    }\n}\n```\n\n",
+    "<!-- bower repo=\"failers\" step=\"merge-from-char\" merge=\"from-char\" op=\"none\" msg=\"ch02: merge from-char\" -->\n",
+);
+
+/// [`BRANCH_SAGA`] as a fixture.
+#[must_use]
+pub fn branch_saga() -> Fixture {
+    Fixture::new(
+        "branch_saga",
+        BookSource::from_chapters(vec![chapter("ch01-saga.md", BRANCH_SAGA)]),
+        failers(),
+    )
+}
+
+/// Every `line × expect` pair (EPIC-09): four main steps, four branches, and
+/// four merges, each set on `pass`, `compile_fail`, `test_fail`, and `none`.
+/// Every branch writes its own file, so nothing conflicts.
+#[must_use]
+pub fn line_textures() -> Fixture {
+    Fixture::new(
+        "line_textures",
+        BookSource::from_chapters(vec![chapter(
+            "ch09-lines.md",
+            concat!(
+                "# Every line, every claim\n\n",
+                "<!-- bower repo=\"failers\" step=\"m-pass\" file=\"a.rs\" -->\n```rust\na\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-cf\" file=\"a.rs\" op=\"append\" expect=\"compile_fail\" -->\n```rust\nb\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-tf\" file=\"a.rs\" op=\"append\" expect=\"test_fail\" -->\n```rust\nc\n```\n",
+                "<!-- bower repo=\"failers\" step=\"m-none\" op=\"none\" expect=\"none\" msg=\"a narrated step\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-pass\" branch=\"b-pass\" file=\"b1.rs\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-pass\" merge=\"b-pass\" op=\"none\" msg=\"merge b-pass\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-cf\" branch=\"b-cf\" file=\"b2.rs\" expect=\"compile_fail\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-cf\" merge=\"b-cf\" op=\"none\" expect=\"compile_fail\" msg=\"merge b-cf\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-tf\" branch=\"b-tf\" file=\"b3.rs\" expect=\"test_fail\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-tf\" merge=\"b-tf\" op=\"none\" expect=\"test_fail\" msg=\"merge b-tf\" -->\n\n",
+                "<!-- bower repo=\"failers\" step=\"b-none\" branch=\"b-none\" file=\"b4.rs\" expect=\"none\" -->\n```rust\nx\n```\n",
+                "<!-- bower repo=\"failers\" step=\"j-none\" merge=\"b-none\" op=\"none\" expect=\"none\" msg=\"merge b-none\" -->\n",
+            ),
+        )]),
+        failers(),
+    )
+}
+
 /// Every valid fixture, for corpus-wide properties and the coverage report.
 #[must_use]
 pub fn valid() -> Vec<Fixture> {
@@ -418,6 +497,8 @@ pub fn valid() -> Vec<Fixture> {
         notebook_play(),
         exercise_forms(),
         captured_outputs(),
+        branch_saga(),
+        line_textures(),
         hello_playbook(),
     ]
 }
@@ -604,6 +685,61 @@ fn broken_outputs() -> Vec<(&'static str, Fixture)> {
     ]
 }
 
+/// Errors raised by lines of history (EPIC-09): names, keys that disagree,
+/// the fold, and pull requests.
+fn broken_branches() -> Vec<(&'static str, Fixture)> {
+    vec![
+        single(
+            "InvalidBranchName",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" branch=\"main\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "ConflictingLineInStep",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" branch=\"x\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"b.rs\" step=\"s\" branch=\"y\" -->\n```rust\ny\n```\n",
+        ),
+        single(
+            "MergeUnknownBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"ghost\" op=\"none\" -->\n",
+        ),
+        single(
+            "MergeOnBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"m\" branch=\"b\" merge=\"b\" op=\"none\" -->\n",
+        ),
+        single(
+            "BranchAlreadyMerged",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"b\" op=\"none\" -->\n<!-- bower repo=\"failers\" step=\"late\" branch=\"b\" file=\"b.rs\" op=\"append\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "UnknownFrom",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" from=\"ghost\" file=\"b.rs\" -->\n```rust\ny\n```\n",
+        ),
+        single(
+            "FromNotOnMain",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"x\" branch=\"x\" file=\"x.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" from=\"x\" file=\"b.rs\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "FromOnLaterStep",
+            "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"s1\" branch=\"b\" file=\"b.rs\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"s2\" branch=\"b\" from=\"base\" file=\"b.rs\" op=\"append\" -->\n```rust\nz\n```\n",
+        ),
+        single(
+            "MergeConflict",
+            "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"a.rs\" op=\"append\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" step=\"later\" file=\"a.rs\" op=\"replace\" -->\n```rust\nz\n```\n<!-- bower repo=\"failers\" step=\"m\" merge=\"b\" op=\"none\" -->\n",
+        ),
+        single(
+            "PrWithoutBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" pr=\"On main\" -->\n```rust\nx\n```\n",
+        ),
+        single(
+            "PrUnknownBranch",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" branch=\"ghost\" pr=\"Nowhere\" -->\n```markdown\nx\n```\n",
+        ),
+        single(
+            "PrDuplicate",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"b.rs\" pr=\"One\" -->\n```rust\ny\n```\n<!-- bower repo=\"failers\" branch=\"b\" pr=\"Two\" -->\n```markdown\nx\n```\n",
+        ),
+    ]
+}
+
 /// Broken books, one per error family. The paired name states the
 /// [`BowerError`] variant the fixture must produce.
 #[must_use]
@@ -613,6 +749,7 @@ pub fn broken() -> Vec<(&'static str, Fixture)> {
     cases.extend(broken_display());
     cases.extend(broken_exercises());
     cases.extend(broken_outputs());
+    cases.extend(broken_branches());
 
     let mut malformed_include = BookSource::from_chapters(vec![chapter(
         "bad.md",

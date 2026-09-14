@@ -120,6 +120,13 @@ pub struct LinkTemplates {
     /// `https://…/{code}.html`. Declarable in `[links]`; derived from a cargo
     /// `check` command when absent (EPIC-11).
     pub error_code: Option<String>,
+    /// What a merged branch did since its fork:
+    /// `https://…/compare/{from}...{to}`. Declarable in `[links]`; derived from
+    /// `github` when absent (EPIC-09).
+    pub compare: Option<String>,
+    /// A branch as a whole: `https://…/tree/{branch}`. Declarable in
+    /// `[links]`; derived from `github` when absent.
+    pub branch: Option<String>,
 }
 
 /// Why a configuration could not be loaded. Every variant names the file, so a
@@ -233,6 +240,19 @@ impl BookConfig {
                             .is_some_and(|c| c.split_whitespace().next() == Some("cargo"))
                             .then(|| RUSTC_ERROR_CODES.to_string())
                     });
+                    // GitHub's shapes, and the ones `DESIGN_Forges.md` § 6.1
+                    // proposes for every forge; a book on another forge
+                    // declares its own.
+                    let compare = r.links.compare.clone().or_else(|| {
+                        r.github
+                            .as_ref()
+                            .map(|g| format!("https://github.com/{g}/compare/{{from}}...{{to}}"))
+                    });
+                    let branch = r.links.branch.clone().or_else(|| {
+                        r.github
+                            .as_ref()
+                            .map(|g| format!("https://github.com/{g}/tree/{{branch}}"))
+                    });
                     (
                         name,
                         RepoConfig {
@@ -254,6 +274,8 @@ impl BookConfig {
                                 check,
                                 verify,
                                 error_code,
+                                compare,
+                                branch,
                             },
                         },
                     )
@@ -332,6 +354,8 @@ struct WireLinks {
     commit: Option<String>,
     fork: Option<String>,
     error_code: Option<String>,
+    compare: Option<String>,
+    branch: Option<String>,
 }
 
 #[cfg(test)]
@@ -525,6 +549,45 @@ mod config_tests {
         let text = format!("{MINIMAL}[repos.r]\ncheck = \"make check\"\n");
         let cfg = BookConfig::parse(&text).unwrap();
         assert_eq!(cfg.repos.get("r").unwrap().links.error_code, None);
+    }
+
+    #[test]
+    fn config__a_github_repo_derives_compare_and_branch_links() {
+        let cfg = BookConfig::parse(&format!("{MINIMAL}[repos.r]\ngithub = \"o/n\"\n")).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(
+            links.compare.as_deref(),
+            Some("https://github.com/o/n/compare/{from}...{to}")
+        );
+        assert_eq!(
+            links.branch.as_deref(),
+            Some("https://github.com/o/n/tree/{branch}")
+        );
+    }
+
+    #[test]
+    fn config__declared_compare_and_branch_links_win() {
+        let cfg = BookConfig::parse(&format!(
+            "{MINIMAL}[repos.r]\ngithub = \"o/n\"\n[repos.r.links]\ncompare = \"https://f.invalid/c/{{from}}..{{to}}\"\nbranch = \"https://f.invalid/b/{{branch}}\"\n"
+        ))
+        .unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(
+            links.compare.as_deref(),
+            Some("https://f.invalid/c/{from}..{to}")
+        );
+        assert_eq!(
+            links.branch.as_deref(),
+            Some("https://f.invalid/b/{branch}")
+        );
+    }
+
+    #[test]
+    fn config__a_repo_with_no_remote_gets_no_branch_links() {
+        let cfg = BookConfig::parse(&format!("{MINIMAL}[repos.r]\n")).unwrap();
+        let links = &cfg.repos.get("r").unwrap().links;
+        assert_eq!(links.compare, None);
+        assert_eq!(links.branch, None);
     }
 
     #[test]

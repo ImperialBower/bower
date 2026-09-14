@@ -15,7 +15,7 @@ use bower::forge::{FakeForge, RemoteState};
 use bower::loader::BookLoader;
 use bower::materialize::write_files;
 use bower::push::{PushPlan, plan_push};
-use bower::replay::{book_name, expected_tags, final_blobs, scaffolding};
+use bower::replay::{book_name, expected_branches, expected_tags, final_blobs, scaffolding};
 use bower::trailers::marker_line;
 use bower_core::prelude::{RepoPlan, plan};
 
@@ -60,6 +60,11 @@ fn built(case: &str, p: &RepoPlan, cfg: &BookConfig) -> PathBuf {
     std::fs::create_dir_all(&tags).unwrap();
     for tag in expected_tags(p) {
         std::fs::write(tags.join(tag), "0\n").unwrap();
+    }
+    for branch in expected_branches(p) {
+        let head = dir.join(".git").join("refs").join("heads").join(&branch);
+        std::fs::create_dir_all(head.parent().unwrap()).unwrap();
+        std::fs::write(head, "0\n").unwrap();
     }
     let name = book_name(&book_root(), &p.repo.0);
     let scaffold = scaffolding(cfg, &book_root(), &p.repo.0).unwrap();
@@ -225,7 +230,7 @@ fn a_declared_edition_ships_its_downloads_and_the_dry_run_still_sends_nothing() 
         "the epub and the pdf, and nothing else: {:?}",
         release.assets
     );
-    assert!(release.notes.contains("20 steps"), "{}", release.notes);
+    assert!(release.notes.contains("25 steps"), "{}", release.notes);
     // Deciding is not doing — and on this trait a release counts as doing.
     assert!(!forge.mutated(), "{:?}", forge.calls());
     assert!(forge.releases().is_empty(), "nothing may be uploaded");
@@ -263,7 +268,7 @@ fn our_own_remote_is_ready_and_the_dry_run_still_sends_nothing() {
     let PushPlan::Ready { tags, create, .. } = got else {
         panic!("expected Ready, got {got:?}");
     };
-    assert_eq!(tags, 26, "20 step tags plus 6 chapter-end tags");
+    assert_eq!(tags, 32, "25 step tags plus 7 chapter-end tags");
     assert!(!create, "the remote already exists");
     // Deciding is not doing.
     assert!(!forge.mutated(), "{:?}", forge.calls());
