@@ -21,6 +21,7 @@ pub mod push;
 pub mod record;
 pub mod render;
 pub mod replay;
+pub mod schedule;
 pub mod status;
 pub mod trailers;
 pub mod verify;
