@@ -82,7 +82,33 @@ impl TreeState {
             Op::Copy => self.apply_copy(block, step, assets, errors),
             Op::Create | Op::Replace | Op::Append | Op::Region => {
                 self.apply_text_op(block, step, errors);
+                self.check_nesting(block, step, errors);
             }
+        }
+    }
+
+    /// Refuse a text op that leaves one region inside another. Each nesting is
+    /// reported once, at the block that wrote it: later blocks touching the
+    /// same file, and a merge re-applying the block, add nothing new.
+    fn check_nesting(&self, block: &Block, step: &str, errors: &mut Errors) {
+        let Some(file) = &block.file else {
+            return;
+        };
+        let Some(nested) = self.text(file).and_then(nested_region) else {
+            return;
+        };
+        let already = errors.0.iter().any(|e| {
+            matches!(e, BowerError::RegionNested { file: f, outer, inner, .. }
+                if f == file && *outer == nested.0 && *inner == nested.1)
+        });
+        if !already {
+            errors.push(BowerError::RegionNested {
+                loc: block.loc.clone(),
+                step: step.to_string(),
+                file: file.clone(),
+                outer: nested.0,
+                inner: nested.1,
+            });
         }
     }
 
@@ -372,6 +398,25 @@ fn comment_body(line: &str) -> Option<&str> {
     (body.starts_with("bower:") || body.starts_with("bf:")).then_some(body)
 }
 
+/// The first region that opens while another is still open, as
+/// `(outer, inner)`; `None` when every region stands alone.
+fn nested_region(text: &str) -> Option<(String, String)> {
+    let mut open: Option<&str> = None;
+    for line in text.lines() {
+        match region_marker(line) {
+            Some((RegionMark::Begin, name)) => {
+                if let Some(outer) = open {
+                    return Some((outer.to_string(), name.to_string()));
+                }
+                open = Some(name);
+            }
+            Some((RegionMark::End, name)) if open == Some(name) => open = None,
+            _ => {}
+        }
+    }
+    None
+}
+
 fn strip_region_markers(text: &str) -> String {
     let kept: Vec<&str> = text
         .lines()
@@ -532,6 +577,60 @@ mod tree_tests {
             tree.text("a.rs").unwrap(),
             "head\n// bower:begin body\nnew\nlines\n// bower:end body\ntail\n"
         );
+    }
+
+    #[test]
+    fn region__an_edit_that_nests_a_region_is_refused() {
+        let mut tree = TreeState::default();
+        let mut errors = Errors::default();
+        tree.apply_block(
+            &block(
+                Op::Create,
+                "a.rs",
+                &["// bower:begin body", "// bower:end body"],
+            ),
+            "s",
+            &no_assets(),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "{errors}");
+        let mut b = block(
+            Op::Region,
+            "a.rs",
+            &["// bower:begin helper", "// bower:end helper"],
+        );
+        b.region = Some("body".to_string());
+        tree.apply_block(&b, "t", &no_assets(), &mut errors);
+        assert!(
+            matches!(
+                &errors.0[..],
+                [BowerError::RegionNested { step, outer, inner, .. }]
+                    if step == "t" && outer == "body" && inner == "helper"
+            ),
+            "{errors}"
+        );
+    }
+
+    #[test]
+    fn region__markers_side_by_side_do_not_nest() {
+        let mut tree = TreeState::default();
+        let mut errors = Errors::default();
+        tree.apply_block(
+            &block(
+                Op::Create,
+                "a.rs",
+                &[
+                    "// bower:begin one",
+                    "// bower:end one",
+                    "// bower:begin two",
+                    "// bower:end two",
+                ],
+            ),
+            "s",
+            &no_assets(),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "{errors}");
     }
 
     #[test]

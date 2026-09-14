@@ -169,6 +169,11 @@ computes the full resulting file. Markers are stripped from the final tree by
 default (configurable per repo — leaving them in is itself a nice observability
 touch for readers browsing the repo).
 
+Regions may not nest. A region op rewrites everything between its markers, so
+an edit to an outer region would rewrite the inner one too — and at a merge,
+where distinct regions compose, drop main's edit to it without a conflict. Any
+step that leaves one region's markers inside another's is refused at plan time.
+
 `append` covers the common "now add the test module at the bottom" move without
 requiring markers.
 
@@ -383,6 +388,7 @@ In keeping with both books, plan-time errors are first-class and exhaustive:
 unknown repo, conflicting writes to one file within a step (a whole-file write
 sharing the file with anything else, or two region ops on the same region —
 distinct regions and appends compose fine), `region` before its markers exist,
+one region nested inside another,
 `replace` of a file never created, orphaned `after` references, two books
 claiming the same repo. Every error carries the chapter, line, and step id. The
 kernel's error enum *is* a chapter draft for *Rust for Failures*.
