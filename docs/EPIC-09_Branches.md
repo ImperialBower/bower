@@ -11,8 +11,12 @@
   so replay stays byte-identical.
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
-- **Status:** Slice 2 built on `feat/branches-slice-2`, 14 September 2026; the
-  live run (exit criterion 9) is the last step.
+- **Status:** Slice 2 shipped, 14 September 2026. The live run on
+  `abstecker/hello-playbook` opened `feat/greet-many`'s PR (#1) on the stepping
+  stone `step-024-changelog`, and GitHub marked it merged by Bower's own merge
+  commit (`4d5f0ee`, `step-025-merge-greet-many`); `try/shout`'s PR (#2) stays
+  open. A second push reports `unchanged #2` and `merged #1, left alone` and
+  opens nothing (exit criterion 9).
 
 ---
 
@@ -558,7 +562,7 @@ Every item is slice 1 unless marked **(slice 2)**.
   no-override test extended (`--merge-pr`, `--close-pr` absent).
 - [x] **3f. (slice 2)** Goldens: a refused gate reads no PR and creates none;
   a book without branches pushes main, then tags, as before.
-- [ ] **3g. (slice 2)** Live: `make ship-hello-execute` opens `try/shout`'s
+- [x] **3g. (slice 2)** Live: `make ship-hello-execute` opens `try/shout`'s
   PR, opens `feat/greet-many`'s on a stepping stone and sees it merged; a
   second push reports `Unchanged` and `LeftMerged` and opens nothing.
 

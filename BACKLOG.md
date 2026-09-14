@@ -38,7 +38,6 @@
 
 | Work | Source | Note |
 |---|---|---|
-| **Branches** | [`docs/EPIC-09_Branches.md`](docs/EPIC-09_Branches.md) | Slice 1 shipped (13 September 2026): keys, fold, replay, status, render, branch push, and the sample book's chapter 7. Slice 2 built (14 September 2026, `feat/branches-slice-2`): the push schedule, stepping stones, and the forge's pull requests. The live run (exit criterion 9) is the last step. |
 | **`--target ipynb`** | spec § 15 | The fourth publishing target. Needs play cells, which nothing renders yet. A Python proof of concept at `docs/spikes/bower-jupyter/bower-ipynb-poc/` renders one chapter to a notebook and verifies it headless, against the `pkcore.py` wheel, not a book-grown `bindings/` crate. It exercises the three play-cell plan errors and `expect="raises"` (open question 8). |
 | **Back matter** | [`docs/EPIC-12_Back_Matter.md`](docs/EPIC-12_Back_Matter.md) | Idea A9. A step index, a failure index, and a file index, placed by an author-written `<!-- bower index="…" -->`. Built on EPIC-11 for error codes and failing test names. The step, by-step failure, and file indices can ship first. Found that the PDF drops step anchors today, so Phase 3 fixes print links. Seven phases; seven open questions. |
 | **Exercises, finished** | [`docs/EPIC-13_Exercises.md`](docs/EPIC-13_Exercises.md) | Idea A4. Exercises already ship (PR #4, `fdcd09b`). This EPIC adds `tests=`, `solution=`, and `reveal=`. Verify then checks that exactly the named tests fail, then pass (today any non-zero exit counts). `reveal="never"` closes the *hidden solution* gap below. Six phases; six open questions. |
@@ -197,6 +196,15 @@ repository. See `bower-spec.md` § 12.
 
 ## Recently completed
 
+- **[EPIC-09 — branches, merges, and pull requests, slice 2](docs/EPIC-09_Branches.md)**
+  (14 September 2026, `feat/branches-slice-2`) — `bower push` puts every
+  declared pull request on the forge through a pure schedule the dry run
+  prints: branches and main's first move in one atomic push, a merged branch's
+  PR opened on a stepping stone and merged by the push of main, open PRs
+  edited when their digest differs, merged and closed PRs left alone, fork PRs
+  never touched, and main put back on its head if a push stops on a stone.
+  Live on `abstecker/hello-playbook`: `feat/greet-many`'s PR merged by Bower's
+  merge commit, `try/shout`'s left open, and a second push opens nothing.
 - **[EPIC-09 — branches, merges, and pull requests, slice 1](docs/EPIC-09_Branches.md)**
   (13 September 2026, `feat/branches`) — four directive keys (`branch=`,
   `from=`, `merge=`, `pr=`), a per-line fold, `MergeConflict` at region
