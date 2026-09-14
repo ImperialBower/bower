@@ -5,8 +5,11 @@
 //! pushed — are made against the trait and tested against a fake, so only the
 //! last inch is untested.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
+
+use crate::schedule::{ForgePr, ForgePrState, MAIN};
 
 /// What is at a remote before we touch it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -126,20 +129,79 @@ pub trait Forge {
     /// If the directory cannot be staged or the push is rejected.
     fn push_tree(&self, dir: &Path, repo: &str, branch: &str) -> Result<PushOutcome, ForgeError>;
 
-    /// Force-push-with-lease `dir`'s branches, every tag, and `branch` to
-    /// `owner/name`: each of `branches` with its own lease, then the tags,
-    /// then `branch` — last, because it carries the merges (EPIC-09).
+    /// Every branch head on `owner/name`, as full ref → SHA. Empty for an
+    /// empty repository. Read-only; `plan_push` calls it after the gate.
     ///
     /// # Errors
     ///
-    /// If a push is rejected or the tooling fails.
-    fn push(
+    /// If the remote cannot be read. An unread remote is never "no heads".
+    fn remote_heads(&self, repo: &str) -> Result<BTreeMap<String, String>, ForgeError>;
+
+    /// Every pull request against main, in any state (EPIC-09 Decision 22).
+    /// Read-only; `plan_push` calls it after the gate.
+    ///
+    /// # Errors
+    ///
+    /// If the forge cannot be read.
+    fn pull_requests(&self, repo: &str) -> Result<Vec<ForgePr>, ForgeError>;
+
+    /// Push the commit `src` names in `dir` to the remote ref `dst`, leased
+    /// against `lease`, or a plain push when `None`. Returns the SHA pushed,
+    /// which the next push of the same ref leases against.
+    ///
+    /// # Errors
+    ///
+    /// If `src` does not resolve, or the push is refused — a lease trip
+    /// included.
+    fn push_ref(
         &self,
         dir: &Path,
         repo: &str,
+        src: &str,
+        dst: &str,
+        lease: Option<&str>,
+    ) -> Result<String, ForgeError>;
+
+    /// Push every tag, forced. Returns how many tags `dir` holds.
+    ///
+    /// # Errors
+    ///
+    /// If the push is refused.
+    fn push_tags(&self, dir: &Path, repo: &str) -> Result<usize, ForgeError>;
+
+    /// Make `branch` the repository's default (EPIC-09 Decision 26). Only
+    /// ever scheduled for a remote that had no main.
+    ///
+    /// # Errors
+    ///
+    /// If the forge refuses.
+    fn set_default_branch(&self, repo: &str, branch: &str) -> Result<(), ForgeError>;
+
+    /// Open a PR from `branch` into main. Returns its number.
+    ///
+    /// # Errors
+    ///
+    /// If the forge refuses — for instance, a branch with no commits ahead.
+    fn open_pull_request(
+        &self,
+        repo: &str,
         branch: &str,
-        branches: &[String],
-    ) -> Result<PushOutcome, ForgeError>;
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError>;
+
+    /// Set an open PR's title and body.
+    ///
+    /// # Errors
+    ///
+    /// If the forge refuses.
+    fn edit_pull_request(
+        &self,
+        repo: &str,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError>;
 
     /// Create the release at `release.tag`, or refresh the one already there.
     ///
@@ -187,14 +249,26 @@ pub struct FakeForge {
     /// What GitHub would say about this repository's Pages. `None` is a
     /// repository with no Pages at all.
     pub pages: Option<PagesState>,
+    /// The remote's branch heads, as `remote_heads` reports them.
+    pub heads: BTreeMap<String, String>,
+    /// The forge's PRs, as `pull_requests` reports them.
+    pub prs: Vec<ForgePr>,
+    /// When set, any call whose record starts with it fails — how a test
+    /// makes one move of a schedule fail.
+    pub fail_on: Option<String>,
+    next_pr: std::cell::Cell<u64>,
     calls: std::cell::RefCell<Vec<String>>,
     releases: std::cell::RefCell<Vec<Release>>,
-    pushed_branches: std::cell::RefCell<Vec<String>>,
 }
 
 impl FakeForge {
     #[must_use]
     pub fn new(state: RemoteState, steps_md: Option<String>) -> Self {
+        let heads = if state == RemoteState::HasContent {
+            BTreeMap::from([(crate::replay::BRANCH.to_string(), "0".repeat(40))])
+        } else {
+            BTreeMap::new()
+        };
         Self {
             state,
             steps_md,
@@ -202,9 +276,12 @@ impl FakeForge {
             site_marker: None,
             unreachable: None,
             pages: None,
+            heads,
+            prs: Vec::new(),
+            fail_on: None,
+            next_pr: std::cell::Cell::new(101),
             calls: std::cell::RefCell::new(Vec::new()),
             releases: std::cell::RefCell::new(Vec::new()),
-            pushed_branches: std::cell::RefCell::new(Vec::new()),
         }
     }
 
@@ -218,17 +295,10 @@ impl FakeForge {
 
     #[must_use]
     pub fn unreachable(reason: &str) -> Self {
-        Self {
-            state: RemoteState::HasContent,
-            steps_md: None,
-            site_state: RemoteState::HasContent,
-            site_marker: None,
-            unreachable: Some(reason.to_string()),
-            pages: None,
-            calls: std::cell::RefCell::new(Vec::new()),
-            releases: std::cell::RefCell::new(Vec::new()),
-            pushed_branches: std::cell::RefCell::new(Vec::new()),
-        }
+        let mut forge = Self::new(RemoteState::HasContent, None);
+        forge.site_state = RemoteState::HasContent;
+        forge.unreachable = Some(reason.to_string());
+        forge
     }
 
     /// Every method called on this forge, in order.
@@ -243,12 +313,6 @@ impl FakeForge {
         self.releases.borrow().clone()
     }
 
-    /// Every branch this forge was asked to push, in order.
-    #[must_use]
-    pub fn pushed_branches(&self) -> Vec<String> {
-        self.pushed_branches.borrow().clone()
-    }
-
     /// Whether anything that changes the remote was called.
     ///
     /// A release counts. It creates nothing destructive, but a dry run that
@@ -256,13 +320,30 @@ impl FakeForge {
     /// to mean nothing.
     #[must_use]
     pub fn mutated(&self) -> bool {
-        self.calls()
-            .iter()
-            .any(|c| c.starts_with("push") || c.starts_with("create") || c.starts_with("release"))
+        self.calls().iter().any(|c| {
+            c.starts_with("push")
+                || c.starts_with("create")
+                || c.starts_with("release")
+                || c.starts_with("set_default_branch")
+                || c.starts_with("open_pr")
+                || c.starts_with("edit_pr")
+        })
     }
 
     fn record(&self, what: &str) {
         self.calls.borrow_mut().push(what.to_string());
+    }
+
+    /// Record `what`, then fail if `fail_on` names it.
+    fn call(&self, what: &str) -> Result<(), ForgeError> {
+        self.record(what);
+        match &self.fail_on {
+            Some(prefix) if what.starts_with(prefix.as_str()) => Err(ForgeError::Failed {
+                what: what.to_string(),
+                stderr: "refused by FakeForge".to_string(),
+            }),
+            _ => Ok(()),
+        }
     }
 
     fn reachable(&self, repo: &str) -> Result<(), ForgeError> {
@@ -329,28 +410,70 @@ impl Forge for FakeForge {
         })
     }
 
-    fn push(
-        &self,
-        _dir: &Path,
-        _repo: &str,
-        _branch: &str,
-        branches: &[String],
-    ) -> Result<PushOutcome, ForgeError> {
-        self.record("push");
-        self.pushed_branches
-            .borrow_mut()
-            .extend(branches.iter().cloned());
-        Ok(PushOutcome {
-            commits: 0,
-            tags: 0,
-        })
-    }
-
     fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError> {
         self.record("release");
         self.reachable(repo)?;
         self.releases.borrow_mut().push(release.clone());
         Ok(())
+    }
+
+    fn remote_heads(&self, repo: &str) -> Result<BTreeMap<String, String>, ForgeError> {
+        self.call("remote_heads")?;
+        self.reachable(repo)?;
+        Ok(self.heads.clone())
+    }
+
+    fn pull_requests(&self, repo: &str) -> Result<Vec<ForgePr>, ForgeError> {
+        self.call("pull_requests")?;
+        self.reachable(repo)?;
+        Ok(self.prs.clone())
+    }
+
+    fn push_ref(
+        &self,
+        _dir: &Path,
+        _repo: &str,
+        src: &str,
+        dst: &str,
+        lease: Option<&str>,
+    ) -> Result<String, ForgeError> {
+        self.call(&format!(
+            "push_ref {src} -> {dst} lease={}",
+            lease.unwrap_or("-")
+        ))?;
+        Ok(format!("sha:{src}"))
+    }
+
+    fn push_tags(&self, _dir: &Path, _repo: &str) -> Result<usize, ForgeError> {
+        self.call("push_tags")?;
+        Ok(0)
+    }
+
+    fn set_default_branch(&self, _repo: &str, branch: &str) -> Result<(), ForgeError> {
+        self.call(&format!("set_default_branch {branch}"))
+    }
+
+    fn open_pull_request(
+        &self,
+        _repo: &str,
+        branch: &str,
+        _title: &str,
+        _body: &str,
+    ) -> Result<u64, ForgeError> {
+        self.call(&format!("open_pr {branch}"))?;
+        let n = self.next_pr.get();
+        self.next_pr.set(n + 1);
+        Ok(n)
+    }
+
+    fn edit_pull_request(
+        &self,
+        _repo: &str,
+        number: u64,
+        _title: &str,
+        _body: &str,
+    ) -> Result<(), ForgeError> {
+        self.call(&format!("edit_pr #{number}"))
     }
 }
 
@@ -665,48 +788,6 @@ impl Forge for GitHubForge {
         })
     }
 
-    fn push(
-        &self,
-        dir: &Path,
-        repo: &str,
-        branch: &str,
-        branches: &[String],
-    ) -> Result<PushOutcome, ForgeError> {
-        let url = remote_url(repo);
-        let run = |args: Vec<String>| -> Result<(bool, String), ForgeError> {
-            let out = std::process::Command::new("git")
-                .arg("-C")
-                .arg(dir)
-                .args(&args)
-                .output()
-                .map_err(|e| ForgeError::Failed {
-                    what: format!("git {}", args.join(" ")),
-                    stderr: e.to_string(),
-                })?;
-            Ok((
-                out.status.success(),
-                String::from_utf8_lossy(&out.stderr).into_owned(),
-            ))
-        };
-
-        // Every lease carries the value we read, because there is no
-        // remote-tracking ref to read it from — see `push_branch_args`.
-        for args in push_commands(&url, branch, branches, |r| remote_head(dir, &url, r)) {
-            let (ok, stderr) = run(args.clone())?;
-            if !ok {
-                return Err(ForgeError::Failed {
-                    what: format!("git {}", args.join(" ")),
-                    stderr: stderr.trim().to_string(),
-                });
-            }
-        }
-
-        Ok(PushOutcome {
-            commits: count(dir, &["rev-list", "--count", "--all"]),
-            tags: count(dir, &["tag", "--list"]),
-        })
-    }
-
     fn publish_release(&self, repo: &str, release: &Release) -> Result<(), ForgeError> {
         let paths: Vec<String> = release
             .assets
@@ -758,6 +839,143 @@ impl Forge for GitHubForge {
             });
         }
         Ok(())
+    }
+
+    fn remote_heads(&self, repo: &str) -> Result<BTreeMap<String, String>, ForgeError> {
+        let out = std::process::Command::new("git")
+            .args(["ls-remote", "--heads", &remote_url(repo)])
+            .output()
+            .map_err(|e| ForgeError::Failed {
+                what: "git ls-remote --heads".to_string(),
+                stderr: e.to_string(),
+            })?;
+        if !out.status.success() {
+            return Err(ForgeError::Unreachable {
+                repo: repo.to_string(),
+                reason: String::from_utf8_lossy(&out.stderr).trim().to_string(),
+            });
+        }
+        Ok(parse_ls_remote(&String::from_utf8_lossy(&out.stdout)))
+    }
+
+    fn pull_requests(&self, repo: &str) -> Result<Vec<ForgePr>, ForgeError> {
+        let args = pr_list_args(repo);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (ok, body, stderr) = gh(&borrowed)?;
+        if !ok {
+            return Err(ForgeError::Unreachable {
+                repo: repo.to_string(),
+                reason: stderr.trim().to_string(),
+            });
+        }
+        Ok(parse_pr_list(&body))
+    }
+
+    fn push_ref(
+        &self,
+        dir: &Path,
+        repo: &str,
+        src: &str,
+        dst: &str,
+        lease: Option<&str>,
+    ) -> Result<String, ForgeError> {
+        // Resolve first: the refspec carries a SHA, and the SHA is what the
+        // next push of `dst` leases against.
+        let (ok, stdout, stderr) = git_in(dir, &["rev-parse".into(), format!("{src}^{{commit}}")])?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: format!("git rev-parse {src}"),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        let sha = stdout.trim().to_string();
+        let args = push_ref_args(&remote_url(repo), &sha, dst, lease);
+        let (ok, _, stderr) = git_in(dir, &args)?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: format!("git push {src} → {dst}"),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Ok(sha)
+    }
+
+    fn push_tags(&self, dir: &Path, repo: &str) -> Result<usize, ForgeError> {
+        // Plainly forced: a replay recreates every tag with the same name and
+        // a new SHA, and the gate has already said this remote is ours.
+        let args: Vec<String> = vec![
+            "push".into(),
+            "--force".into(),
+            remote_url(repo),
+            "--tags".into(),
+        ];
+        let (ok, _, stderr) = git_in(dir, &args)?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: "git push --force --tags".to_string(),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        Ok(count(dir, &["tag", "--list"]))
+    }
+
+    fn set_default_branch(&self, repo: &str, branch: &str) -> Result<(), ForgeError> {
+        let args = default_branch_args(repo, branch);
+        let borrowed: Vec<&str> = args.iter().map(String::as_str).collect();
+        let (ok, _, stderr) = gh(&borrowed)?;
+        if ok {
+            Ok(())
+        } else {
+            Err(ForgeError::Failed {
+                what: format!("gh api -X PATCH repos/{repo} default_branch={branch}"),
+                stderr: stderr.trim().to_string(),
+            })
+        }
+    }
+
+    fn open_pull_request(
+        &self,
+        repo: &str,
+        branch: &str,
+        title: &str,
+        body: &str,
+    ) -> Result<u64, ForgeError> {
+        // `--flag=value`, so a body that starts with `---` (Decision 23's
+        // footer, when the book gives no description) is never read as a flag.
+        let (title, body) = (format!("--title={title}"), format!("--body={body}"));
+        let (ok, stdout, stderr) = gh(&[
+            "pr", "create", "-R", repo, "--base", MAIN, "--head", branch, &title, &body,
+        ])?;
+        if !ok {
+            return Err(ForgeError::Failed {
+                what: format!("gh pr create --head {branch}"),
+                stderr: stderr.trim().to_string(),
+            });
+        }
+        pr_number_from_url(&stdout).ok_or_else(|| ForgeError::Failed {
+            what: format!("gh pr create --head {branch}"),
+            stderr: format!("no PR number in `{}`", stdout.trim()),
+        })
+    }
+
+    fn edit_pull_request(
+        &self,
+        repo: &str,
+        number: u64,
+        title: &str,
+        body: &str,
+    ) -> Result<(), ForgeError> {
+        let n = number.to_string();
+        let (title, body) = (format!("--title={title}"), format!("--body={body}"));
+        let (ok, _, stderr) = gh(&["pr", "edit", &n, "-R", repo, &title, &body])?;
+        if ok {
+            Ok(())
+        } else {
+            Err(ForgeError::Failed {
+                what: format!("gh pr edit #{number}"),
+                stderr: stderr.trim().to_string(),
+            })
+        }
     }
 }
 
@@ -941,106 +1159,133 @@ pub fn pages_build_args(repo: &str) -> Vec<String> {
     ]
 }
 
-/// What `branch` points at on the remote, or `None` if it is not there yet.
+/// The arguments that push commit `src` to the remote ref `dst`, leased
+/// against `lease` — what the remote held when Bower last looked, or the
+/// commit Bower itself pushed there a moment ago (EPIC-09 Decision 21).
 ///
-/// `git ls-remote` rather than a fetch: the answer is one line, and a replayed
-/// repository shares no history with the remote it is about to replace, so
-/// fetching would download objects only to throw them away.
-fn remote_head(dir: &Path, url: &str, branch: &str) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(dir)
-        .args(["ls-remote", url, branch])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    let sha = text.split_whitespace().next()?;
-    (!sha.is_empty()).then(|| sha.to_string())
-}
-
-/// Every `git` invocation [`Forge::push`] makes, in order (EPIC-09 Decision
-/// 9, as corrected). Pure given `head_of`, which answers what a ref points at
-/// on the remote.
-///
-/// When main already exists on the remote: each branch with its own lease,
-/// then main with its own lease, then the tags, forced. When it does not — a
-/// first publish to a new or empty remote — main goes *first*, ahead of every
-/// branch, then the tags. GitHub and Forgejo make the first branch pushed to
-/// an empty repository its default, and
-/// [`GitHubForge::read_steps_md`](Forge::read_steps_md) reads `STEPS.md` from
-/// the default branch; `STEPS.md` lives only on main, so pushing a branch
-/// first would make the default branch one without it, and every later
-/// `bower push` would fail the marker gate as "not generated by this tool".
-/// A straight-line book (no branches) then pushes main, then tags, on either
-/// remote — exactly the order this tool used before branches existed.
-///
-/// Tags always go last, on both orders. A tag push is plainly forced — a
-/// replay recreates every tag with the same name and a new SHA, and the gate
-/// has already established that this remote is ours, so a lease on a tag we
-/// always rewrite would only ever say no — and a forced push cannot itself be
-/// refused the way a lease can. Putting it last means a lease trip on a
-/// branch or on main, which *can* be refused, is caught before any tag is
-/// force-rewritten; tags have no bearing on PR merge detection, so there is
-/// nothing to gain by pushing them earlier.
+/// `src` is a SHA, resolved in the built repository before the push, so a
+/// tag name can never be misread as a branch. A ref that is not there yet
+/// needs no force and has nothing to protect.
 #[must_use]
-pub fn push_commands(
-    url: &str,
-    main: &str,
-    branches: &[String],
-    head_of: impl Fn(&str) -> Option<String>,
-) -> Vec<Vec<String>> {
-    let main_head = head_of(main);
-    let main_args = push_branch_args(url, main, main_head.as_deref());
-    let branch_args: Vec<Vec<String>> = branches
-        .iter()
-        .map(|b| {
-            let full = format!("refs/heads/{b}");
-            push_branch_args(url, &full, head_of(&full).as_deref())
-        })
-        .collect();
-    let tags = vec![
-        "push".into(),
-        "--force".into(),
-        url.to_string(),
-        "--tags".into(),
-    ];
-
-    let mut out = Vec::with_capacity(branch_args.len() + 2);
-    if main_head.is_none() {
-        out.push(main_args);
-        out.extend(branch_args);
-    } else {
-        out.extend(branch_args);
-        out.push(main_args);
-    }
-    out.push(tags);
-    out
-}
-
-/// The arguments that push `branch` to `url`, given what the remote's branch
-/// pointed at when we last looked.
-///
-/// A bare `--force-with-lease` compares against the *remote-tracking* ref, and
-/// a push to a URL has none — git answers `stale info` and refuses. That made
-/// every push after a repository's first one fail, which is the only kind that
-/// matters: a generated repo is republished every time the book changes. The
-/// lease therefore carries the value `remote_head` read. It is still a lease:
-/// a remote that moved between the read and the push is still refused.
-///
-/// A branch that is not there yet needs no force and has nothing to protect.
-#[must_use]
-pub fn push_branch_args(url: &str, branch: &str, remote_head: Option<&str>) -> Vec<String> {
-    let refspec = format!("{branch}:{branch}");
-    match remote_head {
+pub fn push_ref_args(url: &str, src: &str, dst: &str, lease: Option<&str>) -> Vec<String> {
+    let refspec = format!("{src}:{dst}");
+    match lease {
         None => vec!["push".into(), url.to_string(), refspec],
         Some(sha) => vec![
             "push".into(),
-            format!("--force-with-lease={branch}:{sha}"),
+            format!("--force-with-lease={dst}:{sha}"),
             url.to_string(),
             refspec,
         ],
     }
+}
+
+/// `git ls-remote --heads` output, as full ref → SHA. An empty repository
+/// prints nothing, which is an empty map.
+#[must_use]
+pub fn parse_ls_remote(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|l| {
+            let (sha, name) = l.split_once('\t')?;
+            Some((name.trim().to_string(), sha.trim().to_string()))
+        })
+        .collect()
+}
+
+/// The `jq` program `gh pr list` runs: one tab-separated line per PR —
+/// number, state, head branch, head SHA, and the `bower-pr:` digest or `-`.
+/// A filter rather than JSON, because the base binary parses no JSON.
+pub const PR_LIST_JQ: &str = r#".[] | [(.number|tostring), .state, .headRefName, .headRefOid, ((.body // "") | (capture("bower-pr: (?<d>[0-9a-f]+)").d // "-"))] | join("\t")"#;
+
+/// The `gh` arguments that list every PR against main, in any state.
+#[must_use]
+pub fn pr_list_args(repo: &str) -> Vec<String> {
+    [
+        "pr",
+        "list",
+        "-R",
+        repo,
+        "--base",
+        MAIN,
+        "--state",
+        "all",
+        "--limit",
+        "1000",
+        "--json",
+        "number,state,headRefName,headRefOid,body",
+        "--jq",
+        PR_LIST_JQ,
+    ]
+    .iter()
+    .map(ToString::to_string)
+    .collect()
+}
+
+/// Read [`PR_LIST_JQ`]'s lines. A line that does not have its shape is
+/// skipped rather than guessed at.
+#[must_use]
+pub fn parse_pr_list(text: &str) -> Vec<ForgePr> {
+    text.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            let [number, state, branch, head, digest] = f.as_slice() else {
+                return None;
+            };
+            let state = match *state {
+                "OPEN" => ForgePrState::Open,
+                "MERGED" => ForgePrState::Merged,
+                "CLOSED" => ForgePrState::Closed,
+                _ => return None,
+            };
+            Some(ForgePr {
+                number: number.parse().ok()?,
+                branch: (*branch).to_string(),
+                state,
+                head: (*head).to_string(),
+                digest: (*digest != "-").then(|| (*digest).to_string()),
+            })
+        })
+        .collect()
+}
+
+/// The PR number at the end of the URL `gh pr create` prints.
+#[must_use]
+pub fn pr_number_from_url(url: &str) -> Option<u64> {
+    let url = url.trim();
+    let (rest, number) = url.rsplit_once('/')?;
+    rest.ends_with("/pull").then(|| number.parse().ok())?
+}
+
+/// The `gh` arguments that make `branch` the repository's default
+/// (EPIC-09 Decision 26).
+#[must_use]
+pub fn default_branch_args(repo: &str, branch: &str) -> Vec<String> {
+    vec![
+        "api".into(),
+        "-X".into(),
+        "PATCH".into(),
+        format!("repos/{repo}"),
+        "-f".into(),
+        format!("default_branch={branch}"),
+    ]
+}
+
+/// Run `git -C dir args…`: success, stdout, stderr.
+fn git_in(dir: &Path, args: &[String]) -> Result<(bool, String, String), ForgeError> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .output()
+        .map_err(|e| ForgeError::Failed {
+            what: format!("git {}", args.join(" ")),
+            stderr: e.to_string(),
+        })?;
+    Ok((
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
 }
 
 /// Best-effort count for the report. A wrong count is cosmetic; refusing to
@@ -1395,5 +1640,124 @@ mod forge_tests {
         // safe to overwrite.
         assert!(!is_not_found("gh: HTTP 401: Bad credentials"));
         assert!(!is_not_found("dial tcp: lookup github.com: no such host"));
+    }
+
+    #[test]
+    fn push_ref_args__lease_against_the_value_read() {
+        assert_eq!(
+            push_ref_args(URL, "abc123", "refs/heads/main", Some("def456")),
+            [
+                "push",
+                "--force-with-lease=refs/heads/main:def456",
+                URL,
+                "abc123:refs/heads/main",
+            ]
+        );
+    }
+
+    #[test]
+    fn push_ref_args__a_ref_that_is_not_there_forces_nothing() {
+        let args = push_ref_args(URL, "abc123", "refs/heads/try/x", None);
+        assert_eq!(args, ["push", URL, "abc123:refs/heads/try/x"]);
+        assert!(!args.iter().any(|a| a.contains("force")), "{args:?}");
+    }
+
+    #[test]
+    fn parse_ls_remote__reads_every_head() {
+        let text = "1111111111111111111111111111111111111111\trefs/heads/main\n2222222222222222222222222222222222222222\trefs/heads/try/shout\n";
+        let heads = parse_ls_remote(text);
+        assert_eq!(heads.len(), 2);
+        assert_eq!(heads["refs/heads/main"], "1".repeat(40));
+        assert_eq!(heads["refs/heads/try/shout"], "2".repeat(40));
+        assert!(
+            parse_ls_remote("").is_empty(),
+            "an empty repository has no heads"
+        );
+    }
+
+    #[test]
+    fn pr_list_args__ask_for_every_state_against_main() {
+        let args = pr_list_args("o/n");
+        assert_eq!(&args[..5], ["pr", "list", "-R", "o/n", "--base"]);
+        assert!(args.contains(&"main".to_string()), "{args:?}");
+        assert!(args.windows(2).any(|w| w == ["--state", "all"]), "{args:?}");
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--jq" && w[1] == PR_LIST_JQ),
+            "{args:?}"
+        );
+    }
+
+    #[test]
+    fn parse_pr_list__reads_the_jq_lines() {
+        // The exact shape `gh pr list --jq PR_LIST_JQ` printed against
+        // abstecker/bower-sandbox on 14 September 2026.
+        let text = concat!(
+            "4\tMERGED\tfeat/merge-me\ta53df691b8873e11ee76dcb9a6a30ded39fcd8cc\t-\n",
+            "3\tOPEN\ttry/abandon\t2c754e9e638914b95dadaf478990a9c084b19d6f\t0123456789abcdef\n",
+            "1\tCLOSED\ttry/old\tb907fbfa529ed2c9dc1133728fb94ca7f9b04b3f\t-\n",
+        );
+        let prs = parse_pr_list(text);
+        assert_eq!(prs.len(), 3);
+        assert_eq!(prs[0].number, 4);
+        assert_eq!(prs[0].state, ForgePrState::Merged);
+        assert_eq!(prs[0].branch, "feat/merge-me");
+        assert_eq!(prs[0].digest, None);
+        assert_eq!(prs[1].state, ForgePrState::Open);
+        assert_eq!(prs[1].digest.as_deref(), Some("0123456789abcdef"));
+        assert_eq!(prs[2].state, ForgePrState::Closed);
+        // A line that is not ours is skipped, never guessed at.
+        assert!(parse_pr_list("garbage\n").is_empty());
+    }
+
+    #[test]
+    fn pr_number_from_url__reads_the_last_segment() {
+        assert_eq!(
+            pr_number_from_url("https://github.com/o/n/pull/42\n"),
+            Some(42)
+        );
+        assert_eq!(pr_number_from_url("https://github.com/o/n/issues"), None);
+    }
+
+    #[test]
+    fn default_branch_args__patch_the_repository() {
+        assert_eq!(
+            default_branch_args("o/n", "main"),
+            [
+                "api",
+                "-X",
+                "PATCH",
+                "repos/o/n",
+                "-f",
+                "default_branch=main"
+            ]
+        );
+    }
+
+    #[test]
+    fn fake_forge__records_the_new_calls_and_can_fail_on_one() {
+        let mut forge = FakeForge::new(RemoteState::HasContent, None);
+        assert!(forge.heads.contains_key("refs/heads/main"));
+        let dir = Path::new("/nowhere");
+        assert_eq!(
+            forge
+                .push_ref(dir, "o/n", "step-001-a", "refs/heads/main", Some("x"))
+                .unwrap(),
+            "sha:step-001-a"
+        );
+        assert_eq!(forge.open_pull_request("o/n", "b", "T", "B").unwrap(), 101);
+        assert_eq!(forge.open_pull_request("o/n", "c", "T", "B").unwrap(), 102);
+        assert_eq!(
+            forge.calls(),
+            [
+                "push_ref step-001-a -> refs/heads/main lease=x",
+                "open_pr b",
+                "open_pr c"
+            ]
+        );
+        assert!(forge.mutated());
+
+        forge.fail_on = Some("open_pr".to_string());
+        assert!(forge.open_pull_request("o/n", "d", "T", "B").is_err());
     }
 }
