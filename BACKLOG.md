@@ -56,7 +56,7 @@
 | **The scrubber** | [`docs/EPIC-15_Scrubber.md`](docs/EPIC-15_Scrubber.md) | Idea A3. About 11 KB of JSON per repo, and a widget under 16 KB with no dependencies, in the HTML book only. It is the project's first JavaScript. The reverse line map the idea assumed does not exist, so the kernel gains a line diff. Shares EPIC-12's file history. Eight phases; six open questions. |
 | **Editions** | [`docs/EPIC-16_Editions.md`](docs/EPIC-16_Editions.md) | Spec § 13 M2 with ideas B1, B3, B4 and C4. `bower edition cut` writes one file that is both the pin and the verification receipt. Adds `edition-<id>/…` step tags that never move, and releases that only ever gain files. Owns `[book] version`. Found that today's `--clobber` and `push --force --tags` would overwrite a frozen edition. B4's toolchain board and B1's DOIs are deferred. Six phases; eight open questions. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
-| **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
+| **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; five open questions of its own (§ 11), one of them EPIC-09's: whether Forgejo marks a PR merged when main is pushed past it. |
 | **Voice** | [`docs/EPIC-10_Voice.md`](docs/EPIC-10_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
 
 ## Ideas — not yet EPICs
@@ -88,6 +88,21 @@ The rest stay ideas:
 
 The doc's Part F carries eight open questions of its own. Q7 is the big one:
 is Bower-for-others a goal, or a side effect?
+
+### Deferred from EPIC-09
+
+What [EPIC-09](docs/EPIC-09_Branches.md) left out on purpose, each waiting for
+a chapter that needs it. Any of them is an EPIC of its own when it comes, proven
+on `hello-playbook`.
+
+| Deferred | Today | Trigger, and what it costs |
+|---|---|---|
+| **Branches off branches** | `FromNotOnMain`: `from=` must name a main step (Decision 19) | A chapter that forks an experiment from an experiment. The fold generalises — main becomes one more `BranchState` — so the cost is in the lock and the render, not the kernel. |
+| **Merges into branches** | `MergeOnBranch`: a merge sits on main (Decision 19) | A chapter that folds one branch into another before main. Lifts with the one above. |
+| **Rebases** | Not modelled; a branch's parents are fixed plan values | A chapter about rewriting history. Every SHA after the rebase point moves, so replay's blast-radius golden needs a rebase case. |
+| **Closing a PR without merging** | An abandoned branch's PR stays open (open question 3, Decision 25) | A chapter that needs "reviewed, declined" — a *Failures* story. Likely a `pr_state="closed"` key; cheap now that Decision 8 stands. |
+| **Review comments as book content** | Not modelled (open question 4) | A real chapter that teaches through a PR conversation. A second body of prose the book must own. |
+| **Merging on the forge** | Bower makes every merge commit itself, deterministically (Decision 8) | Probably never: a forge-side merge commit cannot be byte-reproducible. Revisit only if a forge refuses to mark a PR merged by a plain push — see the Forgejo question in [`DESIGN_Forges.md`](docs/DESIGN_Forges.md) § 11. |
 
 ## Spikes
 
