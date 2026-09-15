@@ -23,7 +23,7 @@ at load time, not a setting silently ignored.
 | | `version` | Optional. The edition. A free string — deliberately **not** semver. |
 | `[identity]` | `name`, `email` | Both required. Used for author *and* committer. |
 | `[repos.<name>]` | `github` | Optional. `<owner>/<repo>`; its absence means the book does not publish that repo. |
-| | `site_branch` | Where the rendered book ships, e.g. `gh-pages`. |
+| | `site_branch` | Where the rendered book ships, e.g. `gh-pages`. Held to a book branch's naming rules, and may not be `main` or one of the book's branches; `bower push` refuses it before any forge call otherwise. |
 | | `assets` | Book-relative directory holding release downloads. |
 | | `template` | Book-relative step-0 scaffolding. |
 | | `check`, `verify` | The commands [`bower verify`](/commands/verify.md) runs. |

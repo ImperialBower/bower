@@ -133,6 +133,7 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
+- [ ] 🤖 Twelve open findings from the 15 September 2026 deep review ([`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) § Automated review findings). The worst: a Pages enable that is never retried after one failure, `verify --record` rewriting chapters in place, and `verify` with no timeout
 - [ ] EPIC-09 left thirteen debt items. Two can strand a live repository: a push interrupted while main stands on a stepping stone leaves the remote failing the marker gate for good, and the gate reads `STEPS.md` from the forge's default branch rather than `main`. Most of the rest are edges no book reaches yet: an all-branch book, a branch named like a `-end` tag, unescaped `|` and `)` in branch names and PR titles, and one mistake reported twice. One is nearly free since slice 2: naming remote branches the book dropped, because `schedule` already reads every remote head.
 
 ## Open questions — decisions, not code
@@ -157,6 +158,15 @@ Generated repos are unaffected — each book still publishes to its own GitHub
 repository. See `bower-spec.md` § 12.
 
 ## Recently fixed
+
+- **A `site_branch` git read as an option could delete the remote's refs.**
+  `site_branch` was never validated, and the site push passed it to `git push`
+  as a bare argument. With `site_branch = "--mirror"`, that became a mirror
+  push, which deleted every branch and tag the site did not carry. Found by the
+  deep automated review and reproduced against a local bare repository. Fixed
+  15 September 2026 with two guards: `bower push` refuses any site branch name
+  a chapter's own branch could not have, before any forge call, and the site
+  push names the branch only inside a `HEAD:refs/heads/<branch>` refspec.
 
 - **A book could render with every directive still on the page.** mdBook 0.5
   renamed the top-level key of the preprocessor envelope from `sections` to
@@ -273,7 +283,7 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 595 passing, 0 failing (`cargo test --workspace`, 15 September 2026) |
+| Tests | 597 passing, 0 failing (`cargo test --workspace`, 15 September 2026) |
 | Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |

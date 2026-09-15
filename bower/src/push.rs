@@ -21,6 +21,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use bower_core::branch::branch_name_problem;
 use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
@@ -209,7 +210,7 @@ pub fn plan_push(
         })
     };
 
-    if let Some(why) = site_branch_clash(cfg, &repo, plan) {
+    if let Some(why) = site_branch_problem(cfg, &repo, plan) {
         return blocked(why);
     }
 
@@ -690,22 +691,28 @@ pub fn collect_assets(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Why the repo's `site_branch` cannot be published, when it names a branch the
-/// push also sends — `main` or one of the book's own. The site is force-pushed
-/// after the repository, so it would replace that branch on every push.
+/// Why the repo's `site_branch` cannot be published: it names a branch the
+/// push also sends — `main` or one of the book's own — or it is not a name a
+/// book's own branch could have.
+///
+/// The site is force-pushed after the repository, so a clash would replace
+/// that branch on every push. A name `branch_name_problem` refuses is refused
+/// here for the same reasons it is refused in a chapter: `--mirror` would
+/// reach git as the option and delete every remote ref the site does not carry.
 ///
 /// Decided from the book and its config alone, so it is asked before anything
 /// is asked of the forge.
-fn site_branch_clash(cfg: &BookConfig, repo: &str, plan: &RepoPlan) -> Option<String> {
+fn site_branch_problem(cfg: &BookConfig, repo: &str, plan: &RepoPlan) -> Option<String> {
     let site = cfg.repos.get(repo)?.site_branch.as_deref()?;
     let main = BRANCH.strip_prefix("refs/heads/").unwrap_or(BRANCH);
-    let clash = site == main || plan.branches.iter().any(|b| b.name == site);
-    clash.then(|| {
-        format!(
+    if site == main || plan.branches.iter().any(|b| b.name == site) {
+        return Some(format!(
             "`{site}` is both a branch this repository pushes and its `site_branch`; \
              the site would replace the branch on every push — rename one"
-        )
-    })
+        ));
+    }
+    branch_name_problem(site)
+        .map(|why| format!("`{site}` cannot be this repository's `site_branch`: {why}"))
 }
 
 /// What the site half of a push decided.
@@ -1937,6 +1944,37 @@ mod plan_tests {
             panic!("expected Blocked, got {got:?}");
         };
         assert!(reason.contains("`main`"), "{reason}");
+    }
+
+    #[test]
+    fn plan__a_site_branch_git_would_read_as_an_option_blocks() {
+        // `git push --force <url> --mirror` deletes every branch and tag on
+        // the remote that the push does not carry. A book's own branch names
+        // are refused for this at plan time; the site branch comes from
+        // `bower.toml` and must be held to the same rule before any forge call.
+        for bad in ["--mirror", "-x", "gh pages", "gh..pages"] {
+            let forge = FakeForge::new(RemoteState::Absent, None);
+            let root = book_root("site-option");
+            let p = one_step_plan();
+            let mut cfg = config(Some(REMOTE));
+            with_site_branch(&mut cfg, bad);
+            let dir = built("site-option-repo", &p, &root, &cfg);
+            let site = rendered("site-option-render", "hello-playbook", FP);
+
+            let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+            let PushPlan::Blocked { reason, .. } = got else {
+                panic!("`{bad}`: expected Blocked, got {got:?}");
+            };
+            assert!(
+                reason.contains(&format!("`{bad}`")) && reason.contains("site_branch"),
+                "{reason}"
+            );
+            assert!(
+                forge.calls().is_empty(),
+                "`{bad}`: a name the config alone refuses should cost the forge nothing: {:?}",
+                forge.calls()
+            );
+        }
     }
 
     #[test]
