@@ -18,6 +18,10 @@
 > ideas](docs/bower-ideas.md), folded in below under § Ideas.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
+> Re-checked 14 September 2026 against `feat/branches-slice-2` (EPIC-09
+> slice 2 shipped, not yet merged): no drift found against this file or
+> `docs/TECHNICAL_DEBT.md`, both of which the branch's own docs commits had
+> already brought current. Test count refreshed below.
 
 ## In flight
 
@@ -239,7 +243,7 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 560 passing, 0 failing (`cargo test --workspace`, 13 September 2026) |
+| Tests | 589 passing, 0 failing (`cargo test --workspace`, 14 September 2026) |
 | Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |

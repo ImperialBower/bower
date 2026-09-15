@@ -191,6 +191,25 @@ fn replay__worktree_is_main_when_the_book_ends_on_a_branch() {
 }
 
 #[test]
+fn replay__a_branch_off_the_last_main_step_changes_only_its_own_files() {
+    // `STEPS.md` and `PULLS.md` land on the last main commit. A branch that
+    // forks from it inherits them, the same as any other file; building its
+    // tree from the scaffolding and its own files alone showed both deleted —
+    // in its first commit, its `[diff]` link, and any PR opened for it.
+    let (dir, _) = replay(&ends_on_a_branch(), "branch-off-last-main");
+    let changed = git(
+        &dir,
+        &[
+            "diff",
+            "--name-status",
+            "step-006-merge-from-char",
+            "step-007-after",
+        ],
+    );
+    assert_eq!(changed, "A\tsrc/after.rs\n");
+}
+
+#[test]
 fn replay__chapter_end_tag_never_points_at_a_branch() {
     let (_, refs) = replay(&ends_on_a_branch(), "chapter-end");
     assert_eq!(

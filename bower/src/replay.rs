@@ -5,7 +5,7 @@
 //! environment variable: every commit's author, committer, and both timestamps
 //! come from `bower.toml`, which is what makes two runs produce identical SHAs.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -124,7 +124,12 @@ impl Replayer<'_> {
         }
 
         let last_main = last_main_seq(plan);
-        let final_blobs = final_blobs(plan, &book_name, self.config.site.as_deref(), &scaffolding);
+        let site = self.config.site.as_deref();
+        let final_blobs = final_blobs(plan, &book_name, site, &scaffolding);
+        let generated = generated_files(plan, &book_name, site);
+        // The steps whose trees hold the generated files: the last main step,
+        // and every branch step descended from it.
+        let mut carries_generated: BTreeSet<usize> = BTreeSet::new();
 
         for step in &plan.steps {
             // Each step's tree *replaces* the tree, so the scaffolding has to
@@ -133,8 +138,13 @@ impl Replayer<'_> {
             // had just added — which is exactly what it used to do.
             let mut blobs = scaffolding.clone();
             blobs.extend(blobs_of(&step.tree));
-            if Some(step.seq) == last_main {
-                blobs.clone_from(&final_blobs);
+            // The same holds for the generated files: a branch off the last
+            // main step that dropped them would show them deleted.
+            if Some(step.seq) == last_main
+                || step.parents.iter().any(|p| carries_generated.contains(p))
+            {
+                blobs.extend(generated.clone());
+                carries_generated.insert(step.seq);
             }
             let tree = Self::write_tree(&repo, &blobs)?;
             let msg =
@@ -355,9 +365,16 @@ pub fn final_blobs(
     };
     let mut blobs = scaffolding.clone();
     blobs.extend(blobs_of(&last.tree));
+    blobs.extend(generated_files(plan, book_name, site));
+    blobs
+}
+
+/// The files bower writes rather than the book: `STEPS.md`, and `PULLS.md` when
+/// the book declares a pull request (EPIC-09 Decision 13).
+fn generated_files(plan: &RepoPlan, book_name: &str, site: Option<&str>) -> Blobs {
+    let mut blobs = Blobs::new();
     let md = trailers::steps_md(plan, book_name, site);
     blobs.insert("STEPS.md".to_string(), (md.into_bytes(), false));
-    // Only for a repo that declares a pull request (EPIC-09 Decision 13).
     if let Some(md) = trailers::pulls_md(plan, book_name) {
         blobs.insert("PULLS.md".to_string(), (md.into_bytes(), false));
     }

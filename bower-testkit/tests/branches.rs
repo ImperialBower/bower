@@ -338,6 +338,32 @@ fn plan__a_conflict_can_arrive_through_an_earlier_merge() {
 }
 
 #[test]
+fn plan__a_region_inside_another_is_refused_before_a_merge_can_drop_it() {
+    // The branch rewrites `outer`, carrying `inner` as it was; main rewrites
+    // `inner`. The names differ, so the merge saw no conflict — and re-applying
+    // the branch's `outer` over main quietly put the old `inner` back. Regions
+    // may not nest, so the book is refused where the nesting is written.
+    let errs = plan_of(concat!(
+        "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n",
+        "```rust\n// bower:begin outer\n// bower:begin inner\nfn inner_v1() {}\n// bower:end inner\n// bower:end outer\n```\n",
+        "<!-- bower repo=\"failers\" step=\"side\" branch=\"b\" file=\"a.rs\" op=\"region\" region=\"outer\" -->\n",
+        "```rust\n// bower:begin inner\nfn inner_v1() {}\n// bower:end inner\nfn outer_extra() {}\n```\n",
+        "<!-- bower repo=\"failers\" step=\"main-inner\" file=\"a.rs\" op=\"region\" region=\"inner\" -->\n",
+        "```rust\nfn inner_v2_on_main() {}\n```\n",
+        "<!-- bower repo=\"failers\" step=\"join\" merge=\"b\" op=\"none\" msg=\"merge b\" -->\n",
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(
+            &errs.0[0],
+            BowerError::RegionNested { step, file, outer, inner, .. }
+                if step == "base" && file == "a.rs" && outer == "outer" && inner == "inner"
+        ),
+        "{errs}"
+    );
+}
+
+#[test]
 fn plan__two_appends_compose_at_a_merge() {
     let p = plan_of(concat!(
         "<!-- bower repo=\"failers\" step=\"base\" file=\"a.rs\" -->\n```rust\nstart\n```\n",

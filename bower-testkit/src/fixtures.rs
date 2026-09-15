@@ -575,6 +575,10 @@ fn broken_tree() -> Vec<(&'static str, Fixture)> {
             "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\n// bower:begin b\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" op=\"region\" region=\"b\" -->\n```rust\nx\n```\n",
         ),
         single(
+            "RegionNested",
+            "<!-- bower repo=\"failers\" file=\"a.rs\" -->\n```rust\n// bower:begin outer\n// bower:begin inner\n// bower:end inner\n// bower:end outer\n```\n",
+        ),
+        single(
             "DuplicateFileInStep",
             "<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" -->\n```rust\nx\n```\n<!-- bower repo=\"failers\" file=\"a.rs\" step=\"s\" op=\"append\" -->\n```rust\ny\n```\n",
         ),

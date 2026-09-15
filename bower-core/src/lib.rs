@@ -133,6 +133,17 @@ pub enum BowerError {
         file: String,
         region: String,
     },
+    /// A step left one region's markers inside another's. Regions may not
+    /// nest: `op="region"` replaces everything between its markers, so an edit
+    /// to the outer region rewrites the inner one too — and at a merge, where
+    /// distinct regions compose, drops main's edit to it without a conflict.
+    RegionNested {
+        loc: Location,
+        step: String,
+        file: String,
+        outer: String,
+        inner: String,
+    },
     /// An `after` key referenced a step id that does not exist in the repo.
     OrphanAfter {
         loc: Location,
@@ -286,6 +297,7 @@ impl BowerError {
             | Self::FileNotCreated { loc, .. }
             | Self::RegionMissing { loc, .. }
             | Self::RegionUnbalanced { loc, .. }
+            | Self::RegionNested { loc, .. }
             | Self::OrphanAfter { loc, .. }
             | Self::UnclosedShowSpan { loc }
             | Self::NestedShowSpan { loc }
@@ -393,6 +405,16 @@ impl std::fmt::Display for BowerError {
             } => write!(
                 f,
                 "{loc}: step `{step}`: region `{region}` in `{file}` has unbalanced begin/end markers"
+            ),
+            Self::RegionNested {
+                loc,
+                step,
+                file,
+                outer,
+                inner,
+            } => write!(
+                f,
+                "{loc}: step `{step}` leaves region `{inner}` inside region `{outer}` in `{file}`; regions may not nest"
             ),
             Self::OrphanAfter { loc, step, after } => write!(
                 f,

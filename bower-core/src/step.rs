@@ -265,6 +265,8 @@ pub fn touches(block: &Block) -> Vec<Touch> {
 
 /// Do two touches on one file compose? Distinct regions and appends do; a
 /// whole-file write composes with nothing, and one region twice is a clash.
+/// Distinct regions are disjoint only because regions may not nest — the tree
+/// fold refuses that with [`BowerError::RegionNested`].
 ///
 /// The one rule behind both a step's duplicate-file check and a merge's
 /// conflict check (EPIC-09 Decision 4): two copies would be two answers.
