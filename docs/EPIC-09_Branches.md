@@ -134,7 +134,8 @@ Faster? Maybe. Correct? The test says no.
 
 Branches from branches (`FromNotOnMain`), merges into branches
 (`MergeOnBranch`), rebases, closing a PR without merging, review comments,
-and forge-side merging. Each is a backlog line when this ships.
+and forge-side merging. Each is a backlog line when this ships — filed 15
+September 2026 under `BACKLOG.md` § Deferred from EPIC-09.
 
 ---
 
@@ -737,7 +738,7 @@ Exit criteria (slice 1 unless marked):
 
 | # | Question |
 |---|---|
-| 1 | ~~**Merged-PR detection.**~~ **Settled for GitHub, 14 September 2026** (`docs/spikes/pr-remote/`, two runs against `abstecker/bower-sandbox`): a plain fast-forward push of main to Bower's merge commit turns the open PR `MERGED` within about ten seconds, and GitHub records Bower's own commit as the PR's `mergeCommit`. Decision 8 holds on GitHub with no forge-side merge. **Forgejo is still open** ("manually merged" may need a repository setting); verify it with a Forgejo container before `ForgejoForge` ships. |
+| 1 | ~~**Merged-PR detection.**~~ **Settled for GitHub, 14 September 2026** (`docs/spikes/pr-remote/`, two runs against `abstecker/bower-sandbox`): a plain fast-forward push of main to Bower's merge commit turns the open PR `MERGED` within about ten seconds, and GitHub records Bower's own commit as the PR's `mergeCommit`. Decision 8 holds on GitHub with no forge-side merge. **Forgejo is still open** ("manually merged" may need a repository setting); verify it with a Forgejo container before `ForgejoForge` ships — carried as `DESIGN_Forges.md` § 11 question 5. |
 | 2 | ~~**PR churn on regeneration.**~~ **Settled for GitHub, 14 September 2026** (same spike). An **open** PR follows its branch through any force-push, even when every SHA changes: its head moves to the new commit and it lists the new commits against the new main — no churn, no duplicate. A **merged** PR is frozen: after its branch and main are force-pushed it stays `MERGED` with its old head and old merge commit, which are then no longer on main. `gh pr list --head <branch> --state all` still finds it, so the push sees it and leaves it alone (`PrAction::LeftMerged`) instead of opening a duplicate. Decision 8 stands: live with the drift, and let the push's dry run report a merged PR whose head is no longer on main (Decision 24). **And one hazard, found in the second run:** GitHub **closes** an open PR by itself when main is force-pushed to a history its head shares no commits with — PR #1 was closed in the same second as the base force-push, credited to the pusher. An open PR survives a rebuild when its branch and main are updated in one push — the spike's Q2b pushed both in a single `git push` — so `execute` sends the branches and main's first move as one atomic push (Decision 21, corrigendum item 13 of slice 2); a force-push of main alone to unrelated history closes it. |
 | 3 | **Closing without merging.** `pr_state="closed"` for a rejected PR — "reviewed, declined" is a *Failures* story. Cheap to add once Decision 8 stands. Deferred from slice 2 on 14 September 2026 (Decision 25): an abandoned branch's PR stays open until a chapter needs "declined". |
 | 4 | **Review comments as book content.** A PR conversation is pedagogy. It is also a second body of prose the book would have to own; not before a real chapter asks for it. |
@@ -954,7 +955,10 @@ planned; items 11–14 are changes the review ruled.*
     every push, and a PR for it would have the site as its head. Decided
     before any forge call (`push::site_branch_clash`). Tests:
     `plan__a_book_branch_named_like_the_site_branch_blocks`,
-    `plan__a_site_branch_named_main_blocks`.
+    `plan__a_site_branch_named_main_blocks`. *Widened 15 September 2026* (PR
+    #10): now `push::site_branch_problem`, which also runs `site_branch`
+    through `branch_name_problem`, so a name git would read as an option
+    (`--mirror`) is refused too.
 
 ---
 

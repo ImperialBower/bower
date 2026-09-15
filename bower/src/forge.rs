@@ -256,6 +256,15 @@ pub trait Forge {
     ///
     /// If the remote cannot be reached, or the change is refused.
     fn enable_pages(&self, repo: &str, branch: &str) -> Result<PagesAction, ForgeError>;
+
+    /// What `repo`'s Pages is set to, or `None` when it has none. Read-only:
+    /// the plan asks it so the dry run can say what [`Forge::enable_pages`]
+    /// will do, and so a site branch whose Pages never took is noticed.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be read. A repository with no Pages is `Ok(None)`.
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError>;
 }
 
 /// A [`Forge`] that talks to nothing, and remembers everything it was asked.
@@ -419,6 +428,12 @@ impl Forge for FakeForge {
             self.record("pages_mutated");
         }
         Ok(action)
+    }
+
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError> {
+        self.call("pages")?;
+        self.reachable(repo)?;
+        Ok(self.pages.clone())
     }
 
     fn create(&self, _repo: &str, _description: &str) -> Result<(), ForgeError> {
@@ -762,6 +777,10 @@ impl Forge for GitHubForge {
         Ok(action)
     }
 
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError> {
+        Self::pages_state(repo)
+    }
+
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError> {
         let (ok, _, stderr) = gh(&["repo", "create", repo, "--public", "-d", description])?;
         if ok {
@@ -799,7 +818,9 @@ impl Forge for GitHubForge {
             ))
         };
 
-        for args in [vec!["init", "-q", "-b", branch], vec!["add", "-A"]] {
+        // The staging branch's own name never leaves this directory: the push
+        // names the remote branch in its refspec (`site_push_args`).
+        for args in [vec!["init", "-q", "-b", "site"], vec!["add", "-A"]] {
             let (ok, stderr) = git(&args)?;
             if !ok {
                 return Err(fail(&format!("git {}", args.join(" ")), stderr));
@@ -825,7 +846,7 @@ impl Forge for GitHubForge {
         // Force, without a lease: an orphan commit shares no history with what
         // is there, so a lease could only ever say no. The gate has already
         // established that this branch is ours.
-        let (ok, stderr) = git(&["push", "--force", &remote_url(repo), branch])?;
+        let (ok, _, stderr) = git_in(&staging, &site_push_args(&remote_url(repo), branch))?;
         if !ok {
             return Err(fail("git push --force (site)", stderr));
         }
@@ -1261,6 +1282,23 @@ pub fn push_ref_args(url: &str, src: &str, dst: &str, lease: Option<&str>) -> Ve
     push_args(url, &[(src, dst, lease)], false)
 }
 
+/// The arguments that force the staged site commit onto the remote `branch`.
+///
+/// The branch is named only inside an explicit `HEAD:refs/heads/<branch>`
+/// refspec, never as a bare argument: git reads a bare `--mirror` there as the
+/// option, and a mirror push deletes every remote ref the staging repository
+/// does not have — every branch and tag the book published. `plan_push`
+/// refuses such a name before any forge call; this is the guard behind it.
+#[must_use]
+pub fn site_push_args(url: &str, branch: &str) -> Vec<String> {
+    vec![
+        "push".into(),
+        "--force".into(),
+        url.into(),
+        format!("HEAD:refs/heads/{branch}"),
+    ]
+}
+
 /// The arguments that push every `(sha, dst, lease)` in one atomic push
 /// ([`Forge::push_refs`]): `--atomic`, one `--force-with-lease=<dst>:<lease>`
 /// per ref that has a lease, in ref order, the URL, then one `<sha>:<dst>`
@@ -1660,6 +1698,22 @@ mod forge_tests {
             "{args:?}"
         );
         assert!(!args.iter().any(|a| a == "--force"), "{args:?}");
+    }
+
+    #[test]
+    fn site_push_args__name_the_branch_only_inside_a_refspec() {
+        assert_eq!(
+            site_push_args(URL, "gh-pages"),
+            ["push", "--force", URL, "HEAD:refs/heads/gh-pages"]
+        );
+        // The guard behind the plan-time refusal: even a name git would read
+        // as `--mirror` reaches git only as the right-hand side of a refspec.
+        let args = site_push_args(URL, "--mirror");
+        assert_eq!(
+            args.last().map(String::as_str),
+            Some("HEAD:refs/heads/--mirror")
+        );
+        assert!(!args.iter().any(|a| a == "--mirror"), "{args:?}");
     }
 
     #[test]

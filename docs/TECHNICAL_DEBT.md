@@ -5,7 +5,14 @@
 >
 > Created 1 September 2026 at `b3def07`. Re-checked 13 September 2026 at
 > `d8f24a4`: EPIC-11 closed two 🤖 findings; the other four were re-read against
-> the code and still stand. Last substantive refresh 5 September 2026, after
+> the code and still stand. Re-checked 15 September 2026 at `f765897` against
+> EPIC-09: PR #8 closed one more of its items (a branch off main's last
+> step); the thirteen still open were re-read against the code and stand.
+> The same day, the first deep automated review ran over the whole workspace
+> and added thirteen 🤖 findings. Two were fixed the same day (a `site_branch`
+> that git reads as `--mirror`, reproduced first; and a Pages enable never
+> retried); eleven are open.
+> Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
 > `--force-with-lease` that could never push twice, and a site branch that was
@@ -235,7 +242,10 @@
 - [ ] **Remote branches the book dropped are never deleted.**
   `bower push` leaves a branch the plan no longer names on the forge, by
   design — Bower never deletes — but nothing reports it either. A dry run
-  that named a remote branch absent from the plan would close this.
+  that named a remote branch absent from the plan would close this. Cheaper
+  since slice 2: `schedule` (`bower/src/schedule.rs`) already receives every
+  remote head, so the difference against the plan's branches is data in hand,
+  and only the dry-run line is left to write.
 
 - [ ] **The push gate reads `STEPS.md` from the repository's default branch,
   not from `main`, the branch it force-pushes.** `read_steps_md`
@@ -273,12 +283,13 @@
   never read for that block, rather than raising `OutputConflictingKeys` or
   `PlayCellConflictingKeys`'s equivalent (`bower-core/src/block.rs`).
 
-- [ ] **A branch forked from main's last step shows `STEPS.md`/`PULLS.md` as
-  deleted in its diff against main.** `final_blobs` swaps them into the tree
-  only at main's last step (EPIC-09 Decision 16); a branch forking there
-  carries the scaffolding tree without them, so `git diff main` against it
-  reports both files removed. A slice-2 pull request opened for that branch
-  would carry the same deletion (`bower/src/replay.rs`, `final_blobs`).
+- [x] ~~**A branch forked from main's last step shows `STEPS.md`/`PULLS.md` as
+  deleted in its diff against main.**~~ Closed 14 September 2026 in PR #8
+  (`215da7a`, EPIC-09 slice 2 corrigendum item 15). `Replayer::run` now lays
+  the generated files into the last main step's tree and into every branch
+  step descended from it (`carries_generated`, `bower/src/replay.rs`); every
+  existing SHA is unchanged. Test:
+  `replay__a_branch_off_the_last_main_step_changes_only_its_own_files`.
 
 - [ ] **Branch names are substituted into link templates unescaped.** `git
   check-ref-format` allows `#` and `)` in a branch name, and `branch_link`
@@ -331,10 +342,155 @@
 
 <!-- Promote good ones up to "Tracked debt", delete the rest. -->
 
-The deep automated review pass that normally seeds this section on first
-creation was **not run**. Say the word and it will be.
+### Deep review, 15 September 2026
 
-Found 10 September 2026 while grounding EPIC-11 to EPIC-16 against the code.
+The whole workspace at `f765897`, split four ways (kernel and testkit; push,
+forge, and schedule; publish and render; replay, verify, and status), with
+this file as the do-not-repeat list and the crates' own contracts as the
+standard. Fourteen findings came back and every one was re-checked against the
+cited lines. Thirteen are listed; one duplicate was folded into its parent, and
+one reviewer's claim (a symlink cycle overflows the stack) was corrected: the
+OS's `ELOOP` limit cuts the recursion off. The first item was reproduced
+against a local bare repository, and is fixed; so is the second. The other
+eleven are open.
+
+- [x] 🤖 ~~**`site_branch` reaches `git push` as a flag, and `--mirror` deletes
+  the remote's refs.**~~ Closed 15 September 2026, test first, with two
+  guards. `plan_push` refuses a `site_branch` that `branch_name_problem`
+  refuses, beside the existing clash check and before any forge call
+  (`site_branch_problem`, `bower/src/push.rs`). And `push_tree` names the
+  remote branch only in an explicit `HEAD:refs/heads/<branch>` refspec,
+  staged on a fixed local branch (`site_push_args`, `bower/src/forge.rs`). The
+  refspec was re-run against a local bare repository: `gh-pages` is created and
+  replaced as before, and `--mirror` deletes nothing. Tests:
+  `plan__a_site_branch_git_would_read_as_an_option_blocks`,
+  `site_push_args__name_the_branch_only_inside_a_refspec`. As built, the name
+  is checked when a push is planned, not when `bower.toml` loads: only `push`
+  uses it, and `build` should not refuse a book over a branch it never
+  touches. The original finding follows.
+
+  `[repos.<name>] site_branch` is never validated
+  (`bower/src/config.rs:64`); book branches go through `branch_name_problem`,
+  which refuses a leading `-`, but the site branch does not. `git init -q -b
+  --mirror` accepts the name, so `push_tree` runs `git push --force <url>
+  --mirror` (`bower/src/forge.rs:828`). Reproduced 15 September 2026: every
+  branch and every tag on the remote was deleted. Only the checked-out branch
+  survived, because the remote refused to delete it (GitHub refuses the same
+  for the default branch). On GitHub, deleting an open PR's head branch closes
+  the PR. `probe_branch` finds `--mirror` absent, so the gate waves it through,
+  and `site_branch_clash` (`bower/src/push.rs:699`) checks only `main` and the
+  book's own branches. Suggested: run `site_branch` through
+  `branch_name_problem` when `bower.toml` loads, and push an explicit refspec
+  (`HEAD:refs/heads/<branch>`) so no ref name is ever read as an option.
+  (`bower/src/forge.rs:828`)
+- [x] 🤖 ~~**A failed `enable_pages` is never retried.**~~ Closed 15 September
+  2026, test first. After the gates pass, the plan reads Pages
+  (`Forge::pages`, read-only; skipped when the repository does not exist yet)
+  and decides with a pure `planned_pages` (`bower/src/push.rs`). A branch this
+  run creates gets whatever `pages_action` decides, as before. A branch that
+  already exists gets `enable_pages` only while Pages is not serving it
+  (`Create` or `Repoint`). A branch Pages already serves gets no call, so a
+  steady-state push does not request a second build. `SitePush::pages`
+  carries the decision; `publish_site` calls `enable_pages` when it is `Some`,
+  and the dry run prints it. Tests:
+  `planned_pages__an_existing_branch_is_retried_only_while_pages_is_not_serving_it`,
+  `planned_pages__a_new_branch_gets_whatever_pages_action_decides`,
+  `plan__an_existing_site_branch_whose_pages_never_took_plans_to_enable_them`,
+  `plan__a_site_branch_pages_already_serves_plans_no_pages_call`. Not yet run
+  against real GitHub: `GitHubForge::pages` is the existing `pages_state` read.
+  The original finding follows.
+
+  `SitePush::create` comes
+  from the probe *before* the push (`bower/src/push.rs:775`), and
+  `publish_site` calls `enable_pages` only `if s.create`
+  (`bower/src/main.rs:817`). If the branch push succeeds and the `gh api` call
+  after it fails, the next push finds the branch present with a matching
+  marker. `create` is then `false`, Pages is never enabled, and the dry run's
+  `pages` line says nothing. That is the closed "site branch pushed but never
+  served" defect again, reached through a partial failure. Suggested: decide
+  from Pages' own state. Call `enable_pages` on every site push and let
+  `pages_action`, which already leaves a served site alone, choose.
+  (`bower/src/main.rs:817`)
+- [ ] 🤖 **`verify --record` rewrites chapters in place, one at a time.**
+  `write_chapters` runs `std::fs::write` on each changed chapter
+  (`bower/src/record.rs:86`): truncate, then write. If it is killed partway,
+  the author's chapter is left cut short. If one chapter fails in a
+  multi-chapter run, the earlier ones are already rewritten and `bower.lock`
+  (written after, `bower/src/main.rs:290`) is not. This is the only code path
+  that edits an author's source, and no test covers a failed write. Suggested:
+  write each chapter to a sibling temp file and `rename` it into place, and
+  add a test where the second of two chapters cannot be written.
+  (`bower/src/record.rs:86`)
+- [ ] 🤖 **`verify` has no timeout.** `run` blocks on `read_to_end` and then
+  `wait` (`bower/src/verify.rs:591`). A step whose test loops or deadlocks
+  hangs `bower verify` forever, and CI's job timeout never names the step.
+  Suggested: poll `try_wait` against a deadline (configurable per book), kill
+  the child, and report a distinct timed-out verdict naming the step.
+  (`bower/src/verify.rs:591`)
+- [ ] 🤖 **Two regions with one name in one file: the second can never be
+  edited.** `apply_region` finds the *first* `begin`/`end` pair for a name
+  (`bower-core/src/tree.rs:247`). `nested_region` catches one region inside
+  another but not two same-named siblings, so every `op="region"` rewrites
+  the first and the second goes stale with no error. Suggested: refuse a
+  repeated region name in one file, at the block that wrote it, the way
+  `RegionNested` is refused. (`bower-core/src/tree.rs:247`)
+- [ ] 🤖 **A display span whose text appears twice in a file links to the
+  first copy.** `find_window` returns the first match
+  (`bower-core/src/display.rs:241`), so a short span such as `Ok(())` or
+  `todo!()` anchors its footer and line links at an earlier occurrence. The
+  `line_map_is_exact` property cannot see it, because the text at the wrong
+  range is identical. Suggested: search from the block's own position in the
+  file, or refuse a span that matches more than once.
+  (`bower-core/src/display.rs:241`)
+- [ ] 🤖 **A malformed `cover.svg` publishes a blank title band.** `nest_svg`
+  returns `""` when it cannot find `<svg` or the end of its start tag
+  (`bower/src/publish.rs:281`). `compose_cover` and `load_cover` pass that
+  along as `Ok`, so the epub and PDF ship with the title missing and no
+  warning. Suggested: return a `Result` and refuse the cover with a named
+  `PublishError`. (`bower/src/publish.rs:281`)
+- [ ] 🤖 **A block-form exercise ignores `branch=`, `from=`, `merge=`, and
+  `pr=`.** The `exercise_block` arm of `resolve` checks only for a fence
+  (`bower-core/src/block.rs:373`); the play-cell arm above it refuses line
+  keys with `carries_line_keys`. A stray `merge="…"` on an exercise plans
+  cleanly and is never read. The same family as the tracked "PR block
+  silently ignores keys" item; fix both together. Suggested: refuse line keys
+  in the exercise arm, as the play-cell arm does. (`bower-core/src/block.rs:373`)
+- [ ] 🤖 **`check_fonts` ignores `typst fonts`' exit status.** Every other
+  tool call in `publish.rs` checks `status.success()`; this one reads stdout
+  regardless (`bower/src/publish.rs:1161`). A broken `typst` gives empty
+  output, and the error then says a font is not installed. Suggested: return
+  `PublishError::Failed { what: "typst fonts", … }` when the command fails.
+  (`bower/src/publish.rs:1161`)
+- [ ] 🤖 **The render-asset walk follows symlinks under `src/`.**
+  `collect_assets_into` recurses on `path.is_dir()`
+  (`bower/src/publish.rs:709`), which follows links. A symlink out of `src/`
+  pulls outside files into the render directory. A cycle is cut off only by
+  the OS's symlink limit (`ELOOP`), after copying its assets dozens of times.
+  The same shape as the tracked `template/` symlink item, in a second walker.
+  Suggested: skip symlinks via `entry.file_type()`, and share one walker with
+  `materialize::read_dir_recursive`. (`bower/src/publish.rs:709`)
+- [ ] 🤖 **`report_push`'s sequencing is untested.** The order it enforces
+  (create the repository, `execute` the schedule, the site, Pages, then the
+  release) and the rule that a failure stops what follows live in private
+  functions in `bower/src/main.rs:858`, a file with no test module, always
+  handed a real `GitHubForge`. Unlike `execute`, nothing drives it with
+  `FakeForge`. Suggested: move it into `push.rs` behind `&dyn Forge` and
+  test the order and each short-circuit. (`bower/src/main.rs:858`)
+- [ ] 🤖 **`ConflictingRepoInStep` has no fixture and no test.** It is the one
+  `BowerError` variant nothing constructs outside its call site
+  (`bower-core/src/step.rs:115`), and `corpus.rs` does not require every
+  variant to have a broken fixture. Suggested: add a two-repo `broken()`
+  fixture, and have the corpus fail when a variant has none.
+  (`bower-core/src/step.rs:115`)
+- [ ] 🤖 **`push_tree` reports a file count as `PushOutcome::tags`.**
+  (`bower/src/forge.rs:837`). `FakeForge::push_tree` returns `tags: 0`, so
+  nothing notices, and the only reader (`bower/src/main.rs:809`) knows the
+  trick. Suggested: give the site push its own `files` field.
+  (`bower/src/forge.rs:837`)
+
+### Grounding EPIC-11 to EPIC-16, 10 September 2026
+
+Found while grounding EPIC-11 to EPIC-16 against the code.
 Each was checked against the cited lines. Each EPIC that owns a fix says so.
 
 - [ ] 🤖 **`test_fail` accepts any failing test.** A step is upheld when the

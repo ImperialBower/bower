@@ -21,10 +21,13 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use bower_core::branch::branch_name_problem;
 use bower_core::prelude::RepoPlan;
 
 use crate::config::BookConfig;
-use crate::forge::{Forge, ForgeError, RefPush, RemoteState};
+use crate::forge::{
+    Forge, ForgeError, PagesAction, PagesState, RefPush, RemoteState, pages_action,
+};
 use crate::replay::{BRANCH, book_name, expected_tags, final_blobs, scaffolding};
 use crate::schedule::{Move, Schedule, schedule};
 use crate::status::{RepoDrift, SiteDrift, StatusError, repo_drift, site_drift};
@@ -143,6 +146,9 @@ pub struct SitePush {
     pub files: usize,
     /// The branch does not exist yet.
     pub create: bool,
+    /// What the push will ask of Pages after the branch goes out, or `None`
+    /// when Pages needs nothing (`planned_pages`).
+    pub pages: Option<PagesAction>,
 }
 
 #[derive(Debug)]
@@ -209,7 +215,7 @@ pub fn plan_push(
         })
     };
 
-    if let Some(why) = site_branch_clash(cfg, &repo, plan) {
+    if let Some(why) = site_branch_problem(cfg, &repo, plan) {
         return blocked(why);
     }
 
@@ -280,6 +286,9 @@ pub fn plan_push(
         } else {
             Vec::new()
         };
+    let site = site
+        .map(|s| with_pages(forge, &remote, state, s))
+        .transpose()?;
     let schedule = schedule(
         plan,
         &remote_heads,
@@ -690,22 +699,28 @@ pub fn collect_assets(dir: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Why the repo's `site_branch` cannot be published, when it names a branch the
-/// push also sends — `main` or one of the book's own. The site is force-pushed
-/// after the repository, so it would replace that branch on every push.
+/// Why the repo's `site_branch` cannot be published: it names a branch the
+/// push also sends — `main` or one of the book's own — or it is not a name a
+/// book's own branch could have.
+///
+/// The site is force-pushed after the repository, so a clash would replace
+/// that branch on every push. A name `branch_name_problem` refuses is refused
+/// here for the same reasons it is refused in a chapter: `--mirror` would
+/// reach git as the option and delete every remote ref the site does not carry.
 ///
 /// Decided from the book and its config alone, so it is asked before anything
 /// is asked of the forge.
-fn site_branch_clash(cfg: &BookConfig, repo: &str, plan: &RepoPlan) -> Option<String> {
+fn site_branch_problem(cfg: &BookConfig, repo: &str, plan: &RepoPlan) -> Option<String> {
     let site = cfg.repos.get(repo)?.site_branch.as_deref()?;
     let main = BRANCH.strip_prefix("refs/heads/").unwrap_or(BRANCH);
-    let clash = site == main || plan.branches.iter().any(|b| b.name == site);
-    clash.then(|| {
-        format!(
+    if site == main || plan.branches.iter().any(|b| b.name == site) {
+        return Some(format!(
             "`{site}` is both a branch this repository pushes and its `site_branch`; \
              the site would replace the branch on every push — rename one"
-        )
-    })
+        ));
+    }
+    branch_name_problem(site)
+        .map(|why| format!("`{site}` cannot be this repository's `site_branch`: {why}"))
 }
 
 /// What the site half of a push decided.
@@ -773,7 +788,40 @@ fn plan_site(
         dir: site_dir.to_path_buf(),
         files,
         create: state == RemoteState::Absent,
+        // Filled in by `with_pages`, once every gate has passed.
+        pages: None,
     }))
+}
+
+/// Read Pages for a site push the gates have passed, and decide what to ask
+/// of it. A repository that does not exist yet has no Pages to read.
+fn with_pages(
+    forge: &dyn Forge,
+    remote: &str,
+    state: RemoteState,
+    mut site: SitePush,
+) -> Result<SitePush, PushError> {
+    let current = if state == RemoteState::Absent {
+        None
+    } else {
+        forge.pages(remote).map_err(PushError::Forge)?
+    };
+    site.pages = planned_pages(current.as_ref(), &site.branch, site.create);
+    Ok(site)
+}
+
+/// What a site push should ask of Pages, or `None` when nothing.
+///
+/// A branch this run creates gets whatever [`pages_action`] decides, as it
+/// always has. A branch that is already there gets a call only while Pages is
+/// not serving it — `Create` or `Repoint` — which is how a run that pushed the
+/// branch and then failed to enable Pages is finished by the next one; deciding
+/// from "the branch is new" alone left that repository unserved for good. A
+/// branch Pages already serves needs nothing: the push itself triggers the
+/// build, and asking for another would build twice on every push.
+fn planned_pages(current: Option<&PagesState>, branch: &str, created: bool) -> Option<PagesAction> {
+    let action = pages_action(current, branch);
+    (created || matches!(action, PagesAction::Create | PagesAction::Repoint)).then_some(action)
 }
 
 #[cfg(test)]
@@ -1885,6 +1933,7 @@ mod plan_tests {
         };
         assert_eq!(s.branch, "gh-pages");
         assert!(s.create, "the branch does not exist yet");
+        assert_eq!(s.pages, Some(PagesAction::Create));
         assert!(s.files >= 2, "index.html plus the two marker files");
         assert!(
             !forge.mutated(),
@@ -1940,6 +1989,143 @@ mod plan_tests {
     }
 
     #[test]
+    fn plan__a_site_branch_git_would_read_as_an_option_blocks() {
+        // `git push --force <url> --mirror` deletes every branch and tag on
+        // the remote that the push does not carry. A book's own branch names
+        // are refused for this at plan time; the site branch comes from
+        // `bower.toml` and must be held to the same rule before any forge call.
+        for bad in ["--mirror", "-x", "gh pages", "gh..pages"] {
+            let forge = FakeForge::new(RemoteState::Absent, None);
+            let root = book_root("site-option");
+            let p = one_step_plan();
+            let mut cfg = config(Some(REMOTE));
+            with_site_branch(&mut cfg, bad);
+            let dir = built("site-option-repo", &p, &root, &cfg);
+            let site = rendered("site-option-render", "hello-playbook", FP);
+
+            let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+            let PushPlan::Blocked { reason, .. } = got else {
+                panic!("`{bad}`: expected Blocked, got {got:?}");
+            };
+            assert!(
+                reason.contains(&format!("`{bad}`")) && reason.contains("site_branch"),
+                "{reason}"
+            );
+            assert!(
+                forge.calls().is_empty(),
+                "`{bad}`: a name the config alone refuses should cost the forge nothing: {:?}",
+                forge.calls()
+            );
+        }
+    }
+
+    fn pages(build_type: &str, branch: &str, ever_built: bool) -> PagesState {
+        PagesState {
+            build_type: build_type.to_string(),
+            branch: Some(branch.to_string()),
+            ever_built,
+        }
+    }
+
+    #[test]
+    fn planned_pages__a_new_branch_gets_whatever_pages_action_decides() {
+        // Unchanged from before the plan read Pages: a branch this run creates
+        // has always been handed to `enable_pages`, whatever it then decided.
+        let cases = [
+            (None, PagesAction::Create),
+            (Some(pages("workflow", "main", false)), PagesAction::Repoint),
+            (
+                Some(pages("legacy", "gh-pages", true)),
+                PagesAction::BuildOnly,
+            ),
+        ];
+        for (current, want) in cases {
+            assert_eq!(
+                planned_pages(current.as_ref(), "gh-pages", true),
+                Some(want)
+            );
+        }
+        let theirs = pages("legacy", "docs", true);
+        assert!(matches!(
+            planned_pages(Some(&theirs), "gh-pages", true),
+            Some(PagesAction::LeaveAlone { .. })
+        ));
+    }
+
+    #[test]
+    fn planned_pages__an_existing_branch_is_retried_only_while_pages_is_not_serving_it() {
+        // The run that created the branch pushed it, then failed to enable
+        // Pages: the next run finds the branch there and must finish the job.
+        assert_eq!(
+            planned_pages(None, "gh-pages", false),
+            Some(PagesAction::Create)
+        );
+        assert_eq!(
+            planned_pages(Some(&pages("workflow", "main", false)), "gh-pages", false),
+            Some(PagesAction::Repoint)
+        );
+        // Served already: the push itself triggers the build, and asking for
+        // another would build twice on every push.
+        assert_eq!(
+            planned_pages(Some(&pages("legacy", "gh-pages", true)), "gh-pages", false),
+            None
+        );
+        // Somebody else's site: nothing to do, and nothing to say every push.
+        assert_eq!(
+            planned_pages(Some(&pages("legacy", "docs", true)), "gh-pages", false),
+            None
+        );
+    }
+
+    #[test]
+    fn plan__an_existing_site_branch_whose_pages_never_took_plans_to_enable_them() {
+        // The partial failure: a run pushed the site branch, then its
+        // `enable_pages` call failed. The branch is there and marked ours, so
+        // the site is not new — and Pages is still not set up.
+        let marker = crate::publish::site_marker(BOOK_DIR, FP);
+        let forge = FakeForge::new(RemoteState::HasContent, Some(ours()))
+            .with_site(RemoteState::HasContent, Some(marker));
+        let root = book_root("pages-retry");
+        let p = one_step_plan();
+        let mut cfg = config(Some(REMOTE));
+        with_site_branch(&mut cfg, "gh-pages");
+        let dir = built("pages-retry-repo", &p, &root, &cfg);
+        let site = rendered("pages-retry-render", BOOK_DIR, FP);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+        let PushPlan::Ready { site: Some(s), .. } = got else {
+            panic!("expected Ready with a site, got {got:?}");
+        };
+        assert!(!s.create, "the branch is already there");
+        assert_eq!(s.pages, Some(PagesAction::Create));
+        assert!(
+            !forge.mutated(),
+            "reading Pages is not changing it: {:?}",
+            forge.calls()
+        );
+    }
+
+    #[test]
+    fn plan__a_site_branch_pages_already_serves_plans_no_pages_call() {
+        let marker = crate::publish::site_marker(BOOK_DIR, FP);
+        let mut forge = FakeForge::new(RemoteState::HasContent, Some(ours()))
+            .with_site(RemoteState::HasContent, Some(marker));
+        forge.pages = Some(pages("legacy", "gh-pages", true));
+        let root = book_root("pages-served");
+        let p = one_step_plan();
+        let mut cfg = config(Some(REMOTE));
+        with_site_branch(&mut cfg, "gh-pages");
+        let dir = built("pages-served-repo", &p, &root, &cfg);
+        let site = rendered("pages-served-render", BOOK_DIR, FP);
+
+        let got = plan_push(&forge, &cfg, FP, &p, &dir, &site, &root).unwrap();
+        let PushPlan::Ready { site: Some(s), .. } = got else {
+            panic!("expected Ready with a site, got {got:?}");
+        };
+        assert_eq!(s.pages, None, "{s:?}");
+    }
+
+    #[test]
     fn site_push__is_not_called_when_the_gate_refuses() {
         // The assertion that matters: not that a refusal was printed, but that
         // somebody's hand-built `gh-pages` was never touched.
@@ -1957,6 +2143,11 @@ mod plan_tests {
         assert!(
             !forge.mutated(),
             "the site was touched despite a refusal: {:?}",
+            forge.calls()
+        );
+        assert!(
+            !forge.calls().iter().any(|c| c == "pages"),
+            "a refused site has nothing of its Pages read: {:?}",
             forge.calls()
         );
     }

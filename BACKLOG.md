@@ -23,6 +23,11 @@
 > EPIC was cut loose from *Rust for Failures*: an EPIC is proven on
 > `hello-playbook` alone, and neither `make build` nor CI builds the real book.
 > Its former EPIC work items are under § In flight.
+> Re-checked 15 September 2026 against EPIC-09 (PR #10 open,
+> `docs/epic-09-followups`): nothing in the EPIC is unfinished. What it left
+> out is under § Deferred from EPIC-09, its Forgejo question is
+> `DESIGN_Forges.md` § 11 question 5, and its thirteen open debt items are
+> summarized under § Known gaps.
 
 ## In flight
 
@@ -56,7 +61,7 @@
 | **The scrubber** | [`docs/EPIC-15_Scrubber.md`](docs/EPIC-15_Scrubber.md) | Idea A3. About 11 KB of JSON per repo, and a widget under 16 KB with no dependencies, in the HTML book only. It is the project's first JavaScript. The reverse line map the idea assumed does not exist, so the kernel gains a line diff. Shares EPIC-12's file history. Eight phases; six open questions. |
 | **Editions** | [`docs/EPIC-16_Editions.md`](docs/EPIC-16_Editions.md) | Spec § 13 M2 with ideas B1, B3, B4 and C4. `bower edition cut` writes one file that is both the pin and the verification receipt. Adds `edition-<id>/…` step tags that never move, and releases that only ever gain files. Owns `[book] version`. Found that today's `--clobber` and `push --force --tags` would overwrite a frozen edition. B4's toolchain board and B1's DOIs are deferred. Six phases; eight open questions. |
 | **Authoring bridges** | spec § 14 | Obsidian and Scrivener. Explicitly scoped only after Phase 5. |
-| **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; four open questions of its own (§ 11). |
+| **Forges** | [`docs/DESIGN_Forges.md`](docs/DESIGN_Forges.md) | A `forgejo` `Forge` kind, named forges in `bower.toml`, per-forge link templates and rendering, and `bower forge up/down/status` over a three-service compose file. Also the first way to test the `Forge` trait end to end — the known gap below. Design written, not scheduled; five open questions of its own (§ 11), one of them EPIC-09's: whether Forgejo marks a PR merged when main is pushed past it. |
 | **Voice** | [`docs/EPIC-10_Voice.md`](docs/EPIC-10_Voice.md) | The book as the source of truth for the ear: `<!-- voice … -->` cues in the prose, a `bower-voice` kernel beside `bower-core` that folds them into a narrator's script, a breakdown, and a palette fit (which characters a narrator can reach, and which two collide). Spike at `docs/spikes/bower-voice-spike/` — 41 tests, three mutations caught. Filed 10 September 2026; Phase 1 not started; five open questions (§ Open questions). |
 
 ## Ideas — not yet EPICs
@@ -89,6 +94,21 @@ The rest stay ideas:
 The doc's Part F carries eight open questions of its own. Q7 is the big one:
 is Bower-for-others a goal, or a side effect?
 
+### Deferred from EPIC-09
+
+What [EPIC-09](docs/EPIC-09_Branches.md) left out on purpose, each waiting for
+a chapter that needs it. Any of them is an EPIC of its own when it comes, proven
+on `hello-playbook`.
+
+| Deferred | Today | Trigger, and what it costs |
+|---|---|---|
+| **Branches off branches** | `FromNotOnMain`: `from=` must name a main step (Decision 19) | A chapter that forks an experiment from an experiment. The fold generalises — main becomes one more `BranchState` — so the cost is in the lock and the render, not the kernel. |
+| **Merges into branches** | `MergeOnBranch`: a merge sits on main (Decision 19) | A chapter that folds one branch into another before main. Lifts with the one above. |
+| **Rebases** | Not modelled; a branch's parents are fixed plan values | A chapter about rewriting history. Every SHA after the rebase point moves, so replay's blast-radius golden needs a rebase case. |
+| **Closing a PR without merging** | An abandoned branch's PR stays open (open question 3, Decision 25) | A chapter that needs "reviewed, declined" — a *Failures* story. Likely a `pr_state="closed"` key; cheap now that Decision 8 stands. |
+| **Review comments as book content** | Not modelled (open question 4) | A real chapter that teaches through a PR conversation. A second body of prose the book must own. |
+| **Merging on the forge** | Bower makes every merge commit itself, deterministically (Decision 8) | Probably never: a forge-side merge commit cannot be byte-reproducible. Revisit only if a forge refuses to mark a PR merged by a plain push — see the Forgejo question in [`DESIGN_Forges.md`](docs/DESIGN_Forges.md) § 11. |
+
 ## Spikes
 
 Throwaway code that settled a design before an EPIC was written. None is a
@@ -98,6 +118,7 @@ workspace member, so `make ayce` never sees them.
 |---|---|---|
 | [`docs/spikes/bower-voice-spike/`](docs/spikes/bower-voice-spike/) | EPIC-10 | 41 tests green. Promoted, not copied, into `bower-voice/` in Phase 1. |
 | [`docs/spikes/bower-jupyter/bower-ipynb-poc/`](docs/spikes/bower-jupyter/bower-ipynb-poc/) | `--target ipynb` | Python and Docker. Not run in this refresh — it needs `pkcore.py` and Jupyter. |
+| [`docs/spikes/pr-remote/`](docs/spikes/pr-remote/) | EPIC-09 slice 2 | Two runs against `abstecker/bower-sandbox`, 14 September 2026, settled open questions 1 and 2 for GitHub. The EPIC shipped; the spike stays as the harness for the Forgejo half of question 1, but `run.sh` speaks only `gh`, so a Forgejo run needs its own client first. |
 
 ## Known gaps
 
@@ -112,6 +133,8 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
+- [ ] 🤖 Eleven open findings from the 15 September 2026 deep review ([`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) § Automated review findings). The worst: `verify --record` rewriting chapters in place, and `verify` with no timeout
+- [ ] EPIC-09 left thirteen debt items. Two can strand a live repository: a push interrupted while main stands on a stepping stone leaves the remote failing the marker gate for good, and the gate reads `STEPS.md` from the forge's default branch rather than `main`. Most of the rest are edges no book reaches yet: an all-branch book, a branch named like a `-end` tag, unescaped `|` and `)` in branch names and PR titles, and one mistake reported twice. One is nearly free since slice 2: naming remote branches the book dropped, because `schedule` already reads every remote head.
 
 ## Open questions — decisions, not code
 
@@ -135,6 +158,26 @@ Generated repos are unaffected — each book still publishes to its own GitHub
 repository. See `bower-spec.md` § 12.
 
 ## Recently fixed
+
+- **One failed Pages call left a site unserved for good.** `bower push`
+  enabled Pages only for a site branch that run had created. So if the branch
+  push worked and the `gh api` call after it failed, every later push found
+  the branch already there and never tried again. Nothing reported it either:
+  the dry run's `pages` line was gated the same way. That is the "pushed but
+  never served" defect of 5 September, reached through a partial failure.
+  Fixed 15 September 2026: the plan reads Pages once the gates pass. It
+  enables Pages for a new branch as before, or for an existing one Pages is
+  not serving yet, and the dry run says which. A branch that is already served
+  gets no extra call. Found by the deep automated review.
+
+- **A `site_branch` git read as an option could delete the remote's refs.**
+  `site_branch` was never validated, and the site push passed it to `git push`
+  as a bare argument. With `site_branch = "--mirror"`, that became a mirror
+  push, which deleted every branch and tag the site did not carry. Found by the
+  deep automated review and reproduced against a local bare repository. Fixed
+  15 September 2026 with two guards: `bower push` refuses any site branch name
+  a chapter's own branch could not have, before any forge call, and the site
+  push names the branch only inside a `HEAD:refs/heads/<branch>` refspec.
 
 - **A book could render with every directive still on the page.** mdBook 0.5
   renamed the top-level key of the preprocessor envelope from `sections` to
@@ -223,7 +266,8 @@ repository. See `bower-spec.md` § 12.
   branch drift in `status`, the footer's branch and compare links, a merge's
   own `step-meta` line, and `bower push` publishing every branch with its own
   lease. The sample book's `ch07-try-it-on-a-branch.md` carries one unmerged
-  branch and one two-parent merge. Slice 2 (the forge's pull requests) is next.
+  branch and one two-parent merge. Slice 2 (the forge's pull requests) followed
+  the next day.
 - **[EPIC-11 — captured diagnostics](docs/EPIC-11_Diagnostics.md)** (12 September 2026, merged as PR #5) — 9/9 components. `output="check"|"verify"` records what the compiler said as book content; `verify` fails on drift, `--record` writes it, `[...]` trims it. Found and fixed: `verify` under `make` ignored every tree's toolchain pin.
 - **Releases** (3 September 2026) — `bower push` hangs a GitHub release off
   `[book] version` and attaches every `.pdf`/`.epub` in the repo's `assets`
@@ -250,7 +294,7 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 589 passing, 0 failing (`cargo test --workspace`, 14 September 2026) |
+| Tests | 601 passing, 0 failing (`cargo test --workspace`, 15 September 2026) |
 | Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
