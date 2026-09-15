@@ -487,8 +487,10 @@ failure or event holds is in bounds.
 - [ ] **5a.** `books/hello-playbook/src/back-matter.md` with all three
   placements, listed in `SUMMARY.md`; the testkit's `include_str!` fixture and
   `loader__reads_hello_playbook_in_summary_order` (`loader.rs:172`) updated.
-- [ ] **5b.** A failure index in `books/rust4failures` — the book the index
-  exists for.
+- **5b.** ~~A failure index in `books/rust4failures` — the book the index
+  exists for.~~ *Withdrawn 14 September 2026:* no EPIC depends on *Rust for
+  Failures*. 5a's `hello-playbook` placements are the proof (exit criterion
+  3); the book adopts an index as its own work.
 - [ ] **5c.** `.okf/model/` pages for placement and back matter; the key in
   the directive table; `BACKLOG.md` ideas row for A9 points here.
 - [ ] **5d.** Flip Status rows; append the corrigendum.

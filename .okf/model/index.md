@@ -29,4 +29,4 @@ no renderers.
 # When it goes wrong
 
 * [Expectation — controlled failure as an executable claim](expectation.md) - `pass`, `compile_fail`, `test_fail`, `none`.
-* [Errors — located and collected](errors.md) - 49 variants, each carrying its chapter and line.
+* [Errors — located and collected](errors.md) - 50 variants, each carrying its chapter and line.

@@ -591,10 +591,10 @@ cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo tree -p bower-core  -e normal          # one line
 cargo tree -p bower-voice -e normal          # two lines: bower-voice, bower-core
-cargo run -p bower -- --book books/rust4failures voices
-cargo run -p bower -- --book books/rust4failures voices --fit christoph
-cargo run -p bower -- --book books/rust4failures script --chapter ch01-local_development
-cargo run -p bower -- --book books/rust4failures status
+cargo run -p bower -- --book books/hello-playbook voices
+cargo run -p bower -- --book books/hello-playbook voices --fit christoph
+cargo run -p bower -- --book books/hello-playbook script --chapter ch01-a-repo-that-builds
+cargo run -p bower -- --book books/hello-playbook status
 ```
 
 Exit criteria:

@@ -124,12 +124,12 @@ jobs:
 
       - run: make slow
 
-      # The sample book, rendered through the preprocessor.
+      # The sample book, rendered through the preprocessor. `make slow` above
+      # has already verified every one of its steps against a real compiler,
+      # recorded outputs included: the day a new compiler changes a diagnostic
+      # the book quotes, that is what says so.
+      #
+      # Rust for Failures is not built here. It is a book in progress, and its
+      # state must never decide whether bower's own CI is green; `make
+      # failures` is for whoever is writing it.
       - run: make book
-
-      # The real book, planned, verified against this rustc, and checked for
-      # drift. `verify` compiles once per step, which is the point: the day a
-      # new compiler changes a diagnostic the book quotes, this is what says
-      # so. Nothing here touches a network — `make failures` stops before
-      # `push`, so publishing stays a decision someone makes at a terminal.
-      - run: make failures

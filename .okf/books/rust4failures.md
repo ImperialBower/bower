@@ -4,7 +4,7 @@ title: Rust for Failures
 description: The real book — "How controlled failing is the way to build solid systems" — and the Phase 5 migration that is Bower's current in-flight work.
 resource: https://github.com/ImperialBower/bower/tree/main/books/rust4failures
 tags: [book, in-flight, phase-5]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # What it is
@@ -57,6 +57,14 @@ make failures-epub / -pdf    # the download formats
 make ship-failures           # report what a push would do
 make ship-failures-execute   # the same, then actually push
 ```
+
+# Outside every gate
+
+Since 14 September 2026 nothing in `make ayce`, `make build`, or CI reaches
+these targets, and no EPIC depends on this book. It is a book in progress: a
+chapter that does not resolve yet must never turn bower's own gate red, nor
+leave an EPIC unclosable. `hello-playbook` is where features are proven. See
+[EPICs are proven on the sample book](/decisions/epics-use-the-sample-book.md).
 
 # What is next
 

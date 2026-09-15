@@ -3,7 +3,7 @@ type: Reference
 title: Getting started — orienting in this repository
 description: The shortest path to a working mental model of Bower, and the daily loop for changing it.
 tags: [getting-started, orientation]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # The one-sentence model
@@ -53,7 +53,8 @@ Editing chapter prose shifts the line numbers that
 [`bower.lock`](/config/bower-lock.md) records as step anchors, so `bower status`
 reports the lock `STALE` and `bower/tests/status.rs` fails. That is the drift
 report working. Run [`bower plan`](/commands/plan.md) — or just `make build`,
-which now does it for both books — and commit the lock diff.
+which does it for the sample book — and commit the lock diff. *Rust for
+Failures* is outside every gate; `make failures` re-plans it.
 
 # Where to look when
 

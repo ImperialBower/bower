@@ -563,7 +563,8 @@ preprocessor get the caption through the one `chapter` function
   quoted.
   `ch03-rank.md` is commented out of `SUMMARY.md`
   (`books/rust4failures/src/SUMMARY.md:11`), so its block is planned only once
-  the chapter is listed.
+  the chapter is listed. *Amended 14 September 2026:* that block is book work,
+  not this EPIC's — 5a is the EPIC's proof.
 - [x] **5c.** Spec: `output` in § 3.2 (`bower-spec.md:122-136`). The output
   block replaces § 6's "stored pattern" and "named test"
   (`bower-spec.md:348-349`). § 12 Q3 amended to "failure-only by default;
@@ -705,7 +706,6 @@ cargo run -p bower -- --book books/hello-playbook verify --record --step wont-co
 git diff --stat books/         # only fence bodies and bower.lock
 cargo run -p bower -- --book books/hello-playbook status -o target/hello-playbook
 make book && make epub
-make failures
 ```
 
 Exit criteria:
@@ -720,8 +720,11 @@ Exit criteria:
    scheduling record identical text on one toolchain.
 5. `bower build` gives identical SHAs for every tag before and after
    `--record`.
-6. `make failures` fails when the pinned toolchain rewords E0004, which makes
-   `slow.yml:130-133` true.
+6. `make slow` fails when the pinned toolchain rewords the E0308 recorded
+   under `hello-playbook`'s `wont-compile`, which makes `slow.yml`'s promise
+   true. *Amended 14 September 2026:* this was `make failures` and E0004 in
+   *Rust for Failures*; no EPIC depends on that book, and CI no longer builds
+   it.
 7. `cargo tree -p bower-core -e normal` still prints one line.
 
 ---
@@ -751,7 +754,7 @@ Phase status:
 | 2 (`capture.rs`) | Shipped | eight rules; `[...]` matching in `drift` |
 | 3 (verify, `--record`) | Shipped | |
 | 4 (render) | Shipped | caption on all three targets |
-| 5 (books, docs) | Shipped | `ch03-rank.md`'s block waits for the chapter to be listed |
+| 5 (books, docs) | Shipped | `ch03-rank.md`'s block is *Rust for Failures*' own work, outside the EPIC |
 
 What differed from the design while building it:
 

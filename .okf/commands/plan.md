@@ -3,7 +3,7 @@ type: CLI Command
 title: bower plan
 description: Resolves the book into a plan, prints it, and writes bower.lock — the command that must be re-run whenever chapter edits move a step's anchor.
 tags: [command, plan, lock]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # Usage
@@ -42,7 +42,7 @@ lock      STALE — 4 line(s) differ; run `bower plan`
 This is not a bug — it is the drift report doing its job. The fix is to re-plan
 and commit the new lock.
 
-Because that is easy to forget, `make plan` regenerates both books' locks and is
+Because that is easy to forget, `make plan` regenerates `hello-playbook`'s lock and is
 folded into `make build`, so a plain [`make ayce`](/operations/make-ayce.md)
 never leaves a stale anchor behind.
 

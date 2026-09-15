@@ -348,7 +348,9 @@ Each was checked against the cited lines. Each EPIC that owns a fix says so.
 - [x] 🤖 ~~**A CI comment promises a check that does not exist.**~~ Closed
   12 September 2026 by EPIC-11: `make failures` in `slow.yml` now verifies the
   recorded `output=` blocks, so the comment at `.github/workflows/slow.yml:130`
-  is true as written.
+  is true as written. Since 14 September 2026 the promise rests on
+  `hello-playbook`'s recorded outputs, which `make slow` verifies; CI no
+  longer builds *Rust for Failures*.
 - [ ] 🤖 **A shipped release can be overwritten.** `release upload --clobber`
   (`bower/src/forge.rs:707-716`) replaces the 0.1.0 PDF with a changed book if
   `[book] version` is not bumped. `release create` has no `--target`

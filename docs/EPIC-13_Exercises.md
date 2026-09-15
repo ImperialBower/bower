@@ -484,8 +484,7 @@ paths need no code of their own.
   `books/hello-playbook/src/ch04-tests-and-failing-on-purpose.md:70`, and a
   sentence in the chapter's `exercise` paragraph (`:101`) saying what it
   buys.
-- [ ] **5b.** One hidden solution in the sample book. The *Failures* chapter
-  map decides whether `rust4failures` gets one now.
+- [ ] **5b.** One hidden solution in the sample book.
 - [ ] **5c.** `bower-spec.md` § 3.2 key table (three rows) and § 6
   (the named-tests row). Add a corrigendum to the exercises spec, since
   § 2's "hidden solutions" and § 5's "commit messages do not change" are now
@@ -605,7 +604,7 @@ Replay and render: `trailers__strict_exercise_carries_tests_and_solution`,
 cargo test --workspace --all-features
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 make purity
-make plan                      # both locks regenerate; rust4failures' is unchanged
+make plan                      # the sample book's lock regenerates
 cargo run -p bower -- --book books/hello-playbook verify --step test-that-fails
 cargo run -p bower -- --book books/hello-playbook build -o /tmp/hp
 git -C /tmp/hp log -1 --format=%B step-011-test-that-fails
@@ -623,8 +622,8 @@ Exit criteria:
 3. A hidden solution's code appears in no HTML, epub, or PDF render. Its tag
    exists, it is verified `pass`, and the box names it.
 4. No box calls a non-adjacent solution "the next step".
-5. `bower.lock`, the commit messages, and the SHAs of `rust4failures` are
-   unchanged by this EPIC.
+5. A book that uses none of the new keys — the testkit's `rank_saga` — keeps
+   its `bower.lock`, commit messages, and SHAs.
 6. `make purity` prints one line.
 
 ---

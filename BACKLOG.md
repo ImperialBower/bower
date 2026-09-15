@@ -18,10 +18,11 @@
 > ideas](docs/bower-ideas.md), folded in below under § Ideas.
 > Items marked 🤖 were proposed by automation — review before acting on them.
 > Debt detail lives in [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
-> Re-checked 14 September 2026 against `feat/branches-slice-2` (EPIC-09
-> slice 2 shipped, not yet merged): no drift found against this file or
-> `docs/TECHNICAL_DEBT.md`, both of which the branch's own docs commits had
-> already brought current. Test count refreshed below.
+> Re-checked 14 September 2026: EPIC-09 is shipped — slice 1 in PR #6, slice
+> 2 in PR #7, the post-merge review's three fixes in PR #8. The same day, every
+> EPIC was cut loose from *Rust for Failures*: an EPIC is proven on
+> `hello-playbook` alone, and neither `make build` nor CI builds the real book.
+> Its former EPIC work items are under § In flight.
 
 ## In flight
 
@@ -30,11 +31,17 @@
   its rendered site to `abstecker/rust4failures`. `SUMMARY.md` lists
   `ch01-local_development.md` (five steps, one a declared `compile_fail`) and
   `ch02-cicd.md` (one step), all verified against a real compiler
-  (`make failures`), with `toolchain = "1.98.1"` pinned since EPIC-11.
-  `ch02-init.md` and `ch03-rank.md` are commented out, so ch03's eight steps
-  and its `output="check"` E0004 block are planned by nobody until it is
-  listed. Next is the chapter map — the teaching order over `pkcore`'s
-  `DIARY.md`, which is deliberately not the order the work was done in.
+  (`make failures`, run by hand — no gate and no EPIC depends on this book),
+  with `toolchain = "1.98.1"` pinned since EPIC-11.
+  `ch03-rank.md` is being listed (14 September 2026) but does not resolve yet:
+  it edits a `mods` region of `src/lib.rs` and a `dev-dependencies` region of
+  `Cargo.toml` that the rewritten ch01 no longer creates, and its `pass` steps
+  sit on ch01's still-failing kata. Book work that EPICs used to carry, now
+  the book's own: the `from-char` branch and PR (was EPIC-09 4b), a failure
+  index (was EPIC-12 5b), and a hidden solution if the chapter map wants one
+  (dropped from EPIC-13 5b). Next is the chapter map — the teaching order over
+  `pkcore`'s `DIARY.md`, which is deliberately not the order the work was done
+  in.
   🤖 *Check before a push:* two `REJECTED_` drafts are listed in `SUMMARY.md`,
   so they would render into the published site.
 
@@ -201,7 +208,7 @@ repository. See `bower-spec.md` § 12.
 ## Recently completed
 
 - **[EPIC-09 — branches, merges, and pull requests, slice 2](docs/EPIC-09_Branches.md)**
-  (14 September 2026, `feat/branches-slice-2`) — `bower push` puts every
+  (14 September 2026, PR #7; review fixes in PR #8) — `bower push` puts every
   declared pull request on the forge through a pure schedule the dry run
   prints: branches and main's first move in one atomic push, a merged branch's
   PR opened on a stepping stone and merged by the push of main, open PRs
@@ -250,4 +257,4 @@ repository. See `bower-spec.md` § 12.
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
 | Open GitHub issues | none |
 | `make ayce` | green: clean, fmt, build, test, lint, security-scan, docs |
-| CI | GitHub Actions: `ci.yml` (the `ayce` lanes, in parallel) on every push and PR; `slow.yml` (the `#[ignore]`d lanes, both books rendered) on `main`, weekly, and on demand |
+| CI | GitHub Actions: `ci.yml` (the `ayce` lanes, in parallel) on every push and PR; `slow.yml` (the `#[ignore]`d lanes and the sample book rendered) on `main`, weekly, and on demand |

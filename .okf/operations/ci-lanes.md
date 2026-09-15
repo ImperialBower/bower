@@ -3,7 +3,7 @@ type: Playbook
 title: CI — the fast lane and the slow lane
 description: ci.yml splits the gate into five parallel jobs on every PR; slow.yml runs the tool-dependent lanes on main only, with fonts pinned by hand.
 tags: [operations, ci, github-actions]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # Two workflows
@@ -33,7 +33,13 @@ definition and a contributor's local sweep is the same sweep.
 (see below), and **Libertinus 7.051 pinned from a GitHub release** — Ubuntu
 24.04 has no `fonts-libertinus` package. It sets `TYPST_FONT_PATHS`, asserts
 `typst fonts` can see `Libertinus Serif` and `DejaVu Sans Mono`, then runs
-`make check-dependencies`, `make slow`, `make book`, and `make failures`.
+`make check-dependencies`, `make slow`, and `make book`.
+
+It does **not** build *Rust for Failures*. `make slow` verifies every
+`hello-playbook` step against a real compiler, recorded outputs included, so a
+compiler that rewords a quoted diagnostic still fails this lane — and a book
+in progress never decides whether bower's CI is green. See
+[EPICs are proven on the sample book](/decisions/epics-use-the-sample-book.md).
 
 **`mdbook` is deliberately unpinned**, so that an envelope rename like mdBook
 0.4 → 0.5 is *reported* rather than hidden. See
