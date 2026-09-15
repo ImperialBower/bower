@@ -3,7 +3,7 @@ type: Configuration
 title: bower.lock
 description: The resolved plan as human-readable text, checked in so reordering shows up in review — written by the kernel, and never parsed.
 tags: [config, lock, determinism]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # What it is
@@ -56,8 +56,8 @@ rendered output means the two can never drift.
 above a directive and every anchor below it moves, making the lock stale.
 
 That is the report working correctly, not a defect. The remedy is
-[`bower plan`](/commands/plan.md), which `make plan` runs for both books as part
-of `make build` so a sweep never leaves a stale anchor behind.
+[`bower plan`](/commands/plan.md), which `make plan` runs for `hello-playbook` as
+part of `make build` so a sweep never leaves a stale anchor behind.
 
 # Citations
 

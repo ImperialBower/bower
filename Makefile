@@ -58,9 +58,8 @@ purity: ## assert bower-core still has zero dependencies
 minimal: ## assert the CLI builds without the preprocessor feature
 	cargo build -p bower --no-default-features
 
-plan: ## regenerate the sample books' locks, so an edited chapter never leaves a stale anchor behind
+plan: ## regenerate the sample book's lock, so an edited chapter never leaves a stale anchor behind
 	cargo run -q -p bower -- --book books/hello-playbook plan
-	cargo run -q -p bower -- --book books/rust4failures plan
 
 slow: ## the #[ignore]d lanes: the 25-step verify sweep and a real mdbook build
 	cargo test -p bower --test verification -- --ignored
@@ -111,6 +110,10 @@ ship-hello-execute: ship-hello ## the same, then push the repo, its site, and a 
 # Same shape as the sample above, and for the same reason: source in `books/`,
 # generated code in `target/`, and one GitHub repository receiving both the
 # code and, on `gh-pages`, the rendered book.
+#
+# Standalone on purpose: nothing in `ayce`, `build` or CI reaches these
+# targets. The book is work in progress, and its state must never decide
+# whether bower's own gate is green — `hello-playbook` is the book that does.
 # ---------------------------------------------------------------------------
 
 R4F     := books/rust4failures

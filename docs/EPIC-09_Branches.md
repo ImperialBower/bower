@@ -11,12 +11,14 @@
   so replay stays byte-identical.
 - **Proves it:** the sixteen spike tests ported by name, plus a golden that a
   change on a branch reaches only what descends from it.
-- **Status:** Slice 2 shipped, 14 September 2026. The live run on
+- **Status:** Shipped, 14 September 2026 — slice 1 in PR #6, slice 2 in PR
+  #7, and the post-merge review's three fixes in PR #8. The live run on
   `abstecker/hello-playbook` opened `feat/greet-many`'s PR (#1) on the stepping
   stone `step-024-changelog`, and GitHub marked it merged by Bower's own merge
   commit (`4d5f0ee`, `step-025-merge-greet-many`); `try/shout`'s PR (#2) stays
   open. A second push reports `unchanged #2` and `merged #1, left alone` and
-  opens nothing (exit criterion 9).
+  opens nothing (exit criterion 9). Open question 3 stays deferred; nothing
+  else is open.
 
 ---
 
@@ -69,7 +71,10 @@ says exactly how far Bower's contract with them goes.
 | `push`: branch refs with lease, branches before main | 1 | **Done** |
 | Sample book chapter and slow-lane verify | 1 | **Done** |
 | `push`: the schedule, stepping stones, `Forge` PR methods, the dry-run schedule | 2 | **Done** |
-| *Rust for Failures* `from-char` PR | 2 | **Planned** |
+
+*Rust for Failures*' `from-char` PR was a slice-2 row until 14 September 2026.
+It is book work, not this EPIC's: no EPIC depends on that book, and
+`hello-playbook` ch07 is where branches and PRs are proven (Work Item 4b).
 
 Slice 1 is everything local and deterministic: a reader can check out the
 abandoned branch, and `bower push` publishes it. Slice 2 is the pull request
@@ -337,7 +342,9 @@ against the `pr-remote` spike's findings (open questions 1 and 2).*
 25. **Not in slice 2:** closing a PR from the book (open question 3, until a
     chapter needs "declined"); `ForgejoForge` (no Forgejo forge exists yet —
     `DESIGN_Forges.md`); and *Rust for Failures*' `from-char` PR (its chapter
-    is not listed yet).
+    is not listed yet). *Amended 14 September 2026:* that PR left the EPIC
+    altogether — an EPIC is proven on `hello-playbook` only, so it never waits
+    on the state of another book.
 26. **A fresh remote's default branch is `main` (open question 8).** On a
     push to a remote with no `main`, main goes first (Decision 21), and the
     schedule then sets the repository's default branch to `main`
@@ -572,8 +579,11 @@ Every item is slice 1 unless marked **(slice 2)**.
   the appendix: `try/shout` (one `test_fail` step and a `pr=` block, never
   merged) and `feat/greet-many` (two steps, merged by an `op="none"` step
   after one unrelated main step).
-- [ ] **4b. (slice 2)** The `from-char` PR in
-  `books/rust4failures/src/ch03-rank.md`, once that chapter is listed.
+- **4b. (slice 2)** ~~The `from-char` PR in
+  `books/rust4failures/src/ch03-rank.md`, once that chapter is listed.~~
+  *Withdrawn 14 September 2026.* No EPIC depends on *Rust for Failures*; 4a's
+  two branches and two PRs are the EPIC's proof, and the book adopts branches
+  as its own work (`BACKLOG.md`).
 - [x] **4c.** `.okf/model/branch.md`, `.okf/model/pull-request.md`, the key
   table in `.okf/model/directive.md`, `BACKLOG.md`, `README.md`.
 - [x] **4d.** Flip slice 1's Status rows, append the corrigendum.
@@ -688,7 +698,7 @@ Slice 2: `schedule__a_straight_line_is_main_then_tags`,
 ```bash
 make ayce                     # clean, fmt, build, test, lint, security-scan, docs
 make slow                     # the #[ignore]d lanes
-make book && make failures    # both books through the preprocessor and verify
+make book                     # the sample book through the preprocessor
 cargo tree -p bower-core -e normal
 cargo run -p bower -- --book books/hello-playbook build -o /tmp/hp
 git -C /tmp/hp log --graph --oneline --all --decorate --date-order
@@ -713,8 +723,7 @@ Exit criteria (slice 1 unless marked):
    schedule, with every PR and its action.**)**
 7. `cargo tree -p bower-core -e normal` still prints one line.
 8. `hello-playbook`'s steps 001–019 keep their SHAs and its existing lock
-   lines are unchanged; `rust4failures`, which has no branch, reports its lock
-   in sync; rendered output changes only on branch and merge steps
+   lines are unchanged; rendered output changes only on branch and merge steps
    (Decision 13). mdBook's sidebar gains the new chapter on every page, which
    is the chapter, not the EPIC.
 9. **(Slice 2)** `bower push --execute` against `abstecker/hello-playbook`
@@ -922,6 +931,30 @@ planned; items 11–14 are changes the review ruled.*
 14. **"main may be left on the stepping stone"** (review: Minor). After a
     lease trip, main may be somewhere other than the stone, so
     `ExecuteError`'s `Display` no longer says main *was* left there.
+
+*Items 15–17 came from a review of all EPIC-09 work after slice 2 merged,
+14 September 2026, and shipped in PR #8, each with a test written first.*
+
+15. **A branch off the last main step keeps `STEPS.md` and `PULLS.md`.** Only
+    the last main commit's tree held them, so a branch forking from it showed
+    both deleted — in its first commit, its `[diff]` link, and its PR. A step
+    now carries them when it is the last main step or descends from it
+    (`bower/src/replay.rs`); every existing SHA is unchanged. Test:
+    `replay__a_branch_off_the_last_main_step_changes_only_its_own_files`.
+16. **Regions may not nest** (`BowerError::RegionNested`). `composes` treats
+    distinct region names as disjoint, but a region op replaces everything
+    between its markers: a branch rewriting `outer` over main's edit to an
+    `inner` inside it dropped that edit with no `MergeConflict`. Any text op
+    that leaves one region inside another is now a plan-time error
+    (`bower-core/src/tree.rs`; `bower-spec.md` § 3.3, § 6.1). Tests:
+    `plan__a_region_inside_another_is_refused_before_a_merge_can_drop_it`, the
+    `RegionNested` broken fixture, and two `region__` unit tests.
+17. **`push` blocks when `site_branch` is `main` or a book branch.** The site
+    is force-pushed after the repository, so it would replace that branch on
+    every push, and a PR for it would have the site as its head. Decided
+    before any forge call (`push::site_branch_clash`). Tests:
+    `plan__a_book_branch_named_like_the_site_branch_blocks`,
+    `plan__a_site_branch_named_main_blocks`.
 
 ---
 

@@ -12,6 +12,7 @@ chosen, not what was rejected or why.
 * [The block library is core, not a Scrivener fallback](block-library-is-core.md) - 2026-09-04. `include=` is a recommended way to write a block.
 * [Generated repositories carry their own CI](generated-repos-carry-ci.md) - 2026-09-04. A public badge that every step passes.
 * [The crates.io names are free — and unreserved](crate-names.md) - 2026-09-02. Checked, not claimed.
+* [EPICs are proven on the sample book](epics-use-the-sample-book.md) - 2026-09-14. No EPIC and no gate depends on *Rust for Failures*.
 
 # Still open
 

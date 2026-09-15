@@ -3,7 +3,7 @@ type: Domain Concept
 title: Assembly — fragments vs. full files
 description: The two mechanisms that reconcile "the book wants to show 10 lines" with "the repo needs the whole compiling file" — mdBook hidden lines and named regions.
 tags: [model, kernel, authoring]
-timestamp: '2026-09-09T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # The central tension
@@ -47,8 +47,12 @@ an alias for `bower:`. They **stay in the held tree** so later steps can find
 them, and are stripped at `materialized()` unless the repo sets
 `keep_region_markers`. See [tree state](/model/tree-state.md).
 
-Two failure modes are named errors: `RegionMissing` (the markers are not there)
-and `RegionUnbalanced` (a `begin` without its `end`).
+Three failure modes are named errors: `RegionMissing` (the markers are not
+there), `RegionUnbalanced` (a `begin` without its `end`), and `RegionNested`
+(one region's markers inside another's). Regions may not nest: a region op
+replaces everything between its markers, so an edit to an outer region would
+rewrite the inner one — and at a [merge](/model/branch.md), where distinct
+regions compose, drop main's edit to it without a conflict.
 
 # `append` — the third way
 

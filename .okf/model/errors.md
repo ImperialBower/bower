@@ -1,9 +1,9 @@
 ---
 type: Domain Concept
 title: Errors — located and collected
-description: One non-exhaustive enum of 49 variants, each carrying the chapter and line that caused it, reported all at once rather than one rebuild at a time.
+description: One non-exhaustive enum of 50 variants, each carrying the chapter and line that caused it, reported all at once rather than one rebuild at a time.
 tags: [model, kernel, errors]
-timestamp: '2026-09-13T00:00:00Z'
+timestamp: '2026-09-14T00:00:00Z'
 ---
 
 # The posture
@@ -21,7 +21,7 @@ Failures."* The tool for a book about failing well is itself built to fail well.
 # The type
 
 `BowerError` — `#[non_exhaustive]`, `Clone + Debug + Eq + Hash + PartialEq`,
-implements `Display` and `std::error::Error`. **49 variants**, grouped by what
+implements `Display` and `std::error::Error`. **50 variants**, grouped by what
 goes wrong:
 
 | Group | Variants |
@@ -29,7 +29,7 @@ goes wrong:
 | Directive syntax | `DirectiveParse`, `UnknownKey`, `BadValue`, `MissingKey`, `UnknownRepo`, `DirectiveWithoutBlock`, `UnclosedFence` |
 | Block library and assets | `IncludeMissing`, `IncludeMalformed`, `AssetMissing` |
 | Step composition | `DuplicateFileInStep`, `ConflictingRepoInStep`, `ConflictingExpectInStep` |
-| Tree folding | `FileAlreadyExists`, `FileNotCreated`, `RegionMissing`, `RegionUnbalanced` |
+| Tree folding | `FileAlreadyExists`, `FileNotCreated`, `RegionMissing`, `RegionUnbalanced`, `RegionNested` |
 | [Ordering](/model/ordering.md) | `OrphanAfter`, `OrderingCycle` |
 | [Display spans](/model/display-markers.md) | `UnclosedShowSpan`, `NestedShowSpan`, `OrphanShowEnd`, `UnknownShowSpan`, `SpanNotInTree` |
 | [Play cells](/model/play-cell.md) | `PlayCellUnbound`, `PlayCellUnknownStep`, `PlayCellConflictingKeys` |
