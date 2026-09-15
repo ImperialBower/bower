@@ -955,7 +955,10 @@ planned; items 11–14 are changes the review ruled.*
     every push, and a PR for it would have the site as its head. Decided
     before any forge call (`push::site_branch_clash`). Tests:
     `plan__a_book_branch_named_like_the_site_branch_blocks`,
-    `plan__a_site_branch_named_main_blocks`.
+    `plan__a_site_branch_named_main_blocks`. *Widened 15 September 2026* (PR
+    #10): now `push::site_branch_problem`, which also runs `site_branch`
+    through `branch_name_problem`, so a name git would read as an option
+    (`--mirror`) is refused too.
 
 ---
 
