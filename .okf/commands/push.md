@@ -44,7 +44,9 @@ Under `--execute`:
 1. Create the remote repository, if needed.
 2. Push the code and tags.
 3. Publish the site to `site_branch`, then enable Pages **only if the branch was
-   created this run**.
+   created this run, or Pages is not yet serving it** — so a run that pushed
+   the branch and then failed to enable Pages is finished by the next one. The
+   plan reads Pages after the gate, and the dry run says what will be done.
 4. Create the release **last** — *"because a release pointing at a tag nobody
    can fetch is worse than no release."*
 

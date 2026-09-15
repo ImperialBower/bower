@@ -256,6 +256,15 @@ pub trait Forge {
     ///
     /// If the remote cannot be reached, or the change is refused.
     fn enable_pages(&self, repo: &str, branch: &str) -> Result<PagesAction, ForgeError>;
+
+    /// What `repo`'s Pages is set to, or `None` when it has none. Read-only:
+    /// the plan asks it so the dry run can say what [`Forge::enable_pages`]
+    /// will do, and so a site branch whose Pages never took is noticed.
+    ///
+    /// # Errors
+    ///
+    /// If the remote cannot be read. A repository with no Pages is `Ok(None)`.
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError>;
 }
 
 /// A [`Forge`] that talks to nothing, and remembers everything it was asked.
@@ -419,6 +428,12 @@ impl Forge for FakeForge {
             self.record("pages_mutated");
         }
         Ok(action)
+    }
+
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError> {
+        self.call("pages")?;
+        self.reachable(repo)?;
+        Ok(self.pages.clone())
     }
 
     fn create(&self, _repo: &str, _description: &str) -> Result<(), ForgeError> {
@@ -760,6 +775,10 @@ impl Forge for GitHubForge {
         }
         Self::request_pages_build(repo)?;
         Ok(action)
+    }
+
+    fn pages(&self, repo: &str) -> Result<Option<PagesState>, ForgeError> {
+        Self::pages_state(repo)
     }
 
     fn create(&self, repo: &str, description: &str) -> Result<(), ForgeError> {

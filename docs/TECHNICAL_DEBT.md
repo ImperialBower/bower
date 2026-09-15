@@ -9,8 +9,9 @@
 > EPIC-09: PR #8 closed one more of its items (a branch off main's last
 > step); the thirteen still open were re-read against the code and stand.
 > The same day, the first deep automated review ran over the whole workspace
-> and added thirteen 🤖 findings. One was reproduced and fixed the same day (a
-> `site_branch` that git reads as `--mirror`); twelve are open.
+> and added thirteen 🤖 findings. Two were fixed the same day (a `site_branch`
+> that git reads as `--mirror`, reproduced first; and a Pages enable never
+> retried); eleven are open.
 > Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
@@ -350,7 +351,8 @@ standard. Fourteen findings came back and every one was re-checked against the
 cited lines. Thirteen are listed; one duplicate was folded into its parent, and
 one reviewer's claim (a symlink cycle overflows the stack) was corrected: the
 OS's `ELOOP` limit cuts the recursion off. The first item was reproduced
-against a local bare repository, and is fixed; the other twelve are open.
+against a local bare repository, and is fixed; so is the second. The other
+eleven are open.
 
 - [x] 🤖 ~~**`site_branch` reaches `git push` as a flag, and `--mirror` deletes
   the remote's refs.**~~ Closed 15 September 2026, test first, with two
@@ -381,7 +383,24 @@ against a local bare repository, and is fixed; the other twelve are open.
   `branch_name_problem` when `bower.toml` loads, and push an explicit refspec
   (`HEAD:refs/heads/<branch>`) so no ref name is ever read as an option.
   (`bower/src/forge.rs:828`)
-- [ ] 🤖 **A failed `enable_pages` is never retried.** `SitePush::create` comes
+- [x] 🤖 ~~**A failed `enable_pages` is never retried.**~~ Closed 15 September
+  2026, test first. After the gates pass, the plan reads Pages
+  (`Forge::pages`, read-only; skipped when the repository does not exist yet)
+  and decides with a pure `planned_pages` (`bower/src/push.rs`). A branch this
+  run creates gets whatever `pages_action` decides, as before. A branch that
+  already exists gets `enable_pages` only while Pages is not serving it
+  (`Create` or `Repoint`). A branch Pages already serves gets no call, so a
+  steady-state push does not request a second build. `SitePush::pages`
+  carries the decision; `publish_site` calls `enable_pages` when it is `Some`,
+  and the dry run prints it. Tests:
+  `planned_pages__an_existing_branch_is_retried_only_while_pages_is_not_serving_it`,
+  `planned_pages__a_new_branch_gets_whatever_pages_action_decides`,
+  `plan__an_existing_site_branch_whose_pages_never_took_plans_to_enable_them`,
+  `plan__a_site_branch_pages_already_serves_plans_no_pages_call`. Not yet run
+  against real GitHub: `GitHubForge::pages` is the existing `pages_state` read.
+  The original finding follows.
+
+  `SitePush::create` comes
   from the probe *before* the push (`bower/src/push.rs:775`), and
   `publish_site` calls `enable_pages` only `if s.create`
   (`bower/src/main.rs:817`). If the branch push succeeds and the `gh api` call

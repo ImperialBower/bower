@@ -812,9 +812,10 @@ fn publish_site(forge: &dyn Forge, remote: &str, s: &SitePush) -> bool {
             return false;
         }
     }
-    // Only for a branch this run created: on every later push Pages is already
-    // listening, and the push itself triggers the build.
-    if s.create {
+    // Only when the plan found Pages needing it: a branch this run created, or
+    // one whose Pages never took. Otherwise Pages is already listening, and
+    // the push itself triggers the build.
+    if s.pages.is_some() {
         match forge.enable_pages(remote, &s.branch) {
             Ok(a) => println!("  pages     {}", describe_pages(&a, &s.branch)),
             Err(e) => {
@@ -851,6 +852,21 @@ fn describe_pages(action: &PagesAction, branch: &str) -> String {
         PagesAction::BuildOnly => format!("already serving `{branch}`; build requested"),
         PagesAction::LeaveAlone { serving } => {
             format!("left alone — this repository already serves {serving}")
+        }
+    }
+}
+
+/// One line saying what the Pages step will do, for the dry run.
+fn describe_planned_pages(action: &PagesAction, branch: &str) -> String {
+    match action {
+        PagesAction::Create => format!("will enable GitHub Pages on `{branch}` and build it once"),
+        PagesAction::Repoint => format!(
+            "will repoint GitHub Pages at `{branch}` — it has never served a page — \
+             and build it once"
+        ),
+        PagesAction::BuildOnly => format!("already serving `{branch}`; will request one build"),
+        PagesAction::LeaveAlone { serving } => {
+            format!("will be left alone — this repository already serves {serving}")
         }
     }
 }
@@ -902,10 +918,10 @@ fn report_push(
                 ),
                 None => println!("  site      no `site_branch` — skipped"),
             }
-            if site.as_ref().is_some_and(|s| s.create) {
-                println!(
-                    "  pages     will point GitHub Pages at the site branch and build it once"
-                );
+            if let Some(s) = &site
+                && let Some(a) = &s.pages
+            {
+                println!("  pages     {}", describe_planned_pages(a, &s.branch));
             }
             match &release {
                 Some(r) => println!("  release   {}", describe_release(r)),
