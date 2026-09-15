@@ -23,6 +23,11 @@
 > EPIC was cut loose from *Rust for Failures*: an EPIC is proven on
 > `hello-playbook` alone, and neither `make build` nor CI builds the real book.
 > Its former EPIC work items are under § In flight.
+> Re-checked 15 September 2026 against EPIC-09 (PR #10 open,
+> `docs/epic-09-followups`): nothing in the EPIC is unfinished. What it left
+> out is under § Deferred from EPIC-09, its Forgejo question is
+> `DESIGN_Forges.md` § 11 question 5, and its thirteen open debt items are
+> summarized under § Known gaps.
 
 ## In flight
 
@@ -113,6 +118,7 @@ workspace member, so `make ayce` never sees them.
 |---|---|---|
 | [`docs/spikes/bower-voice-spike/`](docs/spikes/bower-voice-spike/) | EPIC-10 | 41 tests green. Promoted, not copied, into `bower-voice/` in Phase 1. |
 | [`docs/spikes/bower-jupyter/bower-ipynb-poc/`](docs/spikes/bower-jupyter/bower-ipynb-poc/) | `--target ipynb` | Python and Docker. Not run in this refresh — it needs `pkcore.py` and Jupyter. |
+| [`docs/spikes/pr-remote/`](docs/spikes/pr-remote/) | EPIC-09 slice 2 | Two runs against `abstecker/bower-sandbox`, 14 September 2026, settled open questions 1 and 2 for GitHub. The EPIC shipped; the spike stays as the harness for the Forgejo half of question 1, but `run.sh` speaks only `gh`, so a Forgejo run needs its own client first. |
 
 ## Known gaps
 
@@ -127,6 +133,7 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
+- [ ] EPIC-09 left thirteen debt items. Two can strand a live repository: a push interrupted while main stands on a stepping stone leaves the remote failing the marker gate for good, and the gate reads `STEPS.md` from the forge's default branch rather than `main`. Most of the rest are edges no book reaches yet: an all-branch book, a branch named like a `-end` tag, unescaped `|` and `)` in branch names and PR titles, and one mistake reported twice. One is nearly free since slice 2: naming remote branches the book dropped, because `schedule` already reads every remote head.
 
 ## Open questions — decisions, not code
 
@@ -238,7 +245,8 @@ repository. See `bower-spec.md` § 12.
   branch drift in `status`, the footer's branch and compare links, a merge's
   own `step-meta` line, and `bower push` publishing every branch with its own
   lease. The sample book's `ch07-try-it-on-a-branch.md` carries one unmerged
-  branch and one two-parent merge. Slice 2 (the forge's pull requests) is next.
+  branch and one two-parent merge. Slice 2 (the forge's pull requests) followed
+  the next day.
 - **[EPIC-11 — captured diagnostics](docs/EPIC-11_Diagnostics.md)** (12 September 2026, merged as PR #5) — 9/9 components. `output="check"|"verify"` records what the compiler said as book content; `verify` fails on drift, `--record` writes it, `[...]` trims it. Found and fixed: `verify` under `make` ignored every tree's toolchain pin.
 - **Releases** (3 September 2026) — `bower push` hangs a GitHub release off
   `[book] version` and attaches every `.pdf`/`.epub` in the repo's `assets`
@@ -265,7 +273,7 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 589 passing, 0 failing (`cargo test --workspace`, 14 September 2026) |
+| Tests | 595 passing, 0 failing (`cargo test --workspace`, 15 September 2026) |
 | Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |

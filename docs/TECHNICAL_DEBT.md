@@ -5,7 +5,10 @@
 >
 > Created 1 September 2026 at `b3def07`. Re-checked 13 September 2026 at
 > `d8f24a4`: EPIC-11 closed two 🤖 findings; the other four were re-read against
-> the code and still stand. Last substantive refresh 5 September 2026, after
+> the code and still stand. Re-checked 15 September 2026 at `f765897` against
+> EPIC-09: PR #8 closed one more of its items (a branch off main's last
+> step); the thirteen still open were re-read against the code and stand.
+> Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
 > `--force-with-lease` that could never push twice, and a site branch that was
@@ -235,7 +238,10 @@
 - [ ] **Remote branches the book dropped are never deleted.**
   `bower push` leaves a branch the plan no longer names on the forge, by
   design — Bower never deletes — but nothing reports it either. A dry run
-  that named a remote branch absent from the plan would close this.
+  that named a remote branch absent from the plan would close this. Cheaper
+  since slice 2: `schedule` (`bower/src/schedule.rs`) already receives every
+  remote head, so the difference against the plan's branches is data in hand,
+  and only the dry-run line is left to write.
 
 - [ ] **The push gate reads `STEPS.md` from the repository's default branch,
   not from `main`, the branch it force-pushes.** `read_steps_md`
@@ -273,12 +279,13 @@
   never read for that block, rather than raising `OutputConflictingKeys` or
   `PlayCellConflictingKeys`'s equivalent (`bower-core/src/block.rs`).
 
-- [ ] **A branch forked from main's last step shows `STEPS.md`/`PULLS.md` as
-  deleted in its diff against main.** `final_blobs` swaps them into the tree
-  only at main's last step (EPIC-09 Decision 16); a branch forking there
-  carries the scaffolding tree without them, so `git diff main` against it
-  reports both files removed. A slice-2 pull request opened for that branch
-  would carry the same deletion (`bower/src/replay.rs`, `final_blobs`).
+- [x] ~~**A branch forked from main's last step shows `STEPS.md`/`PULLS.md` as
+  deleted in its diff against main.**~~ Closed 14 September 2026 in PR #8
+  (`215da7a`, EPIC-09 slice 2 corrigendum item 15). `Replayer::run` now lays
+  the generated files into the last main step's tree and into every branch
+  step descended from it (`carries_generated`, `bower/src/replay.rs`); every
+  existing SHA is unchanged. Test:
+  `replay__a_branch_off_the_last_main_step_changes_only_its_own_files`.
 
 - [ ] **Branch names are substituted into link templates unescaped.** `git
   check-ref-format` allows `#` and `)` in a branch name, and `branch_link`
