@@ -5,8 +5,8 @@
 I was 20 years old when the motor home pulled into the parking lot of the 7-11 when I was
 working solo at the
 [Colma 7-11](https://www.google.com/maps/place/1010+Hillside+Blvd,+Daly+City,+CA+94014/@37.6897939,-122.4612692,54a,75y,219.32h,82.81t/data=!3m7!1e1!3m5!1sqwK8hlHt7G9vtZKahcsCIg!2e0!6shttps:%2F%2Fstreetviewpixels-pa.googleapis.com%2Fv1%2Fthumbnail%3Fcb_client%3Dmaps_sv.tactile%26w%3D900%26h%3D600%26pitch%3D7.189452548127392%26panoid%3DqwK8hlHt7G9vtZKahcsCIg%26yaw%3D219.31739032217254!7i16384!8i8192!4m15!1m8!3m7!1s0x808f7c0efaf5a78b:0x9cad5aa0d03c3ca1!2s1010+Hillside+Blvd,+Daly+City,+CA+94014!3b1!8m2!3d37.689577!4d-122.4615136!16s%2Fg%2F11b8v6x6dc!3m5!1s0x808f7c0efaf5a78b:0x9cad5aa0d03c3ca1!8m2!3d37.689577!4d-122.4615136!16s%2Fg%2F11b8v6x6dc?entry=ttu&g_ep=EgoyMDI2MDkwOC4wIKXMDSoASAFQAw%3D%3D).
-A man stepped out, and walked into the store, walking over to the coffee pots and pouring himself a cup.
-Walking up to the register, he extended out his hand to me.
+A man stepped out, and walked into the store, headed over to the coffee pots and poured himself a cup.
+Approaching the register, he extended out his hand to me.
 
 "I just wanted to thank you."
 
