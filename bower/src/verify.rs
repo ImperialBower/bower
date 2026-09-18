@@ -12,6 +12,7 @@ use std::fmt;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, mpsc};
 
 use bower_core::prelude::{
     Capture, CapturedOutput, Drift, Expect, Location, PlannedStep, RepoPlan, Scrub, StepId, drift,
@@ -276,8 +277,13 @@ struct Bench<'a> {
     /// tests.
     probe: &'a str,
     scaffolding: &'a Blobs,
-    target_dir: PathBuf,
     cargo_home: Option<PathBuf>,
+    /// Held across the toolchain probe. Two workers asking rustup for the same
+    /// missing toolchain at once would both start installing it into one
+    /// `RUSTUP_HOME`, and the loser's rename fails: a verifier fault reported
+    /// as `VerifyError::Toolchain`. One probe at a time; the first installs,
+    /// the rest find it ready.
+    probe_lock: Mutex<()>,
 }
 
 /// One step, verified: its claim, its outputs, and whether it records output
@@ -289,8 +295,17 @@ struct StepRun {
 }
 
 /// Write one step's tree, run its commands, and judge its claim and its
-/// outputs. A step that records output runs serially (Decision 12).
-fn run_step(bench: &Bench, step: &PlannedStep, tree_dir: &Path) -> Result<StepRun, VerifyError> {
+/// outputs. A step that records output runs with the serial trio (Decision 12).
+///
+/// `target_dir` belongs to the calling worker alone: every step builds the
+/// same package name, so two steps sharing one target directory write the
+/// same binary, and one can run the other's.
+fn run_step(
+    bench: &Bench,
+    step: &PlannedStep,
+    tree_dir: &Path,
+    target_dir: &Path,
+) -> Result<StepRun, VerifyError> {
     if step.expect == Expect::Skip {
         return Ok(StepRun {
             verdict: Verdict::Skipped,
@@ -312,7 +327,13 @@ fn run_step(bench: &Bench, step: &PlannedStep, tree_dir: &Path) -> Result<StepRu
     // whose output nobody keeps: the install notes never reach a recording,
     // and a failed install is the verifier's problem, not the book's.
     if bench.toolchain.is_some() || pins_toolchain(&blobs) {
-        let probe = run(bench.probe, tree_dir, &bench.target_dir, &env)?;
+        let probe = {
+            let _one_at_a_time = bench
+                .probe_lock
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            run(bench.probe, tree_dir, target_dir, &env)?
+        };
         if !probe.success {
             return Err(VerifyError::Toolchain {
                 tree: tree_dir.to_path_buf(),
@@ -320,15 +341,15 @@ fn run_step(bench: &Bench, step: &PlannedStep, tree_dir: &Path) -> Result<StepRu
             });
         }
     }
-    let check = run(bench.check_cmd, tree_dir, &bench.target_dir, &env)?;
+    let check = run(bench.check_cmd, tree_dir, target_dir, &env)?;
     let verify = if check.success && step.expect != Expect::CompileFail {
-        Some(run(bench.verify_cmd, tree_dir, &bench.target_dir, &env)?)
+        Some(run(bench.verify_cmd, tree_dir, target_dir, &env)?)
     } else {
         None
     };
     let verdict = verdict_for(step.expect, &check, verify.as_ref());
 
-    let scrub = scrub_for(tree_dir, &bench.target_dir, bench.cargo_home.as_deref());
+    let scrub = scrub_for(tree_dir, target_dir, bench.cargo_home.as_deref());
     let outputs = step
         .outputs
         .iter()
@@ -348,10 +369,60 @@ fn run_step(bench: &Bench, step: &PlannedStep, tree_dir: &Path) -> Result<StepRu
     })
 }
 
+/// How many steps are verified at once. Each worker has its own tree and
+/// target directory, so this is also how many cold builds a run pays for.
+const WORKERS: usize = 4;
+
+/// Run every step on a small pool of workers and hand the results back in the
+/// order of `steps`, whatever order they finished in.
+///
+/// One target directory per worker, not per step, so twenty steps are four
+/// cold builds rather than twenty; and not one for all, because every step
+/// builds the same package name and a step could run the binary another step
+/// had just written.
+fn run_steps(
+    bench: &Bench,
+    steps: &[&PlannedStep],
+    work_dir: &Path,
+) -> Vec<Result<StepRun, VerifyError>> {
+    let work = Mutex::new(steps.iter().enumerate());
+    let (tx, rx) = mpsc::channel();
+    std::thread::scope(|scope| {
+        for worker in 0..WORKERS.min(steps.len()) {
+            let tx = tx.clone();
+            let work = &work;
+            let target_dir = work_dir.join(format!("target-{worker}"));
+            scope.spawn(move || {
+                loop {
+                    // Its own statement, so the guard drops here: in a
+                    // `while let` condition it would live through the body,
+                    // and the workers would take turns.
+                    let next = work
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .next();
+                    let Some((pos, step)) = next else { break };
+                    let tree_dir = work_dir.join(format!("tree-{:03}", step.seq));
+                    if tx
+                        .send((pos, run_step(bench, step, &tree_dir, &target_dir)))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            });
+        }
+    });
+    drop(tx);
+    let mut done: Vec<_> = rx.into_iter().collect();
+    done.sort_by_key(|(pos, _)| *pos);
+    done.into_iter().map(|(_, run)| run).collect()
+}
+
 pub struct Verifier<'a> {
     pub config: &'a BookConfig,
     pub book_root: &'a Path,
-    /// Scratch directory. Rewritten for every step.
+    /// Scratch directory: one `tree-NNN` per step and one `target-N` per worker.
     pub work_dir: &'a Path,
 }
 
@@ -398,100 +469,44 @@ impl Verifier<'_> {
             None => Blobs::new(),
         };
 
-        // One target directory across every step, so twenty steps are not
-        // twenty cold builds.
         let bench = Bench {
             check_cmd,
             verify_cmd,
             toolchain: cfg.and_then(|c| c.toolchain.as_deref()),
             probe: TOOLCHAIN_PROBE,
             scaffolding: &scaffolding,
-            target_dir: self.work_dir.join("target"),
             cargo_home: cargo_home(),
+            probe_lock: Mutex::new(()),
         };
 
-        // Collect steps to process (apply only/from filters)
-        let to_process: Vec<&PlannedStep> = plan
+        let steps: Vec<&PlannedStep> = plan
             .steps
             .iter()
             .skip(start)
-            .filter(|step| !only.is_some_and(|want| want != step.id.0))
+            .filter(|step| only.is_none_or(|want| want == step.id.0))
             .collect();
 
-        const THREAD_COUNT: usize = 4;
-        let thread_count = THREAD_COUNT.min(to_process.len()).max(1);
-
-        enum Outcome {
-            Done(StepVerdict, Option<StepId>),
-            Failed(VerifyError),
-        }
-
-        let work = std::sync::Mutex::new(to_process.iter().copied().enumerate());
-        let (tx, rx) = std::sync::mpsc::channel::<(usize, Outcome)>();
-
-        std::thread::scope(|scope| {
-            for _ in 0..thread_count {
-                let tx = tx.clone();
-                let work = &work;
-                let bench = &bench;
-                let work_dir = &self.work_dir;
-                scope.spawn(move || {
-                    while let Some((pos, step)) = work.lock().unwrap().next() {
-                        let tree_dir = work_dir.join(format!("tree-{:03}", step.seq));
-                        let outcome = match run_step(bench, step, &tree_dir) {
-                            Ok(StepRun {
-                                verdict,
-                                outputs,
-                                unpinned,
-                            }) => {
-                                let v = StepVerdict {
-                                    seq: step.seq,
-                                    id: step.id.clone(),
-                                    anchor: step.anchor.clone(),
-                                    expect: step.expect,
-                                    verdict,
-                                    outputs,
-                                };
-                                Outcome::Done(v, unpinned.then(|| step.id.clone()))
-                            }
-                            Err(e) => Outcome::Failed(e),
-                        };
-                        if tx.send((pos, outcome)).is_err() {
-                            break;
-                        }
-                    }
-                });
+        let mut verdicts = Vec::with_capacity(steps.len());
+        let mut unpinned_step = None;
+        // In document order, so the first error reported is the first step's.
+        for (step, run) in steps.iter().zip(run_steps(&bench, &steps, self.work_dir)) {
+            let StepRun {
+                verdict,
+                outputs,
+                unpinned,
+            } = run?;
+            if unpinned && unpinned_step.is_none() {
+                unpinned_step = Some(step.id.clone());
             }
-            drop(tx);
-        });
-
-        let mut slots: Vec<Option<StepVerdict>> = vec![None; to_process.len()];
-        let mut unpinned_candidates: Vec<(usize, StepId)> = Vec::new();
-        let mut errors: Vec<(usize, VerifyError)> = Vec::new();
-
-        for (pos, outcome) in rx {
-            match outcome {
-                Outcome::Done(v, unpinned_id) => {
-                    if let Some(id) = unpinned_id {
-                        unpinned_candidates.push((pos, id));
-                    }
-                    slots[pos] = Some(v);
-                }
-                Outcome::Failed(e) => errors.push((pos, e)),
-            }
+            verdicts.push(StepVerdict {
+                seq: step.seq,
+                id: step.id.clone(),
+                anchor: step.anchor.clone(),
+                expect: step.expect,
+                verdict,
+                outputs,
+            });
         }
-
-        if let Some((_, e)) = errors.into_iter().min_by_key(|(pos, _)| *pos) {
-            return Err(e);
-        }
-
-        let verdicts: Vec<StepVerdict> = slots
-            .into_iter()
-            .map(|s| s.expect("every queued position is filled or an error was returned above"))
-            .collect();
-
-        unpinned_candidates.sort_by_key(|(pos, _)| *pos);
-        let unpinned_step = unpinned_candidates.into_iter().next().map(|(_, id)| id);
 
         Ok(VerifyReport {
             repo: repo_name,
@@ -1038,10 +1053,13 @@ mod verify_tests {
         p.repos[0].steps[0].clone()
     }
 
-    fn fake_bench<'a>(case: &str, probe: &'a str, scaffolding: &'a Blobs) -> (Bench<'a>, PathBuf) {
+    fn fake_bench<'a>(
+        case: &str,
+        probe: &'a str,
+        scaffolding: &'a Blobs,
+    ) -> (Bench<'a>, PathBuf, PathBuf) {
         let work = std::env::temp_dir().join(format!("bower-verify-probe-{case}"));
         let _ = std::fs::remove_dir_all(&work);
-        let tree_dir = work.join("tree");
         (
             Bench {
                 check_cmd: "sh rustup.sh check",
@@ -1049,10 +1067,11 @@ mod verify_tests {
                 toolchain: None,
                 probe,
                 scaffolding,
-                target_dir: work.join("target"),
                 cargo_home: None,
+                probe_lock: Mutex::new(()),
             },
-            tree_dir,
+            work.join("tree"),
+            work.join("target"),
         )
     }
 
@@ -1069,8 +1088,9 @@ mod verify_tests {
         // the book's pinned 1.95.0 printed rustup's install notes, and
         // `--record` wrote them into the chapter.
         let scaffolding = fake_rustup();
-        let (bench, tree_dir) = fake_bench("install", "sh rustup.sh probe", &scaffolding);
-        let run = run_step(&bench, &pinned_step(), &tree_dir).unwrap();
+        let (bench, tree_dir, target_dir) =
+            fake_bench("install", "sh rustup.sh probe", &scaffolding);
+        let run = run_step(&bench, &pinned_step(), &tree_dir, &target_dir).unwrap();
         assert_eq!(run.verdict, Verdict::Upheld);
         assert_eq!(run.outputs[0].live, vec!["error: check".to_string()]);
         assert_eq!(run.outputs[0].result, OutputResult::Matches);
@@ -1080,8 +1100,8 @@ mod verify_tests {
     fn run_step__a_toolchain_that_will_not_install_is_the_verifiers_fault() {
         // A failed download is not a compile error in the book.
         let scaffolding = fake_rustup();
-        let (bench, tree_dir) = fake_bench("broken", "sh rustup.sh nope", &scaffolding);
-        match run_step(&bench, &pinned_step(), &tree_dir) {
+        let (bench, tree_dir, target_dir) = fake_bench("broken", "sh rustup.sh nope", &scaffolding);
+        match run_step(&bench, &pinned_step(), &tree_dir, &target_dir) {
             Err(VerifyError::Toolchain { output, .. }) => {
                 assert!(output.contains("info: syncing"), "{output}");
             }
