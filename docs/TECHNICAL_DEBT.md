@@ -291,11 +291,11 @@
   existing SHA is unchanged. Test:
   `replay__a_branch_off_the_last_main_step_changes_only_its_own_files`.
 
-- [ ] **Branch names are substituted into link templates unescaped.** `git
-  check-ref-format` allows `#` and `)` in a branch name, and `branch_link`
-  splices the name straight into the link template with `str::replace`, no
-  escaping (`bower/src/render.rs`). A branch named `try/fix)`, say, would
-  close the markdown link early.
+- [x] ~~**Branch names are substituted into link templates unescaped.**~~ Closed
+  18 September 2026 (`f0f5cbd`). `branch_link` now calls `escape_link_text()` for
+  the link text and `encode_url_unsafe()` for the URL, protecting against `)`/`#`/`]`
+  and other unsafe characters. Added three test cases covering `)`, `#`, and `]`.
+  (`bower/src/render.rs:386-415`)
 
 - [ ] **A branch named like a `<chapter>-end` tag makes `git checkout`
   ambiguous.** `chapter_ends` names its tags `<stem>-end`; `branch_name_problem`

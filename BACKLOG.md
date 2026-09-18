@@ -28,6 +28,9 @@
 > out is under § Deferred from EPIC-09, its Forgejo question is
 > `DESIGN_Forges.md` § 11 question 5, and its thirteen open debt items are
 > summarized under § Known gaps.
+> 18 September 2026: Fixed tech-debt item 9 (branch names unescaped in link
+> templates) — `branch_link` now escapes both link text and URL sides. Twelve
+> EPIC-09 debt items remain open; see [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
 
 ## In flight
 
