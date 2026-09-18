@@ -383,13 +383,44 @@ pub fn checkout_line(step: &PlannedStep, links: Option<&LinkTemplates>) -> Optio
     Some(format!("<span class=\"step-checkout\">$> `{cmd}`</span>"))
 }
 
+fn escape_link_text(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        if matches!(c, '\\' | '[' | ']') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn encode_url_unsafe(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        match c {
+            '(' => out.push_str("%28"),
+            ')' => out.push_str("%29"),
+            '"' => out.push_str("%22"),
+            '<' => out.push_str("%3C"),
+            '>' => out.push_str("%3E"),
+            '`' => out.push_str("%60"),
+            '#' => out.push_str("%23"),
+            '?' => out.push_str("%3F"),
+            '%' => out.push_str("%25"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// A branch's name, linked to the branch when the repo has a `branch`
 /// template, and plain code text when it has none.
 fn branch_link(name: &str, links: &LinkTemplates) -> String {
     match links.branch.as_deref() {
         Some(t) => format!(
-            "[{name}]({} \"Browse branch\")",
-            t.replace("{branch}", name)
+            "[{}]({} \"Browse branch\")",
+            escape_link_text(name),
+            t.replace("{branch}", &encode_url_unsafe(name))
         ),
         None => format!("`{name}`"),
     }
@@ -1530,6 +1561,70 @@ mod render_tests {
         let line = out.find("merges [try/side]").unwrap();
         assert!(anchor < line, "{out}");
         assert!(out.contains("After the merge."), "{out}");
+    }
+
+    fn branch_ch(branch: &str) -> String {
+        format!(
+            "# Branches\n\n\
+             <!-- bower repo=\"r\" step=\"base\" file=\"src/lib.rs\" -->\n\
+             ```rust\npub fn base() {{}}\n```\n\n\
+             <!-- bower repo=\"r\" step=\"side\" branch=\"{branch}\" file=\"src/side.rs\" -->\n\
+             ```rust\npub fn side() {{}}\n```\n\n\
+             <!-- bower repo=\"r\" step=\"join\" merge=\"{branch}\" op=\"none\" msg=\"merge\" -->\n\n\
+             After the merge.\n"
+        )
+    }
+
+    #[test]
+    fn branch_link__escapes_a_closing_paren_in_the_url() {
+        let ch = branch_ch("try/fix)");
+        let out = chapter(
+            &ch,
+            "src/ch01.md",
+            &tiny_plan(&ch),
+            &branch_links(),
+            Target::Html,
+        );
+        assert!(
+            out.contains("on [try/fix)](https://x.invalid/tree/try/fix%29 \"Browse branch\")"),
+            "{out}"
+        );
+        assert!(
+            out.contains("merges [try/fix)](https://x.invalid/tree/try/fix%29 \"Browse branch\")"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn branch_link__escapes_a_hash_in_the_url() {
+        let ch = branch_ch("try/read#1");
+        let out = chapter(
+            &ch,
+            "src/ch01.md",
+            &tiny_plan(&ch),
+            &branch_links(),
+            Target::Html,
+        );
+        assert!(
+            out.contains("on [try/read#1](https://x.invalid/tree/try/read%231 \"Browse branch\")"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn branch_link__escapes_a_closing_bracket_in_the_link_text() {
+        let ch = branch_ch("try/br]ck");
+        let out = chapter(
+            &ch,
+            "src/ch01.md",
+            &tiny_plan(&ch),
+            &branch_links(),
+            Target::Html,
+        );
+        assert!(
+            out.contains("on [try/br\\]ck](https://x.invalid/tree/try/br]ck \"Browse branch\")"),
+            "{out}"
+        );
     }
 
     #[test]
