@@ -1,5 +1,5 @@
 # Technical Debt
-AEleen Frisch
+
 > Maintained by the `/backlog` skill. Items tagged 🤖 were proposed by automated
 > review — review and edit them; they are suggestions, not facts.
 >
@@ -12,6 +12,11 @@ AEleen Frisch
 > and added thirteen 🤖 findings. Two were fixed the same day (a `site_branch`
 > that git reads as `--mirror`, reproduced first; and a Pages enable never
 > retried); eleven are open.
+> Re-checked 18 September 2026 at `d2f04c6`: verification is parallel now
+> (`1715314`, fixed in `d2f04c6` after a review found its workers still took
+> turns), which closes the sequential-verification item. Three 🤖 notes on the
+> new worker pool were added, and the line references into `verify.rs` were
+> refreshed.
 > Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
@@ -69,12 +74,18 @@ AEleen Frisch
   rename, so a book with a `README.md` chapter may produce a `Book-Url` that
   404s. No current book has one. Flagged by review, not yet verified.
 
-- [ ] **Verification is sequential.**
-  Spec § 6 calls verification embarrassingly parallel. It is not parallel
-  (`bower/src/verify.rs`). Twenty steps take 16 seconds thanks to one shared
-  `CARGO_TARGET_DIR`, so parallelism would have been premature — but a real
-  book with hundreds of steps will need it, and `std::thread::scope` would add
-  no dependency.
+- [x] ~~**Verification is sequential.**~~ Closed 18 September 2026
+  (`1715314`, `d2f04c6`). `run_steps` (`bower/src/verify.rs`) runs steps on
+  four `std::thread::scope` workers, each with its own `tree-NNN` per step and
+  its own `target-N`. Every step builds the same package name, so one shared
+  target directory would let a step run another step's binary. Results come
+  back in document order, so the first error reported is still the first
+  step's. The toolchain probe runs under a lock, so two workers never race
+  one rustup install. The first cut held the queue's lock across each step,
+  so its workers took turns; a review caught it. Measured on the sample book:
+  28–32 s on `main` to 15–17 s, not the 4–5× the first commit predicted. Four
+  cargo builds at once compete for the same cores. The old "twenty steps in
+  16 seconds" figure did not hold for the current book either.
 
 - [x] ~~**No stderr snapshots for `compile_fail`.**~~ Closed 12 September 2026
   by EPIC-11. A book records what the compiler said in an `output="check"` or
@@ -422,11 +433,12 @@ eleven are open.
   add a test where the second of two chapters cannot be written.
   (`bower/src/record.rs:86`)
 - [ ] 🤖 **`verify` has no timeout.** `run` blocks on `read_to_end` and then
-  `wait` (`bower/src/verify.rs:591`). A step whose test loops or deadlocks
+  `wait` (`bower/src/verify.rs:654`). A step whose test loops or deadlocks
   hangs `bower verify` forever, and CI's job timeout never names the step.
-  Suggested: poll `try_wait` against a deadline (configurable per book), kill
-  the child, and report a distinct timed-out verdict naming the step.
-  (`bower/src/verify.rs:591`)
+  Since 18 September a hung step also holds one of the four workers, and the
+  run cannot finish until it does. Suggested: poll `try_wait` against a
+  deadline (configurable per book), kill the child, and report a distinct
+  timed-out verdict naming the step. (`bower/src/verify.rs:654`)
 - [ ] 🤖 **Two regions with one name in one file: the second can never be
   edited.** `apply_region` finds the *first* `begin`/`end` pair for a name
   (`bower-core/src/tree.rs:247`). `nested_region` catches one region inside
@@ -488,16 +500,41 @@ eleven are open.
   trick. Suggested: give the site push its own `files` field.
   (`bower/src/forge.rs:837`)
 
+### Parallel verification, 18 September 2026
+
+Noted while fixing the review findings on `1715314`. None of these is a
+defect today. Each is a choice the worker pool made without a book asking
+for it.
+
+- [ ] 🤖 **The worker count is fixed at four.** `WORKERS`
+  (`bower/src/verify.rs`) ignores `std::thread::available_parallelism`, and
+  neither `bower.toml` nor the CLI can change it. On a two-core CI runner,
+  four concurrent cargo builds only compete. Each worker also keeps its own
+  `target-N`, so the disk used is about four cold builds. Suggested: default
+  to `min(4, available_parallelism)`, and add a `--jobs` flag.
+- [ ] 🤖 **A failed step no longer stops the run.** The serial loop returned
+  on the first `VerifyError`. The pool finishes every queued step and then
+  reports the earliest error, so a missing toolchain or a nested workspace
+  costs a full run before it is named. Suggested: a shared `AtomicBool` the
+  workers check before taking the next step.
+- [ ] 🤖 **Nothing tests that the steps run concurrently.** The bug that made
+  the workers take turns (a `MutexGuard` kept alive by a `while let`) passed
+  every test, because every test is still correct when the steps run one at
+  a time. Existing work directories also keep the old `target/` beside the
+  new `target-N`, and nothing removes it. Suggested: a test with a fake check
+  command that records overlapping start and end times, rather than one that
+  measures elapsed time.
+
 ### Grounding EPIC-11 to EPIC-16, 10 September 2026
 
 Found while grounding EPIC-11 to EPIC-16 against the code.
 Each was checked against the cited lines. Each EPIC that owns a fix says so.
 
 - [ ] 🤖 **`test_fail` accepts any failing test.** A step is upheld when the
-  verify command exits non-zero (`bower/src/verify.rs:261-270`). A broken test
-  helper upholds an exercise, and a solution that deletes the failing test
-  passes. Suggested: name the tests that must fail. EPIC-13 Phase 2.
-  (`bower/src/verify.rs:261`)
+  verify command exits non-zero (`bower/src/verify.rs:554`, `verdict_for`). A
+  broken test helper upholds an exercise, and a solution that deletes the
+  failing test passes. Suggested: name the tests that must fail. EPIC-13
+  Phase 2. (`bower/src/verify.rs:554`)
 - [x] 🤖 ~~**Test output is thrown away.**~~ Closed 12 September 2026 by
   EPIC-11 Phase 0: `Outcome::output` now holds both streams, interleaved in
   the order they were written (`bower/src/verify.rs:48-55`).

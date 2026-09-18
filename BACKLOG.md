@@ -35,6 +35,11 @@
 > 18 September 2026: Fixed tech-debt item 9 (branch names unescaped in link
 > templates) — `branch_link` now escapes both link text and URL sides. Twelve
 > EPIC-09 debt items remain open; see [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
+> 
+> 18 September 2026, later: `bower verify` runs steps on four workers
+> (`1715314`, fixed in `d2f04c6`), which closes the *no parallel
+> verification* gap. The sample book went from 28–32 s to 15–17 s. Three 🤖
+> notes on the worker pool are in the debt doc.
 
 ## In flight
 
@@ -134,12 +139,12 @@ Carried from the EPIC corrigenda. Detail and file references in
 
 - [ ] `bower verify` does not run the book's own gate — the defect it found was caught by eye, not by the tool
 - [ ] `GitHubForge` is untested, releases included — every `gh` and `git push` call is the acknowledged last inch. It has now cost two real defects (the lease, and the garbled release refusal); `push_ref_args` and `push_refs_args` (which replaced `push_branch_args` in EPIC-09 slice 2) are the first pieces pulled out into something testable
-- [ ] No parallel verification (spec § 6 calls it embarrassingly parallel; 20 steps take 16s sequentially)
 - [ ] Play cells (spec § 15) are neither rendered nor verified
 - [ ] Exercises have no place for a *reader's* answer — a per-exercise link to a Discussion or similar (exercises spec § 2) — EPIC-14's `follow check` judges a reader's answer but gives it no place; this narrows the gap and does not close it
 - [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
+- [ ] 🤖 Three notes on the new verify worker pool: four workers whatever the core count, no stop on the first error, and no test that steps really overlap
 - [ ] 🤖 Eleven open findings from the 15 September 2026 deep review ([`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) § Automated review findings). The worst: `verify --record` rewriting chapters in place, and `verify` with no timeout
 - [ ] EPIC-09 left thirteen debt items. Two can strand a live repository: a push interrupted while main stands on a stepping stone leaves the remote failing the marker gate for good, and the gate reads `STEPS.md` from the forge's default branch rather than `main`. Most of the rest are edges no book reaches yet: an all-branch book, a branch named like a `-end` tag, unescaped `|` and `)` in branch names and PR titles, and one mistake reported twice. One is nearly free since slice 2: naming remote branches the book dropped, because `schedule` already reads every remote head.
 
@@ -257,6 +262,11 @@ repository. See `bower-spec.md` § 12.
 
 ## Recently completed
 
+- **Parallel verification** (18 September 2026, `1715314` + `d2f04c6`) —
+  four workers, each with its own target directory, results in document
+  order, and the toolchain probe run one at a time. About 2× on the sample
+  book. The first commit's workers held the queue lock for a whole step, so
+  they took turns; a review caught it before the branch merged.
 - **[EPIC-09 — branches, merges, and pull requests, slice 2](docs/EPIC-09_Branches.md)**
   (14 September 2026, PR #7; review fixes in PR #8) — `bower push` puts every
   declared pull request on the forge through a pure schedule the dry run
@@ -301,8 +311,8 @@ repository. See `bower-spec.md` § 12.
 
 | Signal | State |
 |---|---|
-| Tests | 601 passing, 0 failing (`cargo test --workspace`, 15 September 2026) |
-| Slow lanes | 11 `#[ignore]`d; last seen all green at EPIC-11's close (`make slow`) |
+| Tests | 604 passing, 0 failing (`cargo test --workspace`, 18 September 2026) |
+| Slow lanes | 11 `#[ignore]`d; all green 18 September 2026 (`make slow`, the 25-step sweep in about 17 s) |
 | Clippy | 0 warnings, pedantic, `--all-features` |
 | Kernel purity | `cargo tree -p bower-core -e normal` prints one line |
 | Code markers | none — no `TODO`, `FIXME`, `HACK`, or `XXX` anywhere |
