@@ -7,10 +7,12 @@
 > covers, a verify defect fix, and releases. `hello-playbook` is live at
 > <https://github.com/abstecker/hello-playbook> with its book served from
 > `gh-pages`.
+> 
 > Filed 9 September 2026: [a design for self-hosted
 > forges](docs/DESIGN_Forges.md) — one Forgejo container per book, so a
 > generated repo, its releases, its site, and its CI can exist with GitHub
 > out of the loop.
+> 
 > Filed 10 September 2026: two EPICs with spikes behind them —
 > [EPIC-09 Branches](docs/EPIC-09_Branches.md) and
 > [EPIC-10 Voice](docs/EPIC-10_Voice.md) — a Jupyter proof of concept for
@@ -23,11 +25,13 @@
 > EPIC was cut loose from *Rust for Failures*: an EPIC is proven on
 > `hello-playbook` alone, and neither `make build` nor CI builds the real book.
 > Its former EPIC work items are under § In flight.
+> 
 > Re-checked 15 September 2026 against EPIC-09 (PR #10 open,
 > `docs/epic-09-followups`): nothing in the EPIC is unfinished. What it left
 > out is under § Deferred from EPIC-09, its Forgejo question is
 > `DESIGN_Forges.md` § 11 question 5, and its thirteen open debt items are
 > summarized under § Known gaps.
+> 
 > 18 September 2026: Fixed tech-debt item 9 (branch names unescaped in link
 > templates) — `branch_link` now escapes both link text and URL sides. Twelve
 > EPIC-09 debt items remain open; see [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md).
