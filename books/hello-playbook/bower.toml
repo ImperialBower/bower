@@ -7,10 +7,10 @@
 # every commit's time is this epoch plus its step number, in minutes.
 epoch = 2026-09-01T00:00:00Z
 site = "https://abstecker.github.io/hello-playbook"
-# The edition. `bower push` hangs a GitHub release off `v0.1.0` and attaches
+# The edition. `bower push` hangs a GitHub release off `v0.2.0` and attaches
 # every `.pdf` and `.epub` in the repo's `assets` directory. Absent means the
 # book publishes no releases, which is a normal book.
-version = "0.1.0"
+version = "0.2.0"
 
 [identity]
 name = "ImperialBower Bower"
