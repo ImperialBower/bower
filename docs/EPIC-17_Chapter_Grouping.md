@@ -212,6 +212,9 @@ The business logic is § Design and § Work Items.
    typos surface at plan time, not push time" (`source.rs:106-107`). A title
    whose only chapter is a repeat link counts as empty, because
    `chapter_links` drops repeats (`loader.rs:117`).
+   Confirmed as a hard error, not a warning, on 19 September 2026; this was
+   open question 6. A warning on stderr is lost in a `make` log, and the book
+   it lets through has a part page with nothing behind it.
 9. **The fingerprint grows only when parts exist.** `site_fingerprint`
    appends one `part` record per mark, after the chapters. With no marks it
    appends nothing, so no published site turns stale on the day this ships.
@@ -585,7 +588,7 @@ Exit criteria:
 | 3 | **Part tags.** `ch03-end` exists (`replay.rs:168`). Should a part's last chapter also get `part-1-end`? It would be the first tag derived from `SUMMARY.md` text, it changes `expected_tags`, and it needs the where-does-a-part-end rule this EPIC avoids. The lean is no. |
 | 4 | ~~The sample's part titles, and where its appendix sits.~~ **Answered 19 September 2026:** three parts by the gate, and the appendix as a suffix chapter. Now decision 11. |
 | 5 | **The PDF's part page.** A level-1 heading alone on a page, in the template's 17pt (`template.typ:26`). Should `part_divider` emit a styled block instead, or should the template own that through a `#show` rule Bower documents? |
-| 6 | **Refusing what mdBook accepts.** Decision 8 makes `bower build` fail on a summary `mdbook build` takes. Is that the right side to err on, or should it be a warning on stderr? |
+| 6 | ~~Refusing what mdBook accepts: a hard error, or a warning?~~ **Answered 19 September 2026:** a hard error. Decision 8 stands as written. |
 
 ---
 
