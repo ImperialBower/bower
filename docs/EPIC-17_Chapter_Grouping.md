@@ -9,8 +9,8 @@
 - **Shape:** a `PartMark { title, first }` beside the flat chapter list, never
   around it. The loader reads it, the planner ignores it, and the two pandoc
   renderers write one divider file per part.
-- **Proves it:** the sample book gains two parts, its epub `nav.xhtml` lists
-  both, and every SHA `make build` produces is unchanged.
+- **Proves it:** the sample book gains three parts, its epub `nav.xhtml` lists
+  all three, and every SHA `make build` produces is unchanged.
 - **Status:** Planned, filed 19 September 2026, nothing started. Rewritten the
   same day after an evaluation against the code; see the footer.
 
@@ -71,7 +71,7 @@ The preprocessor is left alone.
 | Loader: `summary` reads part titles; `LoadError::EmptyPart` | **Planned** |
 | Render: `RenderPlan.parts`, `part_divider`, `write_chapters` interleaves | **Planned** |
 | `site_fingerprint` covers part marks | **Planned** |
-| Sample book gains two parts; fixture follows; slow lanes | **Planned** |
+| Sample book gains three parts and a suffix appendix; fixture follows; slow lanes | **Planned** |
 | README, spec, backlog | **Planned** |
 
 ---
@@ -120,9 +120,9 @@ The business logic is § Design and § Work Items.
 
 ### What the reader gets
 
-- In the epub's table of contents: *Part I: The repo*, then its chapters,
-  then *Part II: The proof*, then its chapters. Each part title opens a page
-  of its own.
+- In the epub's table of contents: *Part I: A repo and its gate*, then its
+  two chapters, then *Part II: What the gate checks*, and so on. Each part
+  title opens a page of its own.
 - In the PDF: each part title on a page of its own, before its first chapter.
 - In the HTML: what mdBook draws today, now pinned by a test.
 
@@ -220,6 +220,42 @@ The business logic is § Design and § Work Items.
 10. **Titles are the author's markdown.** A title is written into the divider
     as it stands. Two parts may share a title. The scratch file name never
     uses it, so there is nothing to slug and nothing to collide.
+11. **The sample book has three parts, grouped by the gate, and its appendix
+    is a suffix chapter.** Decided 19 September 2026; this was open
+    question 4. The book's spine is `make ayce`: two chapters build it, three
+    add checks to it, two put it to work.
+
+    ```markdown
+    # Summary
+
+    # Part I: A repo and its gate
+
+    - [A repo that builds](ch01-a-repo-that-builds.md)
+    - [The gate](ch02-the-gate.md)
+
+    # Part II: What the gate checks
+
+    - [Lints and format](ch03-lints-and-format.md)
+    - [Tests, and failing on purpose](ch04-tests-and-failing-on-purpose.md)
+    - [Supply chain](ch05-supply-chain.md)
+
+    # Part III: The gate at work
+
+    - [CI](ch06-ci.md)
+    - [Try it on a branch](ch07-try-it-on-a-branch.md)
+
+    ---
+
+    [Appendix: credits](appendix-credits.md)
+    ```
+
+    Three parts give the sample a middle mark, which two would not. The
+    appendix leaves the list: a bare link under a separator is mdBook's form
+    for back matter, it sits visibly outside Part III in the sidebar, and it
+    loses its "8." there. The spike's summary ended with this same separator
+    and bare link, and it loaded as eight chapters and built. Chapter order
+    does not change, so `chapters[7]` is still the appendix
+    (`bower/tests/publish.rs:127`) and no SHA moves.
 
 ---
 
@@ -405,14 +441,13 @@ mark, newline-separated.
 
 ### Phase 4 — The sample book
 
-- [ ] **4a.** `books/hello-playbook/src/SUMMARY.md` gains `# Part I: The
-  repo` before ch01 and `# Part II: The proof` before ch04 (titles are open
-  question 4). `hello_playbook()` gains the matching `with_parts` in the same
+- [ ] **4a.** `books/hello-playbook/src/SUMMARY.md` takes the shape in
+  decision 11: three part titles, and the appendix as a suffix chapter. `hello_playbook()` gains the matching `with_parts` in the same
   change.
 - [ ] **4b.** `make build`, then confirm `bower.lock` has no diff and
   `bower/tests/determinism.rs` passes unedited.
 - [ ] **4c.** Slow lanes: extend `publish_epub_produces_a_readable_book`
-  (`bower/tests/publish.rs:154`) to read `EPUB/nav.xhtml` and find both
+  (`bower/tests/publish.rs:154`) to read `EPUB/nav.xhtml` and find all three
   titles in order, each before its first chapter. `pdf_opens_on_the_cover`
   (`:198`) must still pass.
 
@@ -522,13 +557,13 @@ make purity
 make docs
 make slow                      # the mdbook, epub and PDF lanes (`Makefile:64-69`)
 make book epub pdf
-grep -c 'class="part-title"' books/hello-playbook/book/toc.html   # 2
-unzip -p books/hello-playbook/published/*.epub EPUB/nav.xhtml | grep -c 'Part I'
+grep -c 'class="part-title"' books/hello-playbook/book/toc.html   # 3
+unzip -p books/hello-playbook/published/*.epub EPUB/nav.xhtml | grep -c 'Part I'   # 3: I, II, III
 ```
 
 Exit criteria:
 
-1. The sample book's HTML, epub, and PDF each show both parts, each before
+1. The sample book's HTML, epub, and PDF each show all three parts, each before
    its first chapter.
 2. `bower.lock` is unchanged and `bower/tests/determinism.rs` passes
    unedited: no SHA moved.
@@ -548,7 +583,7 @@ Exit criteria:
 | 1 | **A nested table of contents.** The divider makes a part a sibling of its chapters, as mdBook's sidebar does. A true nest was measured and works with `--split-level=2` and chapters pushed down one heading level. It needs a fence-aware `shift_headings` of Bower's own, a template that styles two levels, and a rule for chapters outside any part. Is the nest worth that, or is the label enough? The lean is the label, until a reader asks. |
 | 2 | **Two levels.** "Books" that hold parts. mdBook has no second level, so the HTML could not show it without a theme change. Does any book need it, or does a part titled "Book One" do? |
 | 3 | **Part tags.** `ch03-end` exists (`replay.rs:168`). Should a part's last chapter also get `part-1-end`? It would be the first tag derived from `SUMMARY.md` text, it changes `expected_tags`, and it needs the where-does-a-part-end rule this EPIC avoids. The lean is no. |
-| 4 | **The sample's part titles.** "The repo" and "The proof" are placeholders from the spike. The appendix is a list item, so it lands under Part II. Should it move below a `---` as a suffix chapter, get an `# Appendix` part of its own, or stay? |
+| 4 | ~~The sample's part titles, and where its appendix sits.~~ **Answered 19 September 2026:** three parts by the gate, and the appendix as a suffix chapter. Now decision 11. |
 | 5 | **The PDF's part page.** A level-1 heading alone on a page, in the template's 17pt (`template.typ:26`). Should `part_divider` emit a styled block instead, or should the template own that through a `#show` rule Bower documents? |
 | 6 | **Refusing what mdBook accepts.** Decision 8 makes `bower build` fail on a summary `mdbook build` takes. Is that the right side to err on, or should it be a warning on stderr? |
 
