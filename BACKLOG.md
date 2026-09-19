@@ -39,7 +39,9 @@
 > 18 September 2026, later: `bower verify` runs steps on four workers
 > (`1715314`, fixed in `d2f04c6`), which closes the *no parallel
 > verification* gap. The sample book went from 28–32 s to 15–17 s. Three 🤖
-> notes on the worker pool are in the debt doc.
+> notes on the worker pool are in the debt doc. Later that day `verify` gained
+> a per-command `timeout` (default ten minutes), `--jobs N`, and a stop on the
+> first error. That closed the timeout finding and two of the three notes.
 
 ## In flight
 
@@ -144,8 +146,8 @@ Carried from the EPIC corrigenda. Detail and file references in
 - [ ] Exercises cannot carry a hidden solution the book does not print; the answer is always the next step (exercises spec § 2) — EPIC-13's `reveal="never"` closes this
 - [ ] Nothing reports whether a *published artifact* is current — `status` covers the lock, the repo, and the site, but not the PDF or epub
 - [ ] An SVG epub cover is legal but unevenly supported; no reader has been tested
-- [ ] 🤖 Three notes on the new verify worker pool: four workers whatever the core count, no stop on the first error, and no test that steps really overlap
-- [ ] 🤖 Eleven open findings from the 15 September 2026 deep review ([`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) § Automated review findings). The worst: `verify --record` rewriting chapters in place, and `verify` with no timeout
+- [ ] 🤖 Two notes on the verify worker pool: Ctrl-C no longer reaches a running step (the price of the timeout's process group), and old work directories keep a stale `target/`
+- [ ] 🤖 Ten open findings from the 15 September 2026 deep review ([`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) § Automated review findings). The worst: `verify --record` rewriting chapters in place (the timeout finding closed 18 September)
 - [ ] EPIC-09 left thirteen debt items. Two can strand a live repository: a push interrupted while main stands on a stepping stone leaves the remote failing the marker gate for good, and the gate reads `STEPS.md` from the forge's default branch rather than `main`. Most of the rest are edges no book reaches yet: an all-branch book, a branch named like a `-end` tag, unescaped `|` and `)` in branch names and PR titles, and one mistake reported twice. One is nearly free since slice 2: naming remote branches the book dropped, because `schedule` already reads every remote head.
 
 ## Open questions — decisions, not code
@@ -266,7 +268,10 @@ repository. See `bower-spec.md` § 12.
   four workers, each with its own target directory, results in document
   order, and the toolchain probe run one at a time. About 2× on the sample
   book. The first commit's workers held the queue lock for a whole step, so
-  they took turns; a review caught it before the branch merged.
+  they took turns; a review caught it before the branch merged. Then:
+  `timeout = <seconds>` per repo (a killed step is broken, whatever it
+  claimed), `--jobs N` (default: cores, at most four), and a stop on the
+  first error.
 - **[EPIC-09 — branches, merges, and pull requests, slice 2](docs/EPIC-09_Branches.md)**
   (14 September 2026, PR #7; review fixes in PR #8) — `bower push` puts every
   declared pull request on the forge through a pure schedule the dry run

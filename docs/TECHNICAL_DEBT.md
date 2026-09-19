@@ -16,7 +16,10 @@
 > (`1715314`, fixed in `d2f04c6` after a review found its workers still took
 > turns), which closes the sequential-verification item. Three 🤖 notes on the
 > new worker pool were added, and the line references into `verify.rs` were
-> refreshed.
+> refreshed. Later the same day, `verify` gained a per-command timeout,
+> `--jobs`, and a stop on the first error, which closed the timeout finding
+> and two of the three worker-pool notes. The third is narrowed to the stale
+> `target/`, and a new note records what the timeout costs Ctrl-C.
 > Last substantive refresh 5 September 2026, after
 > the first real Phase 5 book, which turned up four defects before it served a
 > single page — the book-name fallback, a garbled refusal message, a
@@ -432,7 +435,19 @@ eleven are open.
   write each chapter to a sibling temp file and `rename` it into place, and
   add a test where the second of two chapters cannot be written.
   (`bower/src/record.rs:86`)
-- [ ] 🤖 **`verify` has no timeout.** `run` blocks on `read_to_end` and then
+- [x] 🤖 ~~**`verify` has no timeout.**~~ Closed 18 September 2026, test
+  first. `run` (`bower/src/verify.rs`) polls `try_wait` against a deadline,
+  set per repo by `timeout = <seconds>` in `bower.toml` (default 600). At
+  the deadline it kills the command's whole process group, because killing
+  cargo alone would leave its test binary holding the pipe open. The output
+  gains a line saying so, and `verdict_for` calls the step broken ("it did not
+  finish in time") whatever it claimed. A killed command exits non-zero, and
+  `compile_fail` or `test_fail` would otherwise read that as success. Tests:
+  `run__a_command_past_its_deadline_is_killed_and_says_so` (fails without
+  the process group) and `matrix__a_timeout_upholds_nothing`. The original
+  finding follows.
+
+  `run` blocks on `read_to_end` and then
   `wait` (`bower/src/verify.rs:654`). A step whose test loops or deadlocks
   hangs `bower verify` forever, and CI's job timeout never names the step.
   Since 18 September a hung step also holds one of the four workers, and the
@@ -506,24 +521,32 @@ Noted while fixing the review findings on `1715314`. None of these is a
 defect today. Each is a choice the worker pool made without a book asking
 for it.
 
-- [ ] 🤖 **The worker count is fixed at four.** `WORKERS`
-  (`bower/src/verify.rs`) ignores `std::thread::available_parallelism`, and
-  neither `bower.toml` nor the CLI can change it. On a two-core CI runner,
-  four concurrent cargo builds only compete. Each worker also keeps its own
-  `target-N`, so the disk used is about four cold builds. Suggested: default
-  to `min(4, available_parallelism)`, and add a `--jobs` flag.
-- [ ] 🤖 **A failed step no longer stops the run.** The serial loop returned
-  on the first `VerifyError`. The pool finishes every queued step and then
-  reports the earliest error, so a missing toolchain or a nested workspace
-  costs a full run before it is named. Suggested: a shared `AtomicBool` the
-  workers check before taking the next step.
-- [ ] 🤖 **Nothing tests that the steps run concurrently.** The bug that made
-  the workers take turns (a `MutexGuard` kept alive by a `while let`) passed
-  every test, because every test is still correct when the steps run one at
-  a time. Existing work directories also keep the old `target/` beside the
-  new `target-N`, and nothing removes it. Suggested: a test with a fake check
-  command that records overlapping start and end times, rather than one that
-  measures elapsed time.
+- [x] 🤖 ~~**The worker count is fixed at four.**~~ Closed 18 September 2026.
+  `default_jobs` is `min(4, available_parallelism)`, and `bower verify
+  --jobs N` overrides it (at least 1). On the sample book, `--jobs 1` takes
+  28 s and `--jobs 4` 16 s.
+- [x] 🤖 ~~**A failed step no longer stops the run.**~~ Closed 18 September
+  2026, test first. The first step that errors sets a shared flag, and no
+  worker takes a new step after it (`run_steps`). Test:
+  `run_steps__an_error_stops_the_steps_not_yet_taken`.
+- [x] 🤖 ~~**Nothing tests that the steps run concurrently.**~~ Closed
+  18 September 2026. `run_steps__two_workers_run_two_steps_at_once` logs
+  starts and ends from a fake check command and expects
+  `start start end end`. With the old `while let` put back, it fails with
+  `start end start end`. `run_steps__one_job_runs_one_step_at_a_time` pins
+  the other side.
+- [ ] 🤖 **Work directories keep a stale `target/`.** A work directory used
+  before 18 September has a `target/` beside the new `target-N`. Nothing
+  reads it, and nothing removes it. Harmless beyond disk, and it clears with
+  the system temp directory. Suggested: remove it once, the first time a run
+  finds it.
+- [ ] 🤖 **Ctrl-C no longer reaches a running step.** To make a timeout
+  kill the whole command, `run` starts each one in its own process group. A
+  terminal sends SIGINT to the foreground group only, so Ctrl-C on `bower
+  verify` stops `bower` but not the cargo builds it started. They finish on
+  their own, and a hung test keeps running until someone kills it.
+  Suggested: catch SIGINT (a signal crate, or a small handler) and kill every
+  live group before exiting.
 
 ### Grounding EPIC-11 to EPIC-16, 10 September 2026
 
