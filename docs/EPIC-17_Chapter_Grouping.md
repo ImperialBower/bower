@@ -132,7 +132,7 @@ The business logic is § Design and § Work Items.
   one level. An author who wants "Book One" writes it as a part title. Open
   question 2.
 - **A nested table of contents**, where chapters sit *under* their part. It
-  was measured and it works, at a price. Decision 5 and open question 1.
+  was measured and it works, at a price. Decision 5.
 - **`part_of(chapter)`.** Nothing in this EPIC asks which part a chapter is
   in, and the answer needs a rule for where a part ends. EPIC-12 or EPIC-14
   can add it when one of them needs it.
@@ -192,7 +192,9 @@ The business logic is § Design and § Work Items.
      instead of chapters, and chapters outside any part would have to stay
      unshifted.
 
-   The divider ships. Nesting is open question 1.
+   The divider ships. Confirmed on 19 September 2026; this was open
+   question 1. A nest is not planned. If a reader asks for one, the recipe
+   above is where to start.
 6. **One divider text for both targets.** The divider wraps its heading in
    raw Typst page breaks, written as pandoc raw blocks. Measured: the Typst
    writer emits `#pagebreak(weak: true)` on each side of
@@ -583,7 +585,7 @@ Exit criteria:
 
 | # | Question |
 |---|---|
-| 1 | **A nested table of contents.** The divider makes a part a sibling of its chapters, as mdBook's sidebar does. A true nest was measured and works with `--split-level=2` and chapters pushed down one heading level. It needs a fence-aware `shift_headings` of Bower's own, a template that styles two levels, and a rule for chapters outside any part. Is the nest worth that, or is the label enough? The lean is the label, until a reader asks. |
+| 1 | ~~A nested table of contents, or the flat divider?~~ **Answered 19 September 2026:** the flat divider is enough. Decision 5 stands as written; the measured recipe for a nest stays there for whoever reopens it. |
 | 2 | **Two levels.** "Books" that hold parts. mdBook has no second level, so the HTML could not show it without a theme change. Does any book need it, or does a part titled "Book One" do? |
 | 3 | **Part tags.** `ch03-end` exists (`replay.rs:168`). Should a part's last chapter also get `part-1-end`? It would be the first tag derived from `SUMMARY.md` text, it changes `expected_tags`, and it needs the where-does-a-part-end rule this EPIC avoids. The lean is no. |
 | 4 | ~~The sample's part titles, and where its appendix sits.~~ **Answered 19 September 2026:** three parts by the gate, and the appendix as a suffix chapter. Now decision 11. |
