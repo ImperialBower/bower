@@ -10,6 +10,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use bower_core::prelude::{RepoCatalog, RepoName, RepoSpec};
 use serde::Deserialize;
@@ -82,6 +83,10 @@ pub struct RepoConfig {
     /// pins none. A tree's own `rust-toolchain.toml` always wins: it is what a
     /// reader who checks the step out gets (EPIC-11 Decision 10).
     pub toolchain: Option<String>,
+    /// How long one `check` or `verify` command may run before `bower verify`
+    /// kills it and calls the step broken. `timeout = <seconds>` in
+    /// `bower.toml`; the verifier's default applies when absent.
+    pub timeout: Option<Duration>,
     /// The one setting the kernel cares about.
     pub keep_region_markers: bool,
     pub links: LinkTemplates,
@@ -263,6 +268,7 @@ impl BookConfig {
                             check: r.check,
                             verify: r.verify,
                             toolchain: r.toolchain,
+                            timeout: r.timeout.map(Duration::from_secs),
                             keep_region_markers: r.keep_region_markers,
                             links: LinkTemplates {
                                 blob: r.links.blob,
@@ -340,6 +346,7 @@ struct WireRepo {
     check: Option<String>,
     verify: Option<String>,
     toolchain: Option<String>,
+    timeout: Option<u64>,
     #[serde(default)]
     keep_region_markers: bool,
     #[serde(default)]
@@ -600,6 +607,19 @@ mod config_tests {
         assert_eq!(
             pinned.repos.get("r").unwrap().toolchain.as_deref(),
             Some("1.98.1")
+        );
+    }
+
+    #[test]
+    fn config__timeout_is_seconds_and_optional() {
+        let bare = BookConfig::parse(&format!("{MINIMAL}[repos.r]\n")).unwrap();
+        assert_eq!(bare.repos.get("r").unwrap().timeout, None);
+
+        let text = format!("{MINIMAL}[repos.r]\ntimeout = 90\n");
+        let set = BookConfig::parse(&text).unwrap();
+        assert_eq!(
+            set.repos.get("r").unwrap().timeout,
+            Some(std::time::Duration::from_secs(90))
         );
     }
 }

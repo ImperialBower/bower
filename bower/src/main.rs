@@ -131,6 +131,12 @@ enum Command {
         /// still matches is left alone, so a `[...]` trim survives.
         #[arg(long)]
         record: bool,
+
+        /// How many steps to verify at once. Each runs its own cargo builds in
+        /// its own target directory. Defaults to the number of cores, at most
+        /// four.
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+        jobs: Option<u16>,
     },
     /// Replay the plan into a local git repository, one commit per step.
     Build {
@@ -181,15 +187,22 @@ fn main() -> ExitCode {
             from,
             work,
             record,
-        } => run_verify(
-            &cli.book,
-            &cfg,
-            repo.as_deref(),
-            step.as_deref(),
-            from.as_deref(),
-            work.as_deref(),
-            record,
-        ),
+            jobs,
+        } => {
+            let scratch = Scratch {
+                work: work.unwrap_or_else(|| bower::verify::default_work_dir(&cli.book)),
+                jobs: jobs.map_or_else(bower::verify::default_jobs, usize::from),
+            };
+            run_verify(
+                &cli.book,
+                &cfg,
+                repo.as_deref(),
+                step.as_deref(),
+                from.as_deref(),
+                &scratch,
+                record,
+            )
+        }
     }
 }
 
@@ -343,23 +356,24 @@ fn run_build(book_root: &Path, cfg: &BookConfig, only: Option<&str>, out: &Path)
     ExitCode::SUCCESS
 }
 
+/// Where `bower verify` works, and how many steps it runs at once.
+struct Scratch {
+    work: PathBuf,
+    jobs: usize,
+}
+
 fn run_verify(
     book_root: &Path,
     cfg: &BookConfig,
     only_repo: Option<&str>,
     step: Option<&str>,
     from: Option<&str>,
-    work: Option<&Path>,
+    scratch: &Scratch,
     record: bool,
 ) -> ExitCode {
     let Some(resolved) = resolve(book_root, cfg) else {
         return ExitCode::FAILURE;
     };
-
-    let work = work.map_or_else(
-        || bower::verify::default_work_dir(book_root),
-        Path::to_path_buf,
-    );
 
     let selected: Vec<_> = resolved
         .repos
@@ -391,7 +405,8 @@ fn run_verify(
         let verifier = Verifier {
             config: cfg,
             book_root,
-            work_dir: &work,
+            work_dir: &scratch.work,
+            jobs: scratch.jobs,
         };
         let report = match verifier.run(repo, step, from) {
             Ok(r) => r,

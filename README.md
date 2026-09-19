@@ -254,6 +254,12 @@ Which compiler says it matters, so a step runs on its tree's own
 `rust-toolchain.toml`, or else on the repo's `toolchain` key in `bower.toml`.
 Design: `docs/EPIC-11_Diagnostics.md`.
 
+`bower verify` runs up to four steps at once (`--jobs N` to change it), and
+kills any command still running after the repo's `timeout` — ten minutes
+unless `bower.toml` sets `timeout = <seconds>`. A step that is killed is
+broken, whatever it claimed: a hung test has not failed the way the book
+says.
+
 ## License
 
 MIT OR Apache-2.0.

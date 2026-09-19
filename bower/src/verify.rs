@@ -8,11 +8,13 @@
 //! hands over a complete `TreeState` per step, so `verify` works before `build`
 //! has ever run and never touches `gix`.
 
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, mpsc};
+use std::time::Duration;
 
 use bower_core::prelude::{
     Capture, CapturedOutput, Drift, Expect, Location, PlannedStep, RepoPlan, Scrub, StepId, drift,
@@ -49,6 +51,9 @@ pub fn default_work_dir(book_root: &Path) -> PathBuf {
 pub struct Outcome {
     pub command: String,
     pub success: bool,
+    /// The command ran past its deadline and was killed. `success` is then
+    /// false, and no claim can be upheld by it.
+    pub timed_out: bool,
     /// Both streams, interleaved in the order they were written: what a
     /// reader's terminal shows. The failure report prints its tail, and a
     /// recorded output is judged against it (EPIC-11 Decision 2).
@@ -268,6 +273,11 @@ impl std::error::Error for VerifyError {}
 /// compiles nothing.
 const TOOLCHAIN_PROBE: &str = "rustc --version";
 
+/// How long one command may run when the repo sets no `timeout`. Generous: a
+/// recorded step builds with one job, and a cold build of a crate with
+/// dependencies takes minutes. A hung test is caught, just not quickly.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(600);
+
 /// What stays the same from one step to the next.
 struct Bench<'a> {
     check_cmd: &'a str,
@@ -284,6 +294,8 @@ struct Bench<'a> {
     /// as `VerifyError::Toolchain`. One probe at a time; the first installs,
     /// the rest find it ready.
     probe_lock: Mutex<()>,
+    /// How long one command may run before it is killed.
+    timeout: Duration,
 }
 
 /// One step, verified: its claim, its outputs, and whether it records output
@@ -332,7 +344,7 @@ fn run_step(
                 .probe_lock
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            run(bench.probe, tree_dir, target_dir, &env)?
+            run(bench.probe, tree_dir, target_dir, &env, bench.timeout)?
         };
         if !probe.success {
             return Err(VerifyError::Toolchain {
@@ -341,9 +353,15 @@ fn run_step(
             });
         }
     }
-    let check = run(bench.check_cmd, tree_dir, target_dir, &env)?;
+    let check = run(bench.check_cmd, tree_dir, target_dir, &env, bench.timeout)?;
     let verify = if check.success && step.expect != Expect::CompileFail {
-        Some(run(bench.verify_cmd, tree_dir, target_dir, &env)?)
+        Some(run(
+            bench.verify_cmd,
+            tree_dir,
+            target_dir,
+            &env,
+            bench.timeout,
+        )?)
     } else {
         None
     };
@@ -369,9 +387,17 @@ fn run_step(
     })
 }
 
-/// How many steps are verified at once. Each worker has its own tree and
-/// target directory, so this is also how many cold builds a run pays for.
-const WORKERS: usize = 4;
+/// The most steps verified at once by default. Each worker has its own target
+/// directory, so this is also how many cold builds a run pays for.
+const MAX_DEFAULT_JOBS: usize = 4;
+
+/// How many steps to verify at once when `--jobs` is not given.
+#[must_use]
+pub fn default_jobs() -> usize {
+    std::thread::available_parallelism()
+        .map_or(1, std::num::NonZero::get)
+        .min(MAX_DEFAULT_JOBS)
+}
 
 /// Run every step on a small pool of workers and hand the results back in the
 /// order of `steps`, whatever order they finished in.
@@ -380,20 +406,31 @@ const WORKERS: usize = 4;
 /// cold builds rather than twenty; and not one for all, because every step
 /// builds the same package name and a step could run the binary another step
 /// had just written.
+///
+/// # Errors
+///
+/// The error of the earliest step, in document order, that failed to run.
+/// No worker takes a new step once one has failed.
 fn run_steps(
     bench: &Bench,
     steps: &[&PlannedStep],
     work_dir: &Path,
-) -> Vec<Result<StepRun, VerifyError>> {
+    jobs: usize,
+) -> Result<Vec<StepRun>, VerifyError> {
     let work = Mutex::new(steps.iter().enumerate());
+    // Set by the first step that errors. A worker takes no new step after it:
+    // the serial loop stopped at the first error, and a missing toolchain
+    // should not cost a whole run before it is named.
+    let failed = AtomicBool::new(false);
     let (tx, rx) = mpsc::channel();
     std::thread::scope(|scope| {
-        for worker in 0..WORKERS.min(steps.len()) {
+        for worker in 0..jobs.min(steps.len()) {
             let tx = tx.clone();
             let work = &work;
+            let failed = &failed;
             let target_dir = work_dir.join(format!("target-{worker}"));
             scope.spawn(move || {
-                loop {
+                while !failed.load(Ordering::Relaxed) {
                     // Its own statement, so the guard drops here: in a
                     // `while let` condition it would live through the body,
                     // and the workers would take turns.
@@ -403,10 +440,11 @@ fn run_steps(
                         .next();
                     let Some((pos, step)) = next else { break };
                     let tree_dir = work_dir.join(format!("tree-{:03}", step.seq));
-                    if tx
-                        .send((pos, run_step(bench, step, &tree_dir, &target_dir)))
-                        .is_err()
-                    {
+                    let run = run_step(bench, step, &tree_dir, &target_dir);
+                    if run.is_err() {
+                        failed.store(true, Ordering::Relaxed);
+                    }
+                    if tx.send((pos, run)).is_err() {
                         break;
                     }
                 }
@@ -424,6 +462,8 @@ pub struct Verifier<'a> {
     pub book_root: &'a Path,
     /// Scratch directory: one `tree-NNN` per step and one `target-N` per worker.
     pub work_dir: &'a Path,
+    /// How many steps run at once; [`default_jobs`] unless `--jobs` says.
+    pub jobs: usize,
 }
 
 impl Verifier<'_> {
@@ -477,6 +517,7 @@ impl Verifier<'_> {
             scaffolding: &scaffolding,
             cargo_home: cargo_home(),
             probe_lock: Mutex::new(()),
+            timeout: cfg.and_then(|c| c.timeout).unwrap_or(DEFAULT_TIMEOUT),
         };
 
         let steps: Vec<&PlannedStep> = plan
@@ -489,12 +530,15 @@ impl Verifier<'_> {
         let mut verdicts = Vec::with_capacity(steps.len());
         let mut unpinned_step = None;
         // In document order, so the first error reported is the first step's.
-        for (step, run) in steps.iter().zip(run_steps(&bench, &steps, self.work_dir)) {
+        for (step, run) in steps
+            .iter()
+            .zip(run_steps(&bench, &steps, self.work_dir, self.jobs)?)
+        {
             let StepRun {
                 verdict,
                 outputs,
                 unpinned,
-            } = run?;
+            } = run;
             if unpinned && unpinned_step.is_none() {
                 unpinned_step = Some(step.id.clone());
             }
@@ -528,6 +572,15 @@ pub fn verdict_for(expect: Expect, check: &Outcome, verify: Option<&Outcome>) ->
         command: o.command.clone(),
         output: o.output.clone(),
     };
+
+    if expect == Expect::Skip {
+        return Verdict::Skipped;
+    }
+    // A killed command exits non-zero, which `compile_fail` and `test_fail`
+    // would otherwise read as the failure they promised.
+    if let Some(late) = std::iter::once(check).chain(verify).find(|o| o.timed_out) {
+        return broken("it did not finish in time", late);
+    }
 
     match expect {
         Expect::Skip => Verdict::Skipped,
@@ -621,6 +674,7 @@ fn run(
     dir: &Path,
     target_dir: &Path,
     env: &[(&str, String)],
+    timeout: Duration,
 ) -> Result<Outcome, VerifyError> {
     let mut parts = command.split_whitespace();
     let Some(program) = parts.next() else {
@@ -646,14 +700,45 @@ fn run(
         .stdin(Stdio::null())
         .stdout(writer.try_clone().map_err(io)?)
         .stderr(writer);
+    // Its own process group, so a timeout can kill what the command started
+    // too: cargo's test binary, a script's `sleep`. Killing cargo alone would
+    // leave its child holding the pipe open, and the read below waiting.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     let mut child = cmd.spawn().map_err(io)?;
     // `cmd` still holds both write ends. Until it is gone the read below never
     // sees end-of-file, and waits for ever.
     drop(cmd);
-    let mut bytes = Vec::new();
-    reader.read_to_end(&mut bytes).map_err(io)?;
-    let status = child.wait().map_err(io)?;
-    let output = String::from_utf8_lossy(&bytes).into_owned();
+    let drain = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).map(|_| bytes)
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let (status, timed_out) = loop {
+        if let Some(status) = child.try_wait().map_err(io)? {
+            break (status, false);
+        }
+        if std::time::Instant::now() >= deadline {
+            kill_group(&mut child);
+            break (child.wait().map_err(io)?, true);
+        }
+        std::thread::sleep(POLL);
+    };
+    let bytes = drain
+        .join()
+        .map_err(|_| io(std::io::Error::other("the output reader panicked")))?
+        .map_err(io)?;
+    let mut output = String::from_utf8_lossy(&bytes).into_owned();
+    if timed_out {
+        if !output.is_empty() && !output.ends_with('\n') {
+            output.push('\n');
+        }
+        let _ = writeln!(
+            output,
+            "bower: `{command}` did not finish within {timeout:?} and was killed"
+        );
+    }
 
     if !status.success() && nested_workspace(&output) {
         return Err(VerifyError::NestedWorkspace {
@@ -663,9 +748,30 @@ fn run(
 
     Ok(Outcome {
         command: command.to_string(),
-        success: status.success(),
+        success: status.success() && !timed_out,
+        timed_out,
         output,
     })
+}
+
+/// How often `run` checks whether its command has finished.
+const POLL: Duration = Duration::from_millis(20);
+
+/// Kill a timed-out command and everything it started. `run` made it a
+/// process-group leader, so its id is also its group's. Shells out to
+/// `kill`, not to `libc`, for one call on a path only a hung step reaches.
+fn kill_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-KILL", &format!("-{}", child.id())])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    // Whatever the group kill did, the direct child must go, or `wait` hangs.
+    let _ = child.kill();
 }
 
 #[cfg(test)]
@@ -673,10 +779,14 @@ fn run(
 mod verify_tests {
     use super::*;
 
+    /// A deadline no test command comes near.
+    const LONG: Duration = Duration::from_secs(60);
+
     fn ok(cmd: &str) -> Outcome {
         Outcome {
             command: cmd.to_string(),
             success: true,
+            timed_out: false,
             output: String::new(),
         }
     }
@@ -685,6 +795,7 @@ mod verify_tests {
         Outcome {
             command: cmd.to_string(),
             success: false,
+            timed_out: false,
             output: "error[E0308]: mismatched types\n".to_string(),
         }
     }
@@ -763,8 +874,8 @@ mod verify_tests {
     fn run__reports_success_and_failure() {
         let dir = std::env::temp_dir();
         let target = dir.join("bower-verify-target");
-        assert!(run("true", &dir, &target, &[]).unwrap().success);
-        assert!(!run("false", &dir, &target, &[]).unwrap().success);
+        assert!(run("true", &dir, &target, &[], LONG).unwrap().success);
+        assert!(!run("false", &dir, &target, &[], LONG).unwrap().success);
     }
 
     #[test]
@@ -821,7 +932,7 @@ mod verify_tests {
     fn run__empty_command_is_an_error() {
         let dir = std::env::temp_dir();
         assert!(matches!(
-            run("   ", &dir, &dir, &[]),
+            run("   ", &dir, &dir, &[], LONG),
             Err(VerifyError::EmptyCommand)
         ));
     }
@@ -842,7 +953,7 @@ mod verify_tests {
         // were written. Stderr-then-stdout would print cargo's closing
         // `error: test failed` above libtest's `running 1 test`.
         let dir = script("order", "echo one\necho two >&2\necho three\n");
-        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[], LONG).unwrap();
         assert_eq!(out.output, "one\ntwo\nthree\n");
         assert!(out.success);
     }
@@ -895,11 +1006,11 @@ mod verify_tests {
         // RUSTUP_TOOLCHAIN into this process. The child must not see it: that
         // value is how `bower` was started, not what the book pins.
         let dir = script("toolchain", "echo \"${RUSTUP_TOOLCHAIN:-unset}\"\n");
-        let out = run("sh s.sh", &dir, &dir.join("target"), &[]).unwrap();
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[], LONG).unwrap();
         assert_eq!(out.output, "unset\n");
 
         let set = [("RUSTUP_TOOLCHAIN", "1.98.1".to_string())];
-        let out = run("sh s.sh", &dir, &dir.join("target"), &set).unwrap();
+        let out = run("sh s.sh", &dir, &dir.join("target"), &set, LONG).unwrap();
         assert_eq!(out.output, "1.98.1\n");
     }
 
@@ -916,6 +1027,7 @@ mod verify_tests {
         Outcome {
             command: "cargo check".to_string(),
             success: false,
+            timed_out: false,
             output: text.to_string(),
         }
     }
@@ -1069,6 +1181,7 @@ mod verify_tests {
                 scaffolding,
                 cargo_home: None,
                 probe_lock: Mutex::new(()),
+                timeout: LONG,
             },
             work.join("tree"),
             work.join("target"),
@@ -1108,5 +1221,181 @@ mod verify_tests {
             Err(other) => panic!("expected Toolchain, got {other}"),
             Ok(_) => panic!("expected Toolchain, got a verdict"),
         }
+    }
+
+    fn late(cmd: &str) -> Outcome {
+        Outcome {
+            command: cmd.to_string(),
+            success: false,
+            timed_out: true,
+            output: String::new(),
+        }
+    }
+
+    #[test]
+    fn matrix__a_timeout_upholds_nothing() {
+        // A killed command exits non-zero, which is exactly what
+        // `compile_fail` and `test_fail` ask for. A step that hangs has not
+        // failed the way the book says it does.
+        let cases = [
+            (Expect::CompileFail, late("check"), None),
+            (Expect::TestFail, ok("check"), Some(late("test"))),
+            (Expect::Pass, ok("check"), Some(late("test"))),
+            (Expect::Pass, late("check"), None),
+        ];
+        for (expect, check, verify) in cases {
+            match verdict_for(expect, &check, verify.as_ref()) {
+                Verdict::Broken { happened, .. } => {
+                    assert!(
+                        happened.contains("did not finish"),
+                        "{expect:?}: {happened}"
+                    );
+                }
+                other => panic!("{expect:?}: expected Broken, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn run__a_command_past_its_deadline_is_killed_and_says_so() {
+        // `sleep` is the shell's child, as a test binary is cargo's. Killing
+        // only the direct child would leave it holding the pipe open, and the
+        // read would wait for it.
+        let dir = script("timeout", "echo started\nsleep 30\necho never\n");
+        let began = std::time::Instant::now();
+        let out = run(
+            "sh s.sh",
+            &dir,
+            &dir.join("target"),
+            &[],
+            Duration::from_millis(300),
+        )
+        .unwrap();
+        assert!(
+            began.elapsed() < Duration::from_secs(10),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(out.timed_out);
+        assert!(!out.success);
+        assert!(out.output.starts_with("started\n"), "{}", out.output);
+        assert!(!out.output.contains("never"), "{}", out.output);
+        assert!(
+            out.output.contains("did not finish within 300ms"),
+            "{}",
+            out.output
+        );
+    }
+
+    #[test]
+    fn run__a_command_inside_its_deadline_is_not_timed_out() {
+        let dir = script("in-time", "echo done\n");
+        let out = run("sh s.sh", &dir, &dir.join("target"), &[], LONG).unwrap();
+        assert!(!out.timed_out);
+        assert!(out.success);
+        assert_eq!(out.output, "done\n");
+    }
+
+    #[test]
+    fn default_jobs__is_between_one_and_four() {
+        assert!((1..=4).contains(&default_jobs()), "{}", default_jobs());
+    }
+
+    /// `n` passing steps, one file each, planned for real.
+    fn steps(n: usize) -> Vec<PlannedStep> {
+        use bower_core::prelude::{BookSource, Chapter, RepoCatalog, plan};
+        let mut text = String::new();
+        for i in 0..n {
+            let _ = write!(
+                text,
+                "<!-- bower repo=\"r\" file=\"f{i}.txt\" -->\n```text\n{i}\n```\n"
+            );
+        }
+        let book = BookSource::from_chapters(vec![Chapter::new("ch.md", &text)]);
+        plan(&book, &RepoCatalog::from_names(&["r"])).unwrap().repos[0]
+            .steps
+            .clone()
+    }
+
+    fn pool_bench<'a>(check_cmd: &'a str, scaffolding: &'a Blobs) -> Bench<'a> {
+        Bench {
+            check_cmd,
+            verify_cmd: "true",
+            toolchain: None,
+            probe: "true",
+            scaffolding,
+            cargo_home: None,
+            probe_lock: Mutex::new(()),
+            timeout: LONG,
+        }
+    }
+
+    fn fresh(case: &str) -> PathBuf {
+        let work = std::env::temp_dir().join(format!("bower-verify-pool-{case}"));
+        let _ = std::fs::remove_dir_all(&work);
+        std::fs::create_dir_all(&work).unwrap();
+        work
+    }
+
+    #[test]
+    fn run_steps__two_workers_run_two_steps_at_once() {
+        // The first cut held the queue's lock for a whole step, and passed
+        // every test, because every result is still right when the workers
+        // take turns. Only the order of starts and ends shows it.
+        let work = fresh("overlap");
+        let log = work.join("log");
+        let body = format!(
+            "echo start >> {log}\nsleep 0.5\necho end >> {log}\n",
+            log = log.display()
+        );
+        let scaffolding = Blobs::from([("s.sh".to_string(), (body.into_bytes(), false))]);
+        let bench = pool_bench("sh s.sh", &scaffolding);
+        let planned = steps(2);
+        let refs: Vec<&PlannedStep> = planned.iter().collect();
+
+        let runs = run_steps(&bench, &refs, &work, 2).unwrap();
+
+        assert_eq!(runs.len(), 2);
+        let order = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(order, "start\nstart\nend\nend\n");
+    }
+
+    #[test]
+    fn run_steps__one_job_runs_one_step_at_a_time() {
+        let work = fresh("serial");
+        let log = work.join("log");
+        let body = format!(
+            "echo start >> {log}\nsleep 0.1\necho end >> {log}\n",
+            log = log.display()
+        );
+        let scaffolding = Blobs::from([("s.sh".to_string(), (body.into_bytes(), false))]);
+        let bench = pool_bench("sh s.sh", &scaffolding);
+        let planned = steps(2);
+        let refs: Vec<&PlannedStep> = planned.iter().collect();
+
+        run_steps(&bench, &refs, &work, 1).unwrap();
+
+        let order = std::fs::read_to_string(&log).unwrap();
+        assert_eq!(order, "start\nend\nstart\nend\n");
+    }
+
+    #[test]
+    fn run_steps__an_error_stops_the_steps_not_yet_taken() {
+        // An empty check command fails every step the same way. The serial
+        // loop stopped at the first; so must the pool, or a missing
+        // toolchain costs a whole run before it is named.
+        let work = fresh("stop");
+        let scaffolding = Blobs::new();
+        let bench = pool_bench("", &scaffolding);
+        let planned = steps(3);
+        let refs: Vec<&PlannedStep> = planned.iter().collect();
+
+        let result = run_steps(&bench, &refs, &work, 1);
+
+        assert!(matches!(result, Err(VerifyError::EmptyCommand)));
+        let first = work.join(format!("tree-{:03}", planned[0].seq));
+        let second = work.join(format!("tree-{:03}", planned[1].seq));
+        assert!(first.exists(), "the first step ran");
+        assert!(!second.exists(), "the second step must not have been taken");
     }
 }
