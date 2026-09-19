@@ -460,6 +460,23 @@ pub struct RenderedChapter {
     pub markdown: String,
 }
 
+/// A part title, placed for a renderer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RenderedPart {
+    pub title: String,
+    /// Path of the [`RenderedChapter`] this part comes before.
+    pub before: String,
+}
+
+/// The markdown handed to pandoc for one part title: the heading alone on a
+/// page. The page breaks are raw Typst, so the Typst writer emits them and the
+/// epub writer drops them, and one text serves both targets.
+#[must_use]
+pub fn part_divider(title: &str) -> String {
+    const BREAK: &str = "```{=typst}\n#pagebreak(weak: true)\n```\n";
+    format!("{BREAK}\n# {title}\n\n{BREAK}")
+}
+
 /// A file beside the chapters that a chapter links but does not contain — an
 /// image, most of the time.
 ///
@@ -489,6 +506,9 @@ pub struct RenderPlan {
     /// normal book; it names its artifacts without a version, as it always did.
     pub version: Option<String>,
     pub chapters: Vec<RenderedChapter>,
+    /// Part titles, in reading order (EPIC-17). Empty for a book without
+    /// parts. The HTML target ignores them: mdBook draws its own.
+    pub parts: Vec<RenderedPart>,
     /// Non-markdown files under the book's `src/`. mdBook copies these itself,
     /// so the HTML target ignores them; pandoc and typst are handed only the
     /// files bower writes, and would otherwise render a book with holes in it.
@@ -511,6 +531,14 @@ pub fn render_plan(
         meta,
         version,
         assets,
+        parts: book
+            .parts
+            .iter()
+            .map(|p| RenderedPart {
+                title: p.title.clone(),
+                before: p.first.clone(),
+            })
+            .collect(),
         chapters: book
             .chapters
             .iter()
@@ -635,7 +663,8 @@ pub fn slug(title: &str) -> String {
 }
 
 /// Write a plan's chapters to `dir` as numbered markdown files, in reading
-/// order, and return them in that order.
+/// order, with a [`part_divider`] before each chapter a part opens at, and
+/// return them in that order.
 ///
 /// Shared by every renderer that hands files to an external tool. Two copies of
 /// this loop would be two chances to order a book differently, and a reader
@@ -655,18 +684,26 @@ pub fn write_chapters(dir: &Path, plan: &RenderPlan) -> Result<Vec<PathBuf>, Pub
     }
     std::fs::create_dir_all(dir).map_err(io(dir))?;
 
-    let mut out = Vec::with_capacity(plan.chapters.len());
-    for (i, chapter) in plan.chapters.iter().enumerate() {
+    let mut out = Vec::with_capacity(plan.chapters.len() + plan.parts.len());
+    // Numbered so the order an external tool receives is visible on disk.
+    // Dividers share the count, so a book without parts keeps its names.
+    let mut write = |stem: &str, text: &str| {
+        let file = dir.join(format!("{:03}-{stem}.md", out.len() + 1));
+        std::fs::write(&file, text).map_err(io(&file))?;
+        out.push(file);
+        Ok::<_, PublishError>(())
+    };
+    for chapter in &plan.chapters {
+        for part in plan.parts.iter().filter(|p| p.before == chapter.path) {
+            write("part", &part_divider(&part.title))?;
+        }
         let stem = chapter
             .path
             .rsplit('/')
             .next()
             .unwrap_or(&chapter.path)
             .trim_end_matches(".md");
-        // Numbered so the order an external tool receives is visible on disk.
-        let file = dir.join(format!("{:03}-{stem}.md", i + 1));
-        std::fs::write(&file, &chapter.markdown).map_err(io(&file))?;
-        out.push(file);
+        write(stem, &chapter.markdown)?;
     }
     Ok(out)
 }
@@ -846,9 +883,9 @@ pub fn digest(text: &str) -> String {
 /// 2 September 2026, by changing one `msg=` and watching the repo drift while
 /// the site did not.
 ///
-/// So: the lock, plus every chapter's source. Some changes this catches would
-/// render identically — a trailing space, say — and that is the right way to be
-/// wrong. A false "stale" costs one re-render; a false "in sync" serves the
+/// So: the lock, plus every chapter's source, plus every part mark. Some
+/// changes this catches would render identically — a trailing space, say — and
+/// that is the right way to be wrong. A false "stale" costs one re-render; a false "in sync" serves the
 /// wrong book.
 #[must_use]
 pub fn site_fingerprint(book: &BookSource, lock: &str) -> String {
@@ -857,6 +894,15 @@ pub fn site_fingerprint(book: &BookSource, lock: &str) -> String {
         all.push_str(&chapter.path);
         all.push('\n');
         all.push_str(&chapter.text);
+    }
+    // Parts go last, and only when there are any, so a book without parts
+    // keeps the fingerprint it had before parts existed.
+    for part in &book.parts {
+        all.push_str("\npart\n");
+        all.push_str(&part.title);
+        all.push('\n');
+        all.push_str(&part.first);
+        all.push('\n');
     }
     digest(&all)
 }
@@ -1269,7 +1315,7 @@ mod publish_tests {
     }
 
     use crate::loader::BookLoader;
-    use bower_core::prelude::{RepoCatalog, plan};
+    use bower_core::prelude::{PartMark, RepoCatalog, plan};
 
     fn sample_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1813,15 +1859,159 @@ mod publish_tests {
         let dir = std::env::temp_dir().join("bower-write-chapters");
         let files = write_chapters(&dir, &rp).unwrap();
 
-        assert_eq!(files.len(), 8);
-        let names: Vec<String> = files
+        // Eight chapters and the sample's three part dividers (EPIC-17).
+        assert_eq!(
+            names(&files),
+            [
+                "001-part.md",
+                "002-ch01-a-repo-that-builds.md",
+                "003-ch02-the-gate.md",
+                "004-part.md",
+                "005-ch03-lints-and-format.md",
+                "006-ch04-tests-and-failing-on-purpose.md",
+                "007-ch05-supply-chain.md",
+                "008-part.md",
+                "009-ch06-ci.md",
+                "010-ch07-try-it-on-a-branch.md",
+                "011-appendix-credits.md",
+            ],
+            "the appendix is last, outside Part III"
+        );
+    }
+
+    /// The sample's render plan for `target`, with `parts` laid over the book.
+    fn parted_plan(parts: Vec<PartMark>, target: Target) -> RenderPlan {
+        let (book, plan) = sample_plan();
+        let book = book.with_parts(parts).unwrap();
+        let meta = BookMeta::load(&sample_root()).unwrap();
+        render_plan(&book, &plan, meta, target, &links(), None, Vec::new())
+    }
+
+    fn two_parts() -> Vec<PartMark> {
+        vec![
+            PartMark::new("Part I: Start", "src/ch01-a-repo-that-builds.md"),
+            PartMark::new("Part II: *Checks*", "src/ch03-lints-and-format.md"),
+        ]
+    }
+
+    #[test]
+    fn render_plan__carries_parts_in_order() {
+        let rp = parted_plan(two_parts(), Target::Epub);
+        assert_eq!(
+            rp.parts,
+            vec![
+                RenderedPart {
+                    title: "Part I: Start".to_string(),
+                    before: "src/ch01-a-repo-that-builds.md".to_string(),
+                },
+                RenderedPart {
+                    title: "Part II: *Checks*".to_string(),
+                    before: "src/ch03-lints-and-format.md".to_string(),
+                },
+            ]
+        );
+        assert_eq!(rp.chapters.len(), 8, "a part adds no chapter");
+    }
+
+    #[test]
+    fn divider__is_a_heading_between_two_typst_page_breaks() {
+        assert_eq!(
+            part_divider("Part I: The *repo*"),
+            concat!(
+                "```{=typst}\n#pagebreak(weak: true)\n```\n",
+                "\n# Part I: The *repo*\n\n",
+                "```{=typst}\n#pagebreak(weak: true)\n```\n",
+            )
+        );
+    }
+
+    fn names(files: &[PathBuf]) -> Vec<String> {
+        files
             .iter()
             .map(|f| f.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(names[0], "001-ch01-a-repo-that-builds.md");
-        assert_eq!(names[5], "006-ch06-ci.md");
-        assert_eq!(names[6], "007-ch07-try-it-on-a-branch.md");
-        assert_eq!(names[7], "008-appendix-credits.md", "the appendix is last");
+            .collect()
+    }
+
+    #[test]
+    fn write_chapters__puts_a_divider_before_its_chapter() {
+        let rp = parted_plan(two_parts(), Target::Pdf);
+        let dir = std::env::temp_dir().join("bower-write-chapters-parts");
+        let files = write_chapters(&dir, &rp).unwrap();
+
+        assert_eq!(
+            names(&files)[..5],
+            [
+                "001-part.md",
+                "002-ch01-a-repo-that-builds.md",
+                "003-ch02-the-gate.md",
+                "004-part.md",
+                "005-ch03-lints-and-format.md",
+            ]
+        );
+        assert_eq!(files.len(), 10);
+        assert_eq!(
+            std::fs::read_to_string(&files[3]).unwrap(),
+            part_divider("Part II: *Checks*")
+        );
+    }
+
+    #[test]
+    fn write_chapters__a_partless_book_writes_todays_names() {
+        let rp = parted_plan(Vec::new(), Target::Pdf);
+        let dir = std::env::temp_dir().join("bower-write-chapters-partless");
+        let files = write_chapters(&dir, &rp).unwrap();
+        assert_eq!(
+            names(&files),
+            [
+                "001-ch01-a-repo-that-builds.md",
+                "002-ch02-the-gate.md",
+                "003-ch03-lints-and-format.md",
+                "004-ch04-tests-and-failing-on-purpose.md",
+                "005-ch05-supply-chain.md",
+                "006-ch06-ci.md",
+                "007-ch07-try-it-on-a-branch.md",
+                "008-appendix-credits.md",
+            ]
+        );
+    }
+
+    #[test]
+    fn fingerprint__a_partless_book_is_unchanged() {
+        // Today's formula, written out: the lock, then each chapter's path and
+        // text. A published site must not turn stale the day parts ship.
+        let (mut book, _) = sample_plan();
+        book.parts.clear();
+        let mut before = String::from("lock");
+        for c in &book.chapters {
+            before.push_str(&c.path);
+            before.push('\n');
+            before.push_str(&c.text);
+        }
+        assert_eq!(site_fingerprint(&book, "lock"), digest(&before));
+    }
+
+    #[test]
+    fn fingerprint__a_renamed_part_changes_it() {
+        let (book, _) = sample_plan();
+        let a = book.clone().with_parts(two_parts()).unwrap();
+        let mut renamed = two_parts();
+        renamed[1].title = "Part II: Lints".to_string();
+        let b = book.clone().with_parts(renamed).unwrap();
+        assert_ne!(site_fingerprint(&a, "lock"), site_fingerprint(&b, "lock"));
+        assert_ne!(
+            site_fingerprint(&a, "lock"),
+            site_fingerprint(&book.with_parts(Vec::new()).unwrap(), "lock")
+        );
+    }
+
+    #[test]
+    fn fingerprint__a_moved_part_changes_it() {
+        let (book, _) = sample_plan();
+        let a = book.clone().with_parts(two_parts()).unwrap();
+        let mut moved = two_parts();
+        moved[1].first = "src/ch04-tests-and-failing-on-purpose.md".to_string();
+        let b = book.with_parts(moved).unwrap();
+        assert_ne!(site_fingerprint(&a, "lock"), site_fingerprint(&b, "lock"));
     }
 
     #[test]

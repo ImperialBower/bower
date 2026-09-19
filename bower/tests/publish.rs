@@ -188,6 +188,39 @@ fn publish_epub_produces_a_readable_book() {
         names.contains("media/file0.svg"),
         "the composed cover image is not in the epub"
     );
+
+    // The sample's three parts reach the table of contents, each before its
+    // first chapter (EPIC-17). `nav.xhtml` is deflated, so it is read out
+    // through `unzip` rather than found in the raw bytes.
+    let nav = Command::new("unzip")
+        .arg("-p")
+        .arg(&epub)
+        .arg("EPUB/nav.xhtml")
+        .output()
+        .expect("unzip must be installed to read the table of contents");
+    let nav = String::from_utf8_lossy(&nav.stdout);
+    let mut from = 0;
+    for (part, first) in [
+        ("Part I: A repo and its gate", "A repo that builds"),
+        ("Part II: What the gate checks", "Lints and format"),
+        ("Part III: The gate at work", "CI"),
+    ] {
+        let at = from
+            + nav[from..]
+                .find(part)
+                .unwrap_or_else(|| panic!("no `{part}`: {nav}"));
+        let chapter = format!(">{first}</a>");
+        let ch = at
+            + nav[at..]
+                .find(&chapter)
+                .unwrap_or_else(|| panic!("no `{first}` after `{part}`: {nav}"));
+        from = ch;
+    }
+    let appendix = nav.find("Appendix: credits").expect("no appendix");
+    assert!(
+        appendix > from,
+        "the appendix comes after Part III's chapters"
+    );
 }
 
 /// The cover reaches the PDF, and reaches it as the first page.

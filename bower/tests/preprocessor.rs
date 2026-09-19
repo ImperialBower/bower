@@ -349,3 +349,85 @@ fn mdbook_build_succeeds_with_the_preprocessor() {
     assert!(text.contains("greet_ignores_stray_whitespace"), "{html:?}");
     assert!(!text.contains("<!-- bower"), "a directive reached the page");
 }
+
+/// A copy of the sample book under a scratch directory, with `summary` as its
+/// `SUMMARY.md` — everything mdBook and `mdbook-bower` read, and not `book/`.
+fn sample_copy(case: &str, summary: &str) -> PathBuf {
+    fn copy(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            let name = entry.file_name();
+            if name == "book" || name == "published" {
+                continue;
+            }
+            if entry.file_type().unwrap().is_dir() {
+                copy(&entry.path(), &to.join(&name));
+            } else {
+                std::fs::copy(entry.path(), to.join(&name)).unwrap();
+            }
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("bower-preprocessor-{case}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    copy(&book_root(), &dir);
+    std::fs::write(dir.join("src").join("SUMMARY.md"), summary).unwrap();
+    dir
+}
+
+/// `mdbook build` on `root`, returning its `toc.html`.
+fn mdbook_toc(root: &Path) -> String {
+    let out = Command::new("mdbook")
+        .arg("build")
+        .arg(root)
+        .output()
+        .expect("mdbook must be installed to run this test");
+    assert!(
+        out.status.success(),
+        "mdbook build failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::read_to_string(root.join("book").join("toc.html")).expect("mdbook writes toc.html")
+}
+
+/// mdBook draws part titles with no help from Bower, and the preprocessor
+/// still runs on every chapter under them (EPIC-17). Ignored for the same
+/// reason as the build above.
+#[test]
+#[ignore = "needs mdbook installed and mdbook-bower on PATH"]
+fn mdbook_build_shows_part_titles() {
+    let root = sample_copy(
+        "parts",
+        concat!(
+            "# Summary\n\n",
+            "# Part I: The repo\n\n",
+            "- [A repo that builds](ch01-a-repo-that-builds.md)\n",
+            "- [The gate](ch02-the-gate.md)\n\n",
+            "# Part II: The rest\n\n",
+            "- [Lints and format](ch03-lints-and-format.md)\n",
+            "- [Tests, and failing on purpose](ch04-tests-and-failing-on-purpose.md)\n",
+        ),
+    );
+    let toc = mdbook_toc(&root);
+    assert_eq!(toc.matches("class=\"part-title\"").count(), 2, "{toc}");
+    assert!(toc.contains(">Part I: The repo</li>"), "{toc}");
+
+    let ch01 = std::fs::read_to_string(root.join("book").join("ch01-a-repo-that-builds.html"))
+        .expect("chapter 1 must render");
+    assert!(ch01.contains("id=\"step-"), "the preprocessor did not run");
+
+    // The first H1 is the summary's title whatever it says, as the loader's
+    // `summary` reads it: `# Part I` with no `# Summary` above it is no part.
+    let root = sample_copy(
+        "parts-untitled",
+        concat!(
+            "# Part I: The repo\n\n",
+            "- [A repo that builds](ch01-a-repo-that-builds.md)\n\n",
+            "# Part II: The rest\n\n",
+            "- [The gate](ch02-the-gate.md)\n",
+        ),
+    );
+    let toc = mdbook_toc(&root);
+    assert_eq!(toc.matches("class=\"part-title\"").count(), 1, "{toc}");
+    assert!(toc.contains(">Part II: The rest</li>"), "{toc}");
+}

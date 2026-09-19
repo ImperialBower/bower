@@ -11,8 +11,8 @@
   renderers write one divider file per part.
 - **Proves it:** the sample book gains three parts, its epub `nav.xhtml` lists
   all three, and every SHA `make build` produces is unchanged.
-- **Status:** Planned, filed 19 September 2026, nothing started. Rewritten the
-  same day after an evaluation against the code; see the footer.
+- **Status:** Built 19 September 2026 on `epic-17-parts`, every phase done,
+  awaiting its PR. Filed and rewritten the same day; see the footer.
 
 ---
 
@@ -65,14 +65,14 @@ The preprocessor is left alone.
 
 | Component | Status |
 |---|---|
-| Tests pinning what already works (HTML parts, loader skips headings) | **Planned** |
-| Kernel: `PartMark`, `BookSource.parts`, `with_parts`, `PartError` | **Planned** |
-| Testkit: `arb_parts`, the plan-ignores-parts property | **Planned** |
-| Loader: `summary` reads part titles; `LoadError::EmptyPart` | **Planned** |
-| Render: `RenderPlan.parts`, `part_divider`, `write_chapters` interleaves | **Planned** |
-| `site_fingerprint` covers part marks | **Planned** |
-| Sample book gains three parts and a suffix appendix; fixture follows; slow lanes | **Planned** |
-| README, spec, backlog | **Planned** |
+| Tests pinning what already works (HTML parts, loader skips headings) | ✅ **Done** |
+| Kernel: `PartMark`, `BookSource.parts`, `with_parts`, `PartError` | ✅ **Done** |
+| Testkit: `arb_parts`, the plan-ignores-parts property | ✅ **Done** |
+| Loader: `summary` reads part titles; `LoadError::EmptyPart` | ✅ **Done** |
+| Render: `RenderPlan.parts`, `part_divider`, `write_chapters` interleaves | ✅ **Done** |
+| `site_fingerprint` covers part marks | ✅ **Done** |
+| Sample book gains three parts and a suffix appendix; fixture follows; slow lanes | ✅ **Done** |
+| README, spec, backlog | ✅ **Done** |
 
 ---
 
@@ -132,7 +132,7 @@ The business logic is § Design and § Work Items.
   one level. An author who wants "Book One" writes it as a part title. Open
   question 2.
 - **A nested table of contents**, where chapters sit *under* their part. It
-  was measured and it works, at a price. Decision 5 and open question 1.
+  was measured and it works, at a price. Decision 5.
 - **`part_of(chapter)`.** Nothing in this EPIC asks which part a chapter is
   in, and the answer needs a rule for where a part ends. EPIC-12 or EPIC-14
   can add it when one of them needs it.
@@ -173,7 +173,7 @@ The business logic is § Design and § Work Items.
    in `main.rs` (`:633`, `:681`, `:776`) moves. `BookSource` derives
    `Default` and `from_chapters` fills the rest with `..Self::default()`
    (`source.rs:22-27`), so its 52 callers compile untouched.
-   `plan__ignores_parts` holds requirement 5.
+   `plan_ignores_parts` holds requirement 5.
 5. **A divider, not a heading shift.** Both shapes were spiked through
    pandoc 3.11 on 19 September 2026.
    - *Divider.* One file, `# Part I: The repo`, between two chapter files.
@@ -192,7 +192,12 @@ The business logic is § Design and § Work Items.
      instead of chapters, and chapters outside any part would have to stay
      unshifted.
 
-   The divider ships. Nesting is open question 1.
+   The divider ships. Confirmed on 19 September 2026; this was open
+   question 1. A nest is not planned. If a reader asks for one, the recipe
+   above is where to start. Re-measured when built, with pandoc 3.11: the
+   Typst writer now emits a plain `= Part I: …` between the two
+   `#pagebreak(weak: true)` lines, not `#heading(numbering: none)`, which
+   changes nothing a reader sees.
 6. **One divider text for both targets.** The divider wraps its heading in
    raw Typst page breaks, written as pandoc raw blocks. Measured: the Typst
    writer emits `#pagebreak(weak: true)` on each side of
@@ -330,8 +335,10 @@ question the renderers ask. No dependency is added, so `make purity`
 ### Testkit — `bower-testkit`
 
 `arb_parts(&BookSource)` draws a valid set of marks over a generated book.
-One property: for any `arb_book()` (`generators.rs:54`) and any `arb_parts`
-over it, `plan` and the lock text equal those of the same book without parts.
+One property, `plan_ignores_parts` (snake case, as every property in
+`tests/properties.rs` is): for any `arb_book()` (`generators.rs:54`) and any
+`arb_parts` over it, `plan` and the lock text equal those of the same book
+without parts.
 `hello_playbook()` (`fixtures.rs:96`) gains `.with_parts(…)` in Phase 4, in
 the same change that edits the sample's `SUMMARY.md`, because
 `loader__matches_the_testkit_fixture_exactly` (`loader.rs:191`) compares the
@@ -351,17 +358,24 @@ fn summary(text: &str) -> Summary;
 ```
 
 `summary` keeps `chapter_links`' rules and its "not a full markdown parser"
-stance, and adds one. A line that starts with `# ` is a heading. The first
-heading is the summary's own title when no link and no other heading comes
-before it; every later one is a part title, pending until the next new link
-claims it. A title still pending at the next title, or at the end of the
+stance, and adds one. A line that is an ATX level-one heading (up to three
+spaces, `#`, then a space) is a heading. The first heading is the summary's
+own title when nothing but blank lines comes before it; every later one is a
+part title, pending until the next new link claims it. A title still pending at the next title, or at the end of the
 file, is an empty part. `chapter_links` stays as `summary(text).links`, so
 its two tests (`loader.rs:148`, `:155`) stand as written. `load` maps each
 claimed title to `PartMark { title, first: format!("src/{link}") }` and ends
 with `from_chapters(chapters).with_parts(marks)`.
 
 The title rule copies mdBook's, and Phase 0 pins it against a real build
-rather than against memory of mdBook's source.
+rather than against memory of mdBook's source. Measured with mdBook 0.4.52 on
+19 September 2026: a first H1 is the title whatever it says (`# Part One` with
+no `# Summary` is no part); any non-blank line before it makes it a part; an
+H1 indented up to three spaces is a part, `#P1` and `## Sub` are not; two
+titles in a row, or a trailing one, draw bare labels (Bower refuses both); and
+a part title after the suffix separator fails mdBook's own build. The looser
+first draft of this paragraph ("no link and no other heading") was wrong on
+the second point and was corrected here, as 0c said it would be.
 
 ### Render — `bower/src/publish.rs`
 
@@ -404,61 +418,61 @@ mark, newline-separated.
 
 ### Phase 0 — Pin what is already true
 
-- [ ] **0a.** `links__skip_part_headings` in `loader.rs`: a summary with two
+- [x] **0a.** `links__skip_part_headings` in `loader.rs`: a summary with two
   `# ` part titles yields the same links as one without. Passes today.
-- [ ] **0b.** Slow lane, beside `mdbook_build_succeeds_with_the_preprocessor`
+- [x] **0b.** Slow lane, beside `mdbook_build_succeeds_with_the_preprocessor`
   (`bower/tests/preprocessor.rs:333`): build a temporary book whose summary
   has two part titles, and assert `toc.html` holds two `part-title` items and
   a chapter page still carries a `step-` anchor. Passes today.
-- [ ] **0c.** In the same test, a summary with no `# Summary` line and a part
+- [x] **0c.** In the same test, a summary with no `# Summary` line and a part
   title first. Record what mdBook does with that first H1, and make
   `summary`'s title rule match it. If mdBook disagrees with § Design, the
   design changes, not the test.
 
 ### Phase 1 — Kernel and testkit
 
-- [ ] **1a.** `PartMark`, `BookSource.parts`, `PartError` with `Display`,
+- [x] **1a.** `PartMark`, `BookSource.parts`, `PartError` with `Display`,
   `with_parts`, `part_at`. Export from the prelude in `bower-core/src/lib.rs`.
-- [ ] **1b.** Unit tests, one per `PartError` variant, plus
+- [x] **1b.** Unit tests, one per `PartError` variant, plus
   `parts__default_is_empty` and `part_at__finds_only_the_opening_chapter`.
-- [ ] **1c.** Testkit: `arb_parts` and `plan__ignores_parts`. Confirm
+- [x] **1c.** Testkit: `arb_parts` and `plan_ignores_parts`. Confirm
   `make purity`.
 
 ### Phase 2 — Loader
 
-- [ ] **2a.** `summary`, with `chapter_links` rewritten over it.
-- [ ] **2b.** `LoadError::EmptyPart { title }` and `LoadError::Parts(PartError)`
+- [x] **2a.** `summary`, with `chapter_links` rewritten over it.
+- [x] **2b.** `LoadError::EmptyPart { title }` and `LoadError::Parts(PartError)`
   with their `Display` arms, beside `NoChapters` (`loader.rs:28-46`).
-- [ ] **2c.** `load` builds marks and calls `with_parts`. The sample book has
+- [x] **2c.** `load` builds marks and calls `with_parts`. The sample book has
   no parts yet, so `loader__matches_the_testkit_fixture_exactly` still
   passes.
 
 ### Phase 3 — Render and fingerprint
 
-- [ ] **3a.** `RenderedPart`, `RenderPlan.parts`, and the copy in
+- [x] **3a.** `RenderedPart`, `RenderPlan.parts`, and the copy in
   `render_plan`.
-- [ ] **3b.** `part_divider`, and `write_chapters` interleaving with one
+- [x] **3b.** `part_divider`, and `write_chapters` interleaving with one
   counter.
-- [ ] **3c.** `site_fingerprint` appends marks. Add the fingerprint tests
+- [x] **3c.** `site_fingerprint` appends marks. Add the fingerprint tests
   beside `bower/tests/site.rs:174-177`.
 
 ### Phase 4 — The sample book
 
-- [ ] **4a.** `books/hello-playbook/src/SUMMARY.md` takes the shape in
+- [x] **4a.** `books/hello-playbook/src/SUMMARY.md` takes the shape in
   decision 11: three part titles, and the appendix as a suffix chapter. `hello_playbook()` gains the matching `with_parts` in the same
   change.
-- [ ] **4b.** `make build`, then confirm `bower.lock` has no diff and
+- [x] **4b.** `make build`, then confirm `bower.lock` has no diff and
   `bower/tests/determinism.rs` passes unedited.
-- [ ] **4c.** Slow lanes: extend `publish_epub_produces_a_readable_book`
+- [x] **4c.** Slow lanes: extend `publish_epub_produces_a_readable_book`
   (`bower/tests/publish.rs:154`) to read `EPUB/nav.xhtml` and find all three
   titles in order, each before its first chapter. `pdf_opens_on_the_cover`
   (`:198`) must still pass.
 
 ### Phase 5 — Docs
 
-- [ ] **5a.** README: a parts paragraph with a four-line `SUMMARY.md`.
+- [x] **5a.** README: a parts paragraph with a four-line `SUMMARY.md`.
   `bower-spec.md` § 4 (Ordering, `:270`): parts do not affect step order.
-- [ ] **5b.** `BACKLOG.md`: flip the EPIC-17 row. Run `make` (the `docs`
+- [x] **5b.** `BACKLOG.md`: flip the EPIC-17 row. Run `make` (the `docs`
   target catches private doc links that clippy misses).
 
 ---
@@ -469,7 +483,7 @@ Kernel: `parts__default_is_empty`, `with_parts__accepts_marks_in_order`,
 `with_parts__refuses_an_unknown_chapter`, `with_parts__refuses_marks_out_of_order`,
 `with_parts__refuses_two_marks_at_one_chapter`,
 `with_parts__refuses_a_blank_title`,
-`part_at__finds_only_the_opening_chapter`. Property: `plan__ignores_parts`.
+`part_at__finds_only_the_opening_chapter`. Property: `plan_ignores_parts`.
 
 Loader: `links__skip_part_headings`,
 `summary__first_heading_is_the_title_not_a_part`,
@@ -483,8 +497,9 @@ Render: `render_plan__carries_parts_in_order`,
 `divider__is_a_heading_between_two_typst_page_breaks`,
 `write_chapters__puts_a_divider_before_its_chapter`,
 `write_chapters__a_partless_book_writes_todays_names`,
-`fingerprint__a_partless_book_is_unchanged` (pinned to today's value for the
-sample), `fingerprint__a_renamed_part_changes_it`,
+`fingerprint__a_partless_book_is_unchanged` (pinned to today's formula,
+written out in the test, rather than to a digest that moves with every prose
+edit), `fingerprint__a_renamed_part_changes_it`,
 `fingerprint__a_moved_part_changes_it`.
 
 Slow: `mdbook_build_shows_part_titles`, and the `nav.xhtml` assertions in
@@ -505,7 +520,7 @@ pinned fingerprint in 3c.
 | `bower/src/loader.rs` | `summary`, `EmptyPart`, marks into `load` |
 | `bower/src/publish.rs` | `RenderedPart`, `part_divider`, `write_chapters`, `site_fingerprint` |
 | `bower/tests/{preprocessor,publish,site}.rs` | the slow lanes and the fingerprint tests |
-| `books/hello-playbook/src/SUMMARY.md` | two part titles |
+| `books/hello-playbook/src/SUMMARY.md` | three part titles and a suffix appendix |
 | `README.md`, `bower-spec.md`, `BACKLOG.md` | docs |
 
 ## Reuse (do NOT recreate)
@@ -570,7 +585,7 @@ Exit criteria:
    its first chapter.
 2. `bower.lock` is unchanged and `bower/tests/determinism.rs` passes
    unedited: no SHA moved.
-3. `plan__ignores_parts` passes over generated books.
+3. `plan_ignores_parts` passes over generated books.
 4. A partless book writes the scratch file names and the fingerprint it
    writes today, asserted against pinned values.
 5. A part title with no chapter fails `bower build` with the title in the
@@ -583,7 +598,7 @@ Exit criteria:
 
 | # | Question |
 |---|---|
-| 1 | **A nested table of contents.** The divider makes a part a sibling of its chapters, as mdBook's sidebar does. A true nest was measured and works with `--split-level=2` and chapters pushed down one heading level. It needs a fence-aware `shift_headings` of Bower's own, a template that styles two levels, and a rule for chapters outside any part. Is the nest worth that, or is the label enough? The lean is the label, until a reader asks. |
+| 1 | ~~A nested table of contents, or the flat divider?~~ **Answered 19 September 2026:** the flat divider is enough. Decision 5 stands as written; the measured recipe for a nest stays there for whoever reopens it. |
 | 2 | **Two levels.** "Books" that hold parts. mdBook has no second level, so the HTML could not show it without a theme change. Does any book need it, or does a part titled "Book One" do? |
 | 3 | **Part tags.** `ch03-end` exists (`replay.rs:168`). Should a part's last chapter also get `part-1-end`? It would be the first tag derived from `SUMMARY.md` text, it changes `expected_tags`, and it needs the where-does-a-part-end rule this EPIC avoids. The lean is no. |
 | 4 | ~~The sample's part titles, and where its appendix sits.~~ **Answered 19 September 2026:** three parts by the gate, and the appendix as a suffix chapter. Now decision 11. |
@@ -591,6 +606,15 @@ Exit criteria:
 | 6 | ~~Refusing what mdBook accepts: a hard error, or a warning?~~ **Answered 19 September 2026:** a hard error. Decision 8 stands as written. |
 
 ---
+
+*Built 19 September 2026 on `epic-17-parts`. `make`, clippy with
+`-D warnings`, `make purity`, and the mdbook, epub, and PDF slow lanes pass;
+`bower.lock` has no diff; `toc.html` shows three `part-title` items. One
+existing test moved with the sample, as § Test Plan said one would:
+`write_chapters__numbers_them_in_reading_order` now lists eleven files, three
+of them dividers. In the PDF, the Part I page is now page 1 and chapter one
+starts on page 2; `pdf_opens_on_the_cover` still passes, and open question 5
+is where a different part page would be decided.*
 
 *Drafted 19 September 2026 against `ImperialBower/bower` @ `1c10cf2` ("Added
 EPIC-17 Grouping"), replacing that commit's first draft after an evaluation
