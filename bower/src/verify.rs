@@ -764,7 +764,10 @@ fn kill_group(child: &mut std::process::Child) {
     #[cfg(unix)]
     {
         let _ = Command::new("kill")
-            .args(["-KILL", &format!("-{}", child.id())])
+            // `--` so the negative id is read as a group, not as an option:
+            // procps' `kill`, the one on Linux, reads `-KILL -1234` as two
+            // signals and kills nothing. BSD's reads it either way.
+            .args(["-s", "KILL", "--", &format!("-{}", child.id())])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
