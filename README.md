@@ -191,6 +191,25 @@ The PDF is **byte-identical across runs**: its timestamp is pinned from the same
 `books/hello-playbook/template.typ` sets its typography, and any font it names is
 checked against `typst fonts` first, so no font is silently substituted.
 
+### Parts
+
+A part groups chapters under a title. It is written the way mdBook writes
+one — an `# H1` in `SUMMARY.md` — so the HTML, which mdBook draws, and the
+epub and PDF, which Bower hands to pandoc, always agree about what is a part:
+
+```markdown
+# Summary
+
+# Part I: A repo and its gate
+
+- [A repo that builds](ch01-a-repo-that-builds.md)
+```
+
+The first H1 is the summary's own title. Each later one opens a part at the
+next chapter linked after it, and the epub and the PDF give it a page of its
+own. A part title with no chapter under it is refused at load time, by name.
+Parts are for readers: they change no plan, lock, tag, or SHA.
+
 ### Covers
 
 A book's cover is two files beside its `book.toml`, found by convention exactly

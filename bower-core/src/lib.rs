@@ -52,7 +52,9 @@ pub mod prelude {
         BookPlan, CapturedOutput, Exercise, ExerciseForm, PlannedStep, PlayCell, RepoPlan,
         lock_text, plan,
     };
-    pub use crate::source::{BookSource, Chapter, Location, RepoCatalog, RepoName, RepoSpec};
+    pub use crate::source::{
+        BookSource, Chapter, Location, PartError, PartMark, RepoCatalog, RepoName, RepoSpec,
+    };
     pub use crate::step::StepId;
     pub use crate::tree::{FileBody, ShowMark, TreeState, show_marker};
 }

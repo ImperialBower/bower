@@ -271,7 +271,9 @@ of every generated repo is one command away from a working toolchain.
 
 The default order is **document order**: books are read front to back, so steps
 are sequenced by (chapter order in `SUMMARY.md`, block position within chapter),
-filtered per repo. This makes the common case zero-config.
+filtered per repo. This makes the common case zero-config. Part titles in
+`SUMMARY.md` (mdBook's `# H1`s) group chapters for a reader and take no part in
+ordering: a book plans, locks, and replays identically with or without them.
 
 Explicit `step` ids plus an optional `after="step-id"` key handle the exceptions
 (a chapter that interleaves two repos, an appendix that patches an early step).

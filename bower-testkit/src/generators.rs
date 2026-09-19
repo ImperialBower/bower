@@ -55,6 +55,24 @@ pub fn arb_book() -> impl Strategy<Value = (BookSource, RepoCatalog)> {
     prop::collection::vec(arb_file(), 1..=3).prop_map(|files| build(&files))
 }
 
+/// An arbitrary valid set of part marks over `book` (EPIC-17): any in-order
+/// subset of its chapters, each opening a part with a generated title. Every
+/// set it draws passes [`BookSource::with_parts`].
+pub fn arb_parts(book: &BookSource) -> impl Strategy<Value = Vec<PartMark>> + use<> {
+    let paths: Vec<String> = book.chapters.iter().map(|c| c.path.clone()).collect();
+    let n = paths.len();
+    prop::sample::subsequence(paths, 0..=n).prop_flat_map(|firsts| {
+        let count = firsts.len();
+        prop::collection::vec("Part [A-Za-z ]{1,12}", count).prop_map(move |titles| {
+            titles
+                .iter()
+                .zip(&firsts)
+                .map(|(t, f)| PartMark::new(t, f))
+                .collect()
+        })
+    })
+}
+
 fn build(files: &[GenFile]) -> (BookSource, RepoCatalog) {
     let mut text = String::from("# Generated\n\n");
 

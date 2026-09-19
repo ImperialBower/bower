@@ -15,6 +15,8 @@
 //!    fork has exactly the branch head's tree.
 //! 8. **Parents come first** — every parent of a step is an earlier step.
 //! 9. **A branch head is its line's last step.**
+//! 10. **The plan is blind to parts** — two books that differ only in their
+//!     part marks plan, and lock, identically (EPIC-17).
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
@@ -60,6 +62,20 @@ proptest! {
     fn lock_text_is_deterministic((book, catalog) in arb_book()) {
         let a = lock_text(&plan(&book, &catalog).unwrap());
         let b = lock_text(&plan(&book, &catalog).unwrap());
+        prop_assert_eq!(a, b);
+    }
+
+    #[test]
+    fn plan_ignores_parts(
+        (book, catalog, parts) in arb_book().prop_flat_map(|(book, catalog)| {
+            let parts = arb_parts(&book);
+            (Just(book), Just(catalog), parts)
+        })
+    ) {
+        let with = book.clone().with_parts(parts).unwrap();
+        let a = plan(&book, &catalog).unwrap();
+        let b = plan(&with, &catalog).unwrap();
+        prop_assert_eq!(lock_text(&a), lock_text(&b));
         prop_assert_eq!(a, b);
     }
 

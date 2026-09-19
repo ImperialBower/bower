@@ -129,7 +129,21 @@ pub fn hello_playbook() -> Fixture {
                 "src/appendix-credits.md",
                 include_str!("../../books/hello-playbook/src/appendix-credits.md"),
             ),
-        ]),
+        ])
+        // The three parts of `SUMMARY.md`, grouped by the gate (EPIC-17). The
+        // appendix sits under a separator, outside Part III.
+        .with_parts(vec![
+            PartMark::new(
+                "Part I: A repo and its gate",
+                "src/ch01-a-repo-that-builds.md",
+            ),
+            PartMark::new(
+                "Part II: What the gate checks",
+                "src/ch03-lints-and-format.md",
+            ),
+            PartMark::new("Part III: The gate at work", "src/ch06-ci.md"),
+        ])
+        .unwrap_or_else(|e| unreachable!("the sample's parts fit its chapters: {e}")),
         hello_playbook_catalog(),
     )
 }
