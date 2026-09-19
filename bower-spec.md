@@ -412,6 +412,7 @@ email = "bower@folkengine.example"
 github   = "folkengine/rust4failures"     # optional; enables push
 template = "templates/rust4failures"      # step-0 scaffolding
 verify   = "cargo test --quiet"
+timeout  = 600                            # seconds one check/verify command may run
 keep_region_markers = false
 
 [repos.rust4failures-clock]               # a second repo fed by the same book
@@ -423,7 +424,7 @@ CLI surface:
 ```
 bower plan   [--repo R]        # resolve + print the plan, write bower.lock
 bower build  [--repo R] [-o D] # replay into local repo(s)
-bower verify [--repo R] [--step S | --from S]
+bower verify [--repo R] [--step S | --from S] [--jobs N]
 bower push   [--repo R]        # force-push-with-lease + tags
 bower status                   # book ⇄ lock ⇄ local repo drift report
 bower publish [--target T]     # render outputs: html | epub | pdf (§ 13)
